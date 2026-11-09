@@ -32,3 +32,10 @@ window.WADY_GUARD = col => {
   const roles = (typeof ME === 'function' && ME()) ? adminRolesOf(ME()) : []; if (roles.length) return null;   // HR-platform roles keep their own rules
   const l = wadyLvl('hr', pg); return l >= 3 ? null : 'صلاحيتك على هذه الصفحة ' + (l === 2 ? 'تدقيق' : l === 1 ? 'عرض' : 'غير متاحة') + ' فقط — التعديل يحتاج صلاحية محرر';
 };
+/* ===== Full HR access (granted from the platform users page or the employee page) =====
+   Editor on every HR page = full permissions: every HR role, so approvals by role, restricted request types, custom screens and settings all open. */
+window.wadyHrFull = () => { try { return !!WADY_PERM.admin || WADY_STAFF_PAGES.every(p => wadyLvl('hr', p) >= 3); } catch (e) { return false; } };
+{ const _ro = rolesOf; rolesOf = function (e) {
+    const r = _ro(e);
+    if (e && e.id === S.meId && !S.weakAuth && window.wadyHrFull()) Object.keys(ROLES).forEach(x => r.add(x));
+    return r; }; }

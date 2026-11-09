@@ -60,5 +60,43 @@
       b.after(n);
     });
   }
+  /* full HR access for a chosen employee (system admin only): Editor on every HR page + every HR role */
+  const HR_PAGES = ['employees', 'directory', 'orgchart', 'calendar', 'attendance', 'docs', 'talent', 'adminaffairs', 'forms', 'customs', 'payroll', 'reports', 'imports', 'settings'];
+  const FULL = {};   // empId -> {user, full}
+  async function fullState(empId) {
+    const { data: a } = await SB().from('hr_store').select('data').eq('col', 'access').eq('id', empId).maybeSingle();
+    const user = a && a.data && a.data.userId; if (!user) return FULL[empId] = { user: null, full: false };
+    const { data: up } = await SB().from('user_pages').select('page,level').eq('user_id', user).eq('app', 'hr');
+    const m = {}; (up || []).forEach(r => m[r.page] = r.level);
+    return FULL[empId] = { user, full: HR_PAGES.every(p => m[p] === 'edit') };
+  }
+  const fullLabel = st => (typeof ic === 'function' ? ic('shield') + ' ' : '') + (st.full ? LX('صلاحيات كاملة: مفعّلة', 'Full HR access: on') : LX('منح صلاحيات كاملة', 'Grant full HR access'));
+  ACT['wady-hrfull'] = el => {
+    const id = el.dataset.id, e = emp(id), st = FULL[id]; if (!e || !st) return;
+    if (!st.user) return toast(LX('أنشئ اسم مستخدم وكلمة مرور للموظف أولاً', 'Create a sign-in first'), true);
+    const on = !st.full;
+    confirmBox(on ? LX(`منح «${esc(e.nameAr)}» كل صلاحيات شئون العاملين؟ سيقدر يشوف ويعدّل كل البيانات والإعدادات والرواتب ويعتمد الطلبات في كل المراحل.`, 'Grant full HR access?')
+                  : LX(`سحب الصلاحيات الكاملة من «${esc(e.nameAr)}»؟ يرجع موظف عادي في شئون العاملين.`, 'Remove full HR access?'), async () => {
+      try {
+        if (on) { const { error } = await SB().from('user_pages').upsert(HR_PAGES.map(p => ({ user_id: st.user, app: 'hr', page: p, level: 'edit' })), { onConflict: 'user_id,app,page' }); if (error) throw error; }
+        else { const { error } = await SB().from('user_pages').delete().eq('user_id', st.user).eq('app', 'hr'); if (error) throw error; }
+        const cur = e.roles || [];
+        const roles = on ? [...new Set([...cur, ...ASSIGNABLE_ROLES])] : (Array.isArray(e.rolesBeforeFull) ? e.rolesBeforeFull : cur.filter(r => r !== 'sysadmin'));
+        await patch('employees', id, on ? { roles, rolesBeforeFull: e.rolesBeforeFull || cur } : { roles, rolesBeforeFull: null });
+        await audit(on ? 'منح صلاحيات كاملة لشئون العاملين' : 'سحب الصلاحيات الكاملة', 'employees', id, e.nameAr);
+        FULL[id] = { user: st.user, full: on }; toast(LX('تم', 'Done')); renderAll(true);
+      } catch (err) { toast(err.message || String(err), true); }
+    }, on ? LX('منح', 'Grant') : LX('سحب', 'Remove'));
+  };
+  function addFullBtn() {
+    if (!(window.WADY_PERM && WADY_PERM.admin)) return;
+    document.querySelectorAll('[data-wady-cred]').forEach(b => {
+      const id = b.dataset.id; if (!id || b.parentElement.querySelector('[data-wady-full]')) return;
+      const n = document.createElement('button'); n.className = 'btn'; n.dataset.act = 'wady-hrfull'; n.dataset.id = id; n.dataset.wadyFull = '1';
+      n.innerHTML = LX('…', '…'); n.disabled = true; b.after(n);
+      (FULL[id] ? Promise.resolve(FULL[id]) : fullState(id)).then(st => { n.disabled = false; n.innerHTML = fullLabel(st); if (st.full) n.classList.add('pri'); if (!st.user) n.title = LX('يحتاج حساب دخول أولاً', 'Needs a sign-in first'); }).catch(() => n.remove());
+    });
+  }
+  new MutationObserver(() => { clearTimeout(window.__wadyFullT); window.__wadyFullT = setTimeout(addFullBtn, 160); }).observe(document.documentElement, { childList: true, subtree: true });
   new MutationObserver(() => { clearTimeout(window.__wadyCredT); window.__wadyCredT = setTimeout(addBtn, 80); }).observe(document.documentElement, { childList: true, subtree: true });
 })();

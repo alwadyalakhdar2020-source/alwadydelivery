@@ -659,9 +659,13 @@ function I(){
   const custByCode=new Map();S.clients.forEach(c=>{if(c.code)custByCode.set(normCode(c.code),c)});
   const impSt=new Map(S.imports.map(i=>[i.id,i]));
   const coll=[];
-  S.collChunks.forEach(ch=>{const imp=impSt.get(ch.importId);if(!imp||imp.status!=='active')return;
-    (ch.rows||[]).forEach(r=>{const c=custByCode.get(normCode(r.cc));const rr=r.r&&byId('team',r.r)?r.r:'';const rep=rr||c?.repId||'';
-      coll.push({v:r.v,d:r.d,code:r.cc,cn:r.cn,amt:+r.a||0,rep,reg:c?.region||byId('team',rep)?.region||'',cid:c?.id||null,inv:r.i||'',pm:r.pm||'',imp:ch.importId})})});
+  // one row per voucher: a later import of the same voucher number replaces the earlier one (re-import updates, never duplicates)
+  const latest=new Map();
+  S.collChunks.forEach(ch=>{const imp=impSt.get(ch.importId);if(!imp||imp.status!=='active')return;const at=imp.at||'';
+    (ch.rows||[]).forEach(r=>{const k=normCode(r.v);const p=latest.get(k);if(!p||p.at<=at)latest.set(k,{r,at,imp:ch.importId})})});
+  latest.forEach(({r,imp})=>{const ch={importId:imp};
+    [r].forEach(r=>{const c=custByCode.get(normCode(r.cc));const rr=r.r&&byId('team',r.r)?r.r:'';const rep=rr||c?.repId||'';
+      coll.push({v:r.v,d:r.d,code:r.cc,cn:r.cn,amt:+r.a||0,rep,reg:c?.region||byId('team',rep)?.region||'',cid:c?.id||null,inv:r.i||'',pm:r.pm||'',so:r.so||'',imp:ch.importId})})});
   coll.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
   const quotes=S.quotes.map(q=>{
     const c=q.source==='import'?(custByCode.get(normCode(q.clientCode))||byId('clients',q.clientId)):byId('clients',q.clientId);
@@ -927,7 +931,7 @@ const OS_MAP={open:['open','o','مفتوح','مفتوحه','جديد','new','ق�
 const IS_MAP={active:['active','y','yes','نعم','نشط','فعال','متاح'],inactive:['inactive','n','no','لا','موقوف','متوقف','غيرنشط','غيرفعال']};
 /* import settings the managers control: required fields, extra column names, header row, rows to skip; the last mapping is remembered per type */
 function impCfg(type){const s=(S.settings.find(x=>x.id==='impcfg')||{}).types||{};return s[type]||{}}
-function impFields(type){const c=impCfg(type);const key=IMP_KEY[type];return (IMP_DEF[type]?.fields||[]).map(f=>{const o={...f,syn:[...f.syn,...((c.syn||{})[f.k]||[])]};if(f.k!==key&&c.req&&f.k in c.req)o.req=c.req[f.k]?1:0;return o})}
+function impFields(type){const c=impCfg(type);const key=IMP_KEY[type];return (IMP_DEF[type]?.fields||[]).map(f=>{const lb=(c.label||{})[f.k];const o={...f,syn:[...f.syn,...((c.syn||{})[f.k]||[]),...(lb?[lb]:[])]};if(f.k!==key&&c.req&&f.k in c.req)o.req=c.req[f.k]?1:0;return o})}
 function impDef(type){return {...IMP_DEF[type],fields:impFields(type)}}
 const QS_MAP={open:['open','مفتوح','مفتوحه','جديد','new','قائم'],pending:['pending','معلق','قيدالانتظار','قيدالدراسه','قيدالمراجعه','انتظار','تحتالدراسه'],accepted:['accepted','مقبول','مقبوله','won','closedwon','تمالقبول','موافق','موافقعليه','فائز','ترسيه'],rejected:['rejected','مرفوض','مرفوضه','lost','closedlost','خساره','خاسر'],expired:['expired','منتهي','منتهيه','منتهيالصلاحيه','انتهي'],cancelled:['cancelled','canceled','ملغي','ملغيه','الغاء','ملغا']};
 const CS_MAP={active:['active','نشط','فعال','قائم','y','yes','نعم'],inactive:['inactive','موقوف','متوقف','غيرنشط','blocked','frozen','مجمد','n','no','لا'],prospect:['prospect','lead','محتمل','عميلمحتمل'],lost:['lost','مفقود','خاسر']};
@@ -942,7 +946,7 @@ function famOf(v){const n=normTxt(v);if(!n)return '';const e=Object.entries(FAMI
 let IMP={tab:'customers',step:'pick'};
 function impReset(type){IMP={tab:type||IMP.tab,step:'pick',period:IMP.period||{from:'',to:''}}}
 function autoMap(headers,fields){
-  const map={},used=new Set();const nh=headers.map(h=>[h,normTxt(h)]);
+  const map={},used=new Set();const nh=headers.map(h=>[h,normTxt(String(h).replace(/\*/g,''))]);
   const last=impCfg(IMP.tab).lastMap||{};fields.forEach(f=>{const h=last[f.k];if(h&&headers.includes(h)&&!used.has(h)){map[f.k]=h;used.add(h)}});
   fields.forEach(f=>{const syn=f.syn.map(normTxt);const hit=nh.find(([h,n])=>!used.has(h)&&syn.includes(n));if(hit){map[f.k]=hit[0];used.add(hit[0])}});
   fields.forEach(f=>{if(map[f.k])return;const syn=f.syn.map(normTxt).filter(s=>s.length>=4);const hit=nh.find(([h,n])=>!used.has(h)&&syn.some(s=>n.includes(s)));if(hit){map[f.k]=hit[0];used.add(hit[0])}});
@@ -1063,7 +1067,10 @@ function impValidate(){
       const row={v,d:dates.date,cc:code,cn:String(g('name')||c?.name||'').trim(),a:nums.amount,r:rid,i:String(g('inv')||'').trim(),pm:String(g('pm')||'').trim()};if(has('so')&&String(g('so')||'').trim())row.so=String(g('so')).trim();
       it.data=row;it.amount=row.a;
       const ex=ix.coll.find(x=>normCode(x.v)===nv);
-      if(ex){if(ex.d===row.d&&Math.abs(ex.amt-row.a)<0.01&&normCode(ex.code)===normCode(code)){it.status='dup';it.reason=L('السند مستورد سابقاً','Voucher already imported')}else{it.status='conflict';it.reason=L(`رقم السند موجود ببيانات مختلفة (${fdate(ex.d)} · ${num(ex.amt)} · ${ex.code})`,`Voucher exists with different details (${ex.d} · ${num(ex.amt)} · ${ex.code})`)}return}
+      if(ex){const same=ex.d===row.d&&Math.abs(ex.amt-row.a)<0.01&&normCode(ex.code)===normCode(code)&&String(ex.so||'')===String(row.so||'')&&(ex.inv||'')===row.i&&(ex.pm||'')===row.pm;
+        if(same){it.status='dup';it.reason=L('السند مستورد سابقاً بنفس البيانات','Voucher already imported, unchanged');return}
+        // corrected voucher: replaces the earlier row (the old amount comes off its sales order on the server)
+        row.pa=ex.amt;if(ex.so)row.pso=ex.so;it.status='update';it.reason=L(`تحديث السند: كان ${fdate(ex.d)} · ${num(ex.amt)} · ${ex.code}`,`Update: was ${ex.d} · ${num(ex.amt)} · ${ex.code}`);it.amount=row.a-ex.amt;return}
       const P=IMP.period||{};if(P.from&&row.d<P.from||P.to&&row.d>P.to)return rej(L('التاريخ خارج الفترة المختارة','Date outside selected period'));
       if(!c){it.status='unmatched';it.reason=L('كود العميل غير موجود في البيانات الأساسية — سيُحفظ ويُطابق تلقائياً عند إضافة العميل','Customer code not in master — kept and auto-matched when the customer is added')}
     }
@@ -1158,16 +1165,24 @@ async function reverseImport(imp,reason){
 }
 
 /* --- templates & self-test files --- */
+const IMP_EX={customers:{code:'CU-9001',name:'مؤسسة مثال للمقاولات',region:'مكة المكرمة',category:'مقاول',histVolume:12000,histValue:350000,lastTx:'2026-06-30',status:'نشط'},
+  quotes:{no:'SQ-26-9001',code:'CU-9001',name:'مؤسسة مثال للمقاولات',date:'2026-10-01',region:'مكة المكرمة',cat:'الإنترلوك',value:250000,status:'مفتوح',expClose:'2026-11-15'},
+  collections:{voucher:'RV-26-9001',date:'2026-10-05',code:'CU-9001',name:'مؤسسة مثال للمقاولات',amount:85000,inv:'INV-29001',pm:'تحويل بنكي',so:'SO-26-9001'},
+  items:{code:'IT-1001',name:'بلاط إنترلوك رمادي 6 سم',family:'الإنترلوك',unit:'م²',size:'20×10×6',price:38,status:'نشط'},
+  orders:{no:'SO-26-9001',date:'2026-10-10',code:'CU-9001',name:'مؤسسة مثال للمقاولات',region:'مكة المكرمة',item:'IT-1001',itemName:'بلاط إنترلوك رمادي 6 سم',qty:500,price:38,value:19000,status:'مفتوح',delivery:'2026-10-20',quote:'SQ-26-9001'}};
+const IMP_FMT={date:['تاريخ','2026-10-29 أو 29/10/2026 أو خلية تاريخ'],num:['رقم','12500 بدون عملة أو رموز']};
+// the columns that go in the template: the key, every required column, and the optional ones the manager kept
+function impTplFields(type){const c=impCfg(type);const key=IMP_KEY[type];return impFields(type).filter(f=>f.k===key||f.req||!(c.tpl&&c.tpl[f.k]===false))}
+const impTplHead=(type,f)=>((impCfg(type).label||{})[f.k]||f.ar)+(f.req||f.k===IMP_KEY[type]?' *':'');
 function impTemplateRows(type){
-  const f=impFields(type);const head=f.map(x=>x.ar);
-  const ex={customers:[['CU-9001','مؤسسة مثال للمقاولات','مكة المكرمة',S.team.find(t=>t.role==='rep')?.name||'','','مقاول',12000,350000,'2026-06-30','نشط']],
-    quotes:[['SQ-26-9001','CU-9001','مؤسسة مثال للمقاولات','2026-10-01','','مكة المكرمة','الإنترلوك',250000,'مفتوح','2026-11-15','','']],
-    collections:[['RV-26-9001','2026-10-05','CU-9001','مؤسسة مثال للمقاولات',85000,'','INV-29001','تحويل بنكي']],
-    items:[['IT-1001','بلاط إنترلوك رمادي 6 سم','الإنترلوك','م²','20×10×6',38,'نشط']],
-    orders:[['SO-26-9001','2026-10-10','CU-9001','مؤسسة مثال للمقاولات','','مكة المكرمة','IT-1001','بلاط إنترلوك رمادي 6 سم',500,38,19000,'مفتوح','2026-10-20','SQ-26-9001','']]}[type];
-  if(type!=='customers'&&type!=='quotes'&&type!=='collections')return [head,...ex.map(r=>f.map(x=>r[IMP_DEF[type].fields.findIndex(y=>y.k===x.k)]))];
-  return [head,...ex];
+  const f=impTplFields(type);const ex=IMP_EX[type]||{};const hr=Math.max(1,+impCfg(type).hdrRow||1);
+  const top=Array.from({length:hr-1},(_,i)=>i===0?[`الوادي الأخضر — قالب ${IMP_DEF[type].ar}`]:[]);
+  return [...top,f.map(x=>impTplHead(type,x)),f.map(x=>ex[x.k]??'')];
 }
+function impTemplateGuide(type){const key=IMP_KEY[type];const hr=Math.max(1,+impCfg(type).hdrRow||1);
+  return [['عنوان العمود','إلزامي','التنسيق','مثال'],...impTplFields(type).map(f=>[impTplHead(type,f),f.k===key?'نعم (المعرّف — لا يتكرر)':f.req?'نعم':'لا',(IMP_FMT[f.t]||['نص'])[0],(IMP_FMT[f.t]||['',''])[1]||String((IMP_EX[type]||{})[f.k]??'')]),[],
+    ['ملاحظات','','',''],[`• أسماء الأعمدة في السطر رقم ${hr}. الأعمدة المعلّمة بـ * إلزامية.`],['• ترتيب الأعمدة غير مهم، ويمكن إضافة أعمدة أخرى وسيتم تجاهلها.'],
+    [`• إعادة رفع نفس الملف أو ملف أحدث: السجل الموجود بنفس «${IMP_DEF[type].fields.find(x=>x.k===key).ar}» يتحدّث ولا يتكرر.`],['• احذف سطر المثال قبل الرفع.']]}
 function impTestRows(type){
   // builds a realistic file with deliberate problems so the validation rules can be checked end to end
   const ix=I();const t=TODAY();const reps=S.team.filter(x=>x.role==='rep');const cl=S.clients.filter(c=>c.code);
@@ -1209,7 +1224,7 @@ function impTestRows(type){
   out.push(row(`RV-${t.slice(2,4)}-T093`,'31/02/2026',cl3[3],15000));
   return {rows:out,name:'ملف-تجربة-التحصيل.xlsx',period:{from:ms,to:t}};
 }
-async function xlsxBlob(aoa,sheet){const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!views']=[{RTL:lang==='ar'}];ws['!cols']=aoa[0].map((h,i)=>({wch:Math.min(40,Math.max(10,...aoa.slice(0,60).map(r=>String(r[i]??'').length+2)))}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,(sheet||'Sheet1').slice(0,31));return new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})])}
+async function xlsxBlob(aoa,sheet,extra){const mk=a=>{const ws=XLSX.utils.aoa_to_sheet(a);ws['!views']=[{RTL:lang==='ar'}];const w=Math.max(...a.map(r=>r.length));ws['!cols']=Array.from({length:w},(_,i)=>({wch:Math.min(40,Math.max(10,...a.slice(0,60).map(r=>String(r[i]??'').length+2)))}));return ws};const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:lang==='ar'}]};XLSX.utils.book_append_sheet(wb,mk(aoa),(sheet||'Sheet1').slice(0,31));(extra||[]).forEach(([n,a])=>XLSX.utils.book_append_sheet(wb,mk(a),n.slice(0,31)));return new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})])}
 
 /* ============ Icons ============ */
 const IC={
@@ -1991,12 +2006,14 @@ function impColsView(){
    <div class="tabs" style="margin-bottom:10px">${['customers','items','quotes','orders','collections'].map(k=>`<button class="tab ${t===k?'on':''}" data-act="filt" data-k="impColsT" data-v="${k}">${L(IMP_DEF[k].ar,IMP_DEF[k].en)}</button>`).join('')}</div>
    <div class="toolbar"><label class="fl" for="ic_hdr">${L('رقم سطر العناوين في الملف','Header row number')}<input id="ic_hdr" type="number" min="1" max="50" value="${+c.hdrRow||1}" style="width:80px" ${ro?'disabled':''}></label>
     <label class="chk"><input type="checkbox" id="ic_skip" ${c.skipNoKey===false?'':'checked'} ${ro?'disabled':''}> ${L(`تجاهل السطور التي لا يوجد بها «${IMP_DEF[t].fields.find(f=>f.k===key).ar}» (سطور الإجمالي والفواصل)`,`Ignore rows without the key field (totals, separators)`)}</label></div>
-   <p class="small muted">${L('إذا كان أعلى الملف عنوان أو شعار، اكتب رقم السطر اللي فيه أسماء الأعمدة. السطور قبله تُتجاهل.','If the file starts with a title or logo, enter the row that holds the column names; rows above it are skipped.')}</p>
+   <p class="small muted">${L('حدّد الأعمدة الإلزامية واللي تطلع في القالب، وغيّر عنوان أي عمود ليطابق ملفاتكم. العمود الإلزامي يطلع في القالب دائماً ومعلّم بـ *. إعادة رفع ملف فيه سجلات موجودة تحدّثها بدون تكرار.','Choose required and template columns and rename headers. Re-importing updates existing records without duplicates.')}</p><p class="small muted">${L('إذا كان أعلى الملف عنوان أو شعار، اكتب رقم السطر اللي فيه أسماء الأعمدة. السطور قبله تُتجاهل.','If the file starts with a title or logo, enter the row that holds the column names; rows above it are skipped.')}</p>
    ${table([{l:L('حقل النظام','System field'),f:f=>`<b>${L(f.ar,f.en)}</b>`},
      {l:L('إلزامي','Required'),f:f=>f.k===key?`<span class="small muted">${L('دائماً (المعرّف)','Always (key)')}</span>`:`<input type="checkbox" id="ic_req_${f.k}" aria-label="${esc(f.ar)}" ${((c.req||{})[f.k]??!!f.req)?'checked':''} ${ro?'disabled':''}>`},
+     {l:L('في القالب','In template'),f:f=>f.k===key?`<span class="small muted">${L('دائماً','Always')}</span>`:`<input type="checkbox" id="ic_tpl_${f.k}" aria-label="${esc(f.ar)}" ${(c.tpl||{})[f.k]===false?'':'checked'} ${ro?'disabled':''}>`},
+     {l:L('عنوان العمود في القالب','Column title in template'),f:f=>`<input id="ic_lbl_${f.k}" style="width:100%;min-width:150px" value="${esc((c.label||{})[f.k]||'')}" placeholder="${esc(f.ar)}" ${ro?'disabled':''}>`},
      {l:L('أسماء أعمدة إضافية في ملفاتكم (افصل بفاصلة)','Extra column names in your files (comma-separated)'),f:f=>`<input id="ic_syn_${f.k}" style="width:100%;min-width:220px" value="${esc(((c.syn||{})[f.k]||[]).join('، '))}" placeholder="${esc(f.syn.slice(0,3).join('، '))}" ${ro?'disabled':''}>`},
      {l:L('آخر عمود رُبط','Last mapped column'),f:f=>`<span class="small muted">${esc((c.lastMap||{})[f.k]||'—')}</span>`}],fl.map(f=>({...f,id:null})))}
-   ${ro?`<div class="small muted" style="margin-top:8px">${esc(WADY_GUARD('settings'))}</div>`:`<div class="formbar"><button class="btn" data-act="impColsReset" data-t="${t}">${L('استعادة الافتراضي','Reset to default')}</button><button class="btn p" data-act="impColsSave" data-t="${t}">${L('حفظ الإعداد','Save setup')}</button></div>`}</div>`;
+   ${ro?`<div class="small muted" style="margin-top:8px">${esc(WADY_GUARD('settings'))}</div>`:`<div class="formbar"><button class="btn" data-act="impTemplate" data-t="${t}">${L('تنزيل القالب بهذا الإعداد','Download template')}</button><span style="flex:1"></span><button class="btn" data-act="impColsReset" data-t="${t}">${L('استعادة الافتراضي','Reset to default')}</button><button class="btn p" data-act="impColsSave" data-t="${t}">${L('حفظ الإعداد','Save setup')}</button></div>`}</div>`;
 }
 
 /* ============ Field-work views (from v1, preserved) ============ */
@@ -2567,7 +2584,7 @@ const ACT={
   impBackMap:()=>{IMP.step='map';render()},
   impValidate:()=>{impValidate();F.impF='problems';render()},
   impRun:()=>impRun(),
-  impTemplate:async()=>{if(!xlsxOk())return;saveFile(`قالب-${IMP_DEF[IMP.tab].ar}.xlsx`,await xlsxBlob(impTemplateRows(IMP.tab),IMP_DEF[IMP.tab].ar))},
+  impTemplate:async d=>{const t=d&&d.t||IMP.tab;if(!xlsxOk())return;saveFile(`قالب-${IMP_DEF[t].ar}.xlsx`,await xlsxBlob(impTemplateRows(t),IMP_DEF[t].ar,[['التعليمات',impTemplateGuide(t)]]))},
   impTest:()=>{const t=impTestRows(IMP.tab);if(t.period)IMP.period=t.period;impLoadRows(t.rows,t.name)},
   impTestDl:async()=>{if(!xlsxOk())return;const t=impTestRows(IMP.tab);const H=Object.keys(t.rows[0]);saveFile(t.name,await xlsxBlob([H,...t.rows.map(r=>H.map(h=>r[h]))],'Sheet1'))},
   impErrDl:async()=>{if(!xlsxOk())return;const r=IMP.res;const H=IMP.headers;const rows=r.items.filter(i=>!['new','update'].includes(i.status));
@@ -2711,7 +2728,8 @@ Object.assign(ACT,{
   impColsSave:async d=>{const t=d.t;const key=IMP_KEY[t];const all=(S.settings.find(x=>x.id==='impcfg')||{}).types||{};const cur={...(all[t]||{})};
     const hr=Math.max(1,Math.min(50,+document.getElementById('ic_hdr').value||1));const req={},syn={};
     IMP_DEF[t].fields.forEach(f=>{if(f.k!==key){const el=document.getElementById('ic_req_'+f.k);if(el)req[f.k]=el.checked}const s=document.getElementById('ic_syn_'+f.k);const v=s?s.value.split(/[,،\n]/).map(x=>x.trim()).filter(Boolean):[];if(v.length)syn[f.k]=v});
-    cur.hdrRow=hr;cur.skipNoKey=document.getElementById('ic_skip').checked;cur.req=req;cur.syn=syn;
+    const tpl={},label={};IMP_DEF[t].fields.forEach(f=>{const a=document.getElementById('ic_tpl_'+f.k);if(a&&!a.checked)tpl[f.k]=false;const b=document.getElementById('ic_lbl_'+f.k);if(b&&b.value.trim())label[f.k]=b.value.trim()});
+    cur.hdrRow=hr;cur.skipNoKey=document.getElementById('ic_skip').checked;cur.req=req;cur.syn=syn;cur.tpl=tpl;cur.label=label;
     try{await save('settings',{id:'impcfg',types:{...all,[t]:cur}});toast(L('تم حفظ إعداد الأعمدة','Columns setup saved'));render()}catch(e){}},
   impColsReset:async d=>{const t=d.t;const all=(S.settings.find(x=>x.id==='impcfg')||{}).types||{};const n={...all};delete n[t];try{await save('settings',{id:'impcfg',types:n});toast(L('تمت استعادة الإعداد الافتراضي','Default restored'));render()}catch(e){}}
 });
@@ -3022,7 +3040,7 @@ V.mmore=()=>{
     if(grp){out+=`<div class="small muted" style="margin:12px 4px 6px;font-weight:700">${esc(grp)}</div>`;grp=''}
     out+=`<button class="btn" style="width:100%;justify-content:flex-start;gap:10px;min-height:48px;margin-bottom:6px" data-go="${n[0]}">${typeof IC!=='undefined'&&IC[n[1]]?`<svg viewBox="0 0 24 24" width="20" height="20" style="fill:none;stroke:currentColor;stroke-width:1.8">${IC[n[1]]}</svg>`:''}${esc(n[2]())}</button>`});
   return `<div class="mhead"><h2>${esc(me().name||'')}</h2></div>`+out+
-   `<button class="btn" style="width:100%;min-height:48px;margin-bottom:8px" data-act="mFull">${L('الواجهة الكاملة (كمبيوتر)','Full desktop view')}</button><a class="btn" style="width:100%;min-height:48px;justify-content:center" href="../index.html#apps">${L('كل التطبيقات','All apps')}</a>`};
+   `<button class="btn" style="width:100%;min-height:48px;margin-bottom:8px" data-act="mFull">${L('الواجهة الكاملة (كمبيوتر)','Full desktop view')}</button><a class="btn" style="width:100%;min-height:48px;justify-content:center" href="../index.html#apps">${L('كل التطبيقات','All apps')}</a><button class="btn" style="width:100%;min-height:48px;margin-top:8px;color:#9b1c1c" data-wady-logout>${L('تسجيل الخروج','Sign out')}</button>`};
 ['mtoday','mclients','malerts','mmore'].forEach((r,i)=>NAV.push([r,'pin',()=>[L('زياراتي','My visits'),L('عملائي','My clients'),L('التنبيهات','Alerts'),L('المزيد','More')][i],()=>MOB.on]));
 {const _r=render;render=function(){const out=_r.apply(this,arguments);try{mPaintNav()}catch(e){}return out}}
 if(MOB.on){try{if(!['mtoday','mclients','malerts','mmore'].includes((location.hash||'').slice(1)))route='mtoday'}catch(e){}

@@ -917,7 +917,7 @@ function loginView(){
 function pickerView(){
   const mine=APPS.filter(a=>canApp(a.id));const name=S.emp?.name_ar||S.me.full_name||S.me.email;
   return `<div class="portal"><div class="pwrap wide">
-   <div class="toolbar" style="margin-bottom:6px"><div class="brand grow" style="color:var(--ink)"><span class="mark">و</span><div><b>أهلاً ${esc(name)}</b><small class="muted">${mine.length?`لديك صلاحية على ${mine.length} ${mine.length===1?'تطبيق':'تطبيقات'}`:'لا توجد تطبيقات متاحة لحسابك بعد'}</small></div></div><button class="btn s" data-act="logout">${icon('out')} خروج</button></div>
+   <div class="toolbar" style="margin-bottom:6px"><div class="brand grow" style="color:var(--ink)"><span class="mark">و</span><div><b>أهلاً ${esc(name)}</b><small class="muted">${mine.length?`لديك صلاحية على ${mine.length} ${mine.length===1?'تطبيق':'تطبيقات'}`:'لا توجد تطبيقات متاحة لحسابك بعد'}</small></div></div><button class="btn s" data-act="logout">${icon('out')} تسجيل الخروج</button></div>
    ${AUTH.denied?`<div class="banner bad"><span class="sp">ليس لديك صلاحية على «${esc(appById(AUTH.denied)?.name||'')}». اختر من التطبيقات المتاحة لك، أو تواصل مع مدير النظام.</span></div>`:''}
    ${!mine.length?`<div class="banner"><span class="sp">حسابك مفعّل لكن لم تُحدد له تطبيقات بعد. تواصل مع مدير النظام.</span></div>`:''}
    <div class="apps">${APPS.filter(a=>!a.hidden||!a.hidden()).map(a=>appCard(a,'pick')).join('')}</div>
@@ -968,7 +968,7 @@ const accOf=(uid,app)=>S.allAccess.find(a=>a.user_id===uid&&a.app===app)||null;
 const factoryRegions=()=>S.regions.filter(r=>r.is_factory);
 const APPS_ORDER=['crm','fleet','hr'];
 function permSummary(p){if(p.role==='admin')return pill('مدير النظام — كل الصلاحيات','strong');const m=(S.allPages||{})[p.id]||{};
-  const parts=APPS_ORDER.map(app=>{const v=Object.values(m[app]||{});if(!v.length)return '';const n=k=>v.filter(x=>x===k).length;
+  const parts=APPS_ORDER.map(app=>{const v=Object.values(m[app]||{});if(!v.length)return '';if(pagesOf(app).length&&pagesOf(app).every(pg=>(m[app]||{})[pg]==='edit'))return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> صلاحيات كاملة</span>`;const n=k=>v.filter(x=>x===k).length;
     return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> ${[['edit','تعديل'],['audit','تدقيق'],['view','عرض']].filter(([k])=>n(k)).map(([k,l])=>`${n(k)} ${l}`).join(' · ')}</span>`}).filter(Boolean);
   return parts.join('<br>')||'<span class="muted small">بدون صلاحيات صفحات</span>'}
 V.users=()=>{
@@ -989,7 +989,7 @@ V.users=()=>{
 async function loadAllPages(){const rows=await fetchAll(()=>sb.from('user_pages').select('user_id,app,page,level'));const m={};rows.forEach(r=>{((m[r.user_id]=m[r.user_id]||{})[r.app]=m[r.user_id][r.app]||{})[r.page]=r.level});S.allPages=m;S.allPagesLoaded=true}
 function permMatrix(cur){
   return APPS_ORDER.map(app=>{const P=PAGES[app];const c=cur[app]||{};const n=Object.keys(c).length;
-    const tpl=Object.keys(PAGE_TEMPLATES[app]||{});const tplName={rep:'مندوب',sup:'مشرف',mgr:'مدير مبيعات',auditor:'مدقق (كل الصفحات)',viewer:'عارض (كل الصفحات)',branch:'مسؤول فرع',fadmin:'مدير الحركة (كل الصفحات)',dispatcher:'منسق حركة',sales_sup:'مشرف مبيعات',manager:'مدير الموارد (كل الصفحات)'};
+    const tpl=Object.keys(PAGE_TEMPLATES[app]||{});const tplName={rep:'مندوب',sup:'مشرف',mgr:'مدير مبيعات',auditor:'مدقق (كل الصفحات)',viewer:'عارض (كل الصفحات)',branch:'مسؤول فرع',fadmin:'مدير الحركة (كل الصفحات)',dispatcher:'منسق حركة',sales_sup:'مشرف مبيعات',manager:'صلاحيات كاملة (كل الصفحات تعديل)'};
     return `<details class="pm-app" ${n?'open':''}><summary>${esc(P.name)} <span class="small muted" data-pmc="${app}">${n?n+' صفحة':'بدون صلاحية'}</span>
       <span style="flex:1"></span><select data-pmtpl="${app}" aria-label="تعبئة سريعة"><option value="">تعبئة سريعة…</option>${tpl.map(k=>`<option value="${k}">${tplName[k]||k}</option>`).join('')}<option value="__none">مسح الكل (N/A)</option></select></summary>
       ${P.note?`<p class="small muted" style="margin:0 12px 6px">${esc(P.note)}</p>`:''}
