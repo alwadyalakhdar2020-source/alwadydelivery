@@ -325,7 +325,11 @@ const COLS=['team','clients','projects','opps','quotes','samples','visits','comp
 const S={impUndo:[]};COLS.forEach(c=>S[c]=[]);
 let db=null,downloads=null,mode='init',loaded=new Set(),dataVer=0;
 let viewAs=ls('viewAs')||'';
-const byId=(c,id)=>id?S[c].find(x=>x.id===id):undefined;
+// indexed lookup: rebuilt when the collection changes (18k+ customers made linear search the main cost)
+const BYID_IX=new WeakMap();
+const byId=(c,id)=>{if(!id)return undefined;const arr=S[c];if(!arr)return undefined;
+  let ix=BYID_IX.get(arr);if(!ix||ix.v!==dataVer||ix.n!==arr.length){const m=new Map();for(const x of arr)if(x&&x.id!=null)m.set(x.id,x);ix={v:dataVer,n:arr.length,m};BYID_IX.set(arr,ix)}
+  const hit=ix.m.get(id);if(hit&&hit.id===id)return hit;return arr.find(x=>x.id===id)};
 const cName=id=>byId('clients',id)?.name||'—';
 const tName=id=>byId('team',id)?.name||'—';
 const pName=id=>byId('projects',id)?.name||'—';
