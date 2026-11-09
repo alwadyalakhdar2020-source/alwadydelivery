@@ -1202,7 +1202,10 @@ const ACT={
 (async()=>{
   render();
   const {data}=await sb.rpc('admin_exists');AUTH.adminExists=data!==false?true:false;
-  sb.auth.onAuthStateChange(async(ev,session)=>{
+  /* never await Supabase calls inside the auth callback: supabase-js holds its auth lock while it runs, so a query there waits forever. Defer the work instead. */
+  let authSeq=0;
+  sb.auth.onAuthStateChange((ev,session)=>{const my=++authSeq;setTimeout(()=>{if(my===authSeq)onAuth(ev,session)},0)});
+  async function onAuth(ev,session){
     const was=S.session?.user?.id;S.session=session;
     if(!session){Object.assign(S,{me:null,loaded:false,profiles:[],customers:[],app:null,access:{},emp:null});route='';if(typeof HR!=='undefined')HR.reset();if(typeof FL!=='undefined')FL.reset();PL.key='';PL.dirty=false;UI.sumKey='';Object.assign(PP,{tab:'plan',ws:satOf(TODAY()),key:'',dirty:false,doc:null,lineDefs:null,products:null,weeks:null,imp:{step:'pick'}});render();return}
     if(was===session.user.id&&S.loaded)return;
@@ -1211,7 +1214,7 @@ const ACT={
     S.me=null;render();
     try{await loadBase()}catch(e){toast(errText(e))}
     afterLogin();
-  });
+  }
   const {data:s}=await sb.auth.getSession();if(!s.session)render();
 })();
 
