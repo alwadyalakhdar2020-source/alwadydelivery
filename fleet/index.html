@@ -615,14 +615,17 @@ function normDigits(s){ return String(s||"").replace(/[٠-٩]/g,d=>"٠١٢٣٤٥
 function readEditor(vid,iso){
   const els=document.querySelectorAll(`[data-ed="${CSS.escape(vid+"|"+iso)}"]`); if(!els.length) return null;
   const day={r:[]}; let any=false;
-  els.forEach(el=>{ const f=el.dataset.f, val=(f==="note"||f==="pl"||f==="drv")?el.value.trim():normDigits(el.value.trim());
+  els.forEach(el=>{ const f=el.dataset.f, val=(f==="note"||f==="pl"||f==="drv"||f==="drvs")?el.value.trim():normDigits(el.value.trim());
     if(f==="drv"){ if(val) day.drv=val; return; }
+    if(f==="drvs"){ try{ const a=val?JSON.parse(el.value):null; if(Array.isArray(a)&&a.length){ day.drv=String(a[0].id); if(a.length>1) day.drvs=a; } }catch(e){} return; }
     if(f==="note"){ day.note=val||null; if(val) any=true; return; }
     if(f==="pl"){ const a=val?val.split(",").filter(Boolean):[]; if(a.length) day.pl=a; return; }
     const n=val===""?null:Math.max(0,Number(val)); if(n!==null&&!isNaN(n)) any=true;
     if(f.startsWith("r")) day.r[Number(f.slice(1))]=isNaN(n)?null:n; else day[f]=isNaN(n)?null:n; });
   if(![...els].some(el=>el.dataset.f==="pl")){ const old=realDay(vid,iso); if(old&&Array.isArray(old.pl)&&old.pl.length) day.pl=old.pl.slice(); }
   if(day.pl&&day.pl.length) any=true;
+  // the driver(s) of the day are set in the vehicle log; screens without that column keep them
+  if(![...els].some(el=>el.dataset.f==="drv"||el.dataset.f==="drvs")){ const old=realDay(vid,iso); if(old&&old.drv) day.drv=old.drv; if(old&&Array.isArray(old.drvs)) day.drvs=old.drvs; }
   const nr=cfg().reasons.length; for(let i=0;i<nr;i++) if(day.r[i]===undefined) day.r[i]=null;
   FIELDS.forEach(k=>{ if(day[k]===undefined) day[k]=null; });
   return any?day:null;
@@ -706,7 +709,7 @@ function refreshEditorValues(){
   document.querySelectorAll("[data-ed]").forEach(el=>{ const [vid,iso]=el.dataset.ed.split("|"); const key=vid+"|"+iso;
     if(S.pending[key]||document.activeElement===el||S.saveState[key]==="pending") return;
     const d=realDay(vid,iso); const f=el.dataset.f; let val;
-    if(f==="note") val=d&&d.note||""; else if(f==="pl") val=d&&Array.isArray(d.pl)?d.pl.join(","):""; else if(f.startsWith("r")) val=d&&d.r&&d.r[Number(f.slice(1))]!=null?d.r[Number(f.slice(1))]:""; else val=d&&d[f]!=null?d[f]:"";
+    if(f==="note") val=d&&d.note||""; else if(f==="drvs") val=d&&Array.isArray(d.drvs)?JSON.stringify(d.drvs):""; else if(f==="pl") val=d&&Array.isArray(d.pl)?d.pl.join(","):""; else if(f.startsWith("r")) val=d&&d.r&&d.r[Number(f.slice(1))]!=null?d.r[Number(f.slice(1))]:""; else val=d&&d[f]!=null?d[f]:"";
     if(String(el.value)!==String(val)) el.value=val; });
   const seen=new Set(); document.querySelectorAll("[data-ed]").forEach(el=>{ if(!seen.has(el.dataset.ed)){seen.add(el.dataset.ed); const [vid,iso]=el.dataset.ed.split("|"); updateDerived(vid,iso,!!S.pending[el.dataset.ed]);} });
   if(S.view==="vehicle") updateVlogTotals();
@@ -2077,6 +2080,24 @@ function vlHomeName(v){ const d=drvHome(v); return d?d.name:(v.driver||"غير �
 // a vehicle is "down" on a day when a maintenance request covers it (same rule as the server)
 function vehDown(vid,iso){ return (DRV.maint||[]).find(m=>m.vehicle_id===vid&&m.opened_on<=iso&&(m.status!=="closed"||(m.closed_on&&m.closed_on>iso)))||null; }
 // who drove vehicle v on that day, and in what capacity
+function drvKind(v,iso,d){
+  if(!d) return {d:null,kind:"none",name:v&&v.driver?v.driver:"غير محدد"};
+  if(d.vehicle_id===v.id) return {d,kind:"own",name:d.name};
+  if(!d.vehicle_id) return {d,kind:"other",name:d.name,home:null};
+  const m=vehDown(d.vehicle_id,iso);
+  return m?{d,kind:"sub",name:d.name,home:d.vehicle_id,maint:m}:{d,kind:"other",name:d.name,home:d.vehicle_id};
+}
+// more than one driver on the same vehicle and day: each gets his own number of trips; blanks share what is left equally
+function dayDrivers(v,iso,day,A){
+  const list=day&&Array.isArray(day.drvs)&&day.drvs.length>1?day.drvs:null;
+  if(!list) return [{...dayDriver(v,iso,day),share:1,n:null}];
+  const it=list.map(o=>({...drvKind(v,iso,drvById(o.id)),n:o.a===""||o.a==null?null:Number(o.a)}));
+  const known=it.filter(x=>x.n!=null), K=known.reduce((s,x)=>s+x.n,0), unk=it.length-known.length; A=Number(A)||0;
+  if(!unk&&K>0) it.forEach(x=>x.share=x.n/K);
+  else if(A>0){ const rem=Math.max(0,A-K); it.forEach(x=>x.share=x.n!=null?Math.min(1,x.n/A):(rem/A)/unk); const S=it.reduce((s,x)=>s+x.share,0); if(S>0) it.forEach(x=>x.share/=S); }
+  else it.forEach(x=>x.share=1/it.length);
+  return it;
+}
 function dayDriver(v,iso,day){
   const d=day&&day.drv?drvById(day.drv):drvHome(v);
   if(!d) return {d:null,kind:"none",name:v&&v.driver?v.driver:"غير محدد"};
@@ -2094,14 +2115,19 @@ function vlDriverCell(v,iso,d,key,ro){
   const home=drvHome(v), cur=d&&d.drv?String(d.drv):"";
   const list=(DRV.list||[]).filter(x=>x.active||String(x.id)===cur).sort((a,b)=>(a.branch===v.branch?0:1)-(b.branch===v.branch?0:1)||String(a.name).localeCompare(b.name));
   const dd=dayDriver(v,iso,d), flag=dd.kind==="sub"?`<span class="pill" style="background:#FDECEA;color:#B42318" title="سيارته ${esc(laneName(dd.home))} في الصيانة">بديل · عطل</span>`:dd.kind==="other"?(dd.home?`<span class="pill" title="سيارته الأساسية ${esc(laneName(dd.home))}">سيارة أخرى</span>`:`<span class="pill">احتياطي</span>`):"";
-  return `<select data-ed="${esc(key)}" data-f="drv" style="width:200px;min-width:200px" dir="auto" title="سائق اليوم" ${ro?"disabled":""}><option value="">${esc(home?home.name+" (أساسي)":(v.driver?v.driver+" (أساسي)":"— اختر —"))}</option>${list.filter(x=>!home||x.id!==home.id||cur===String(x.id)).map(x=>`<option value="${x.id}" ${cur===String(x.id)?"selected":""}>${esc(x.name)}</option>`).join("")}</select>${flag?`<div style="margin-top:3px">${flag}</div>`:""}`;
+  const many=d&&Array.isArray(d.drvs)&&d.drvs.length>1;
+  const hid=`<input type="hidden" data-ed="${esc(key)}" data-f="drvs" value="${many?esc(JSON.stringify(d.drvs)):""}">`;
+  const plus=ro?"":`<button type="button" class="btn sm" data-drvs="${esc(key)}" title="أكثر من سائق في نفس اليوم" style="padding:2px 8px">${many?"تعديل":"+ سائق"}</button>`;
+  if(many){ const x=calcDay(cfg(),v,iso,d,localToday()); const it=dayDrivers(v,iso,d,x.a);
+    return `<div class="vl-drv" data-k="${esc(key)}">${hid}${it.map(o=>`<div style="white-space:nowrap">${esc(o.name)} <b>${fmt(x.a*o.share,1)}</b>${o.kind==="sub"?` <span class="pill" style="background:#FDECEA;color:#B42318">بديل · عطل</span>`:o.kind==="other"?` <span class="pill">${o.home?"سيارة أخرى":"احتياطي"}</span>`:""}</div>`).join("")}${plus}</div>`; }
+  return `<div class="vl-drv" data-k="${esc(key)}">${hid}<div style="display:flex;gap:4px;align-items:center"><select data-ed="${esc(key)}" data-f="drv" style="width:180px;min-width:180px" dir="auto" title="سائق اليوم" ${ro?"disabled":""}><option value="">${esc(home?home.name+" (أساسي)":(v.driver?v.driver+" (أساسي)":"— اختر —"))}</option>${list.filter(x=>!home||x.id!==home.id||cur===String(x.id)).map(x=>`<option value="${x.id}" ${cur===String(x.id)?"selected":""}>${esc(x.name)}</option>`).join("")}</select>${plus}</div>${flag?`<div style="margin-top:3px">${flag}</div>`:""}</div>`;
 }
 function vlMonthDays(){ const m=S.vlog.month, [y,mo]=m.split("-").map(Number), nd=new Date(Date.UTC(y,mo,0)).getUTCDate(); return Array.from({length:nd},(_,i)=>`${m}-${pad(i+1)}`); }
 function vlTotals(v){ const c=cfg(), today=localToday(), defs=fieldDefs(v); const T={t:0,a:0,diff:0,gap:0,f:{},r:(c.reasons||[]).map(()=>0),days:0,sub:0,subDays:0,other:0};
   defs.forEach(f=>T.f[f.k]=0);
   vlMonthDays().forEach(iso=>{ const d=realDay(v.id,iso), x=calcDay(c,v,iso,d,today); T.t+=x.t; T.a+=x.a; if(x.has){ T.days++; T.diff+=x.a-x.t; T.gap+=x.gap; }
     defs.forEach(f=>T.f[f.k]+=num(d&&d[f.k])); x.rec.forEach((n,i)=>T.r[i]+=n);
-    if(x.has){ const dd=dayDriver(v,iso,d); if(dd.kind==="sub"){ T.sub+=x.a; T.subDays++; } else if(dd.kind==="other") T.other+=x.a; } });
+    if(x.has){ let sd=false; dayDrivers(v,iso,d,x.a).forEach(dd=>{ if(dd.kind==="sub"){ T.sub+=x.a*dd.share; sd=true; } else if(dd.kind==="other") T.other+=x.a*dd.share; }); if(sd) T.subDays++; } });
   return T; }
 function vlFooter(){ const ft=$("#vl-foot"); const v=S.vehicles.find(x=>x.id===S.vlog.vid); if(!ft||!v) return; const T=vlTotals(v), c=cfg();
   ft.innerHTML=`<tr class="tot"><td colspan="3">المجموع</td><td>${fmt(T.t)}</td>${fieldDefs(v).map(f=>`<td>${fmt(T.f[f.k],2)}</td>`).join("")}<td><b>${fmt(T.a,2)}</b></td><td class="${T.diff<0?"neg":T.diff>0?"pos":""}">${(T.diff>0?"+":"")+fmt(T.diff,2)}</td>${T.r.map(n=>`<td>${fmt(n,2)}</td>`).join("")}<td class="neg">${T.gap>0?fmt(T.gap,2):""}</td><td colspan="3" class="txt small">${T.days} يوم مسجل</td></tr>`;
@@ -2127,8 +2153,8 @@ async function printHtml(btn,filename,title,body,landscape){
 async function printVehicleLog(btn){
   const v=S.vehicles.find(x=>x.id===S.vlog.vid); if(!v) return; await loadDrivers(); await loadDrvMaint();
   const c=cfg(), today=localToday(), defs=fieldDefs(v), T=vlTotals(v), DN=["أحد","اثنين","ثلاثاء","أربعاء","خميس","جمعة","سبت"];
-  const rows=vlMonthDays().map(iso=>{ const d=realDay(v.id,iso), x=calcDay(c,v,iso,d,today), dd=x.has?dayDriver(v,iso,d):null;
-    return `<tr class="${dd&&dd.kind==="sub"?"sub":isFri(iso)?"fri":""}"><td>${iso.slice(8)}</td><td class="t">${DN[dOf(iso).getUTCDay()]}</td><td class="t">${dd?esc(dd.name)+(dd.kind==="sub"?" (بديل)":dd.kind==="other"?" *":""):""}</td><td>${fmt(x.t)}</td>${defs.map(f=>`<td>${d&&d[f.k]!=null?fmt(d[f.k],2):""}</td>`).join("")}<td><b>${x.has||x.a?fmt(x.a,2):""}</b></td><td class="${x.a-x.t<0&&x.has?"neg":""}">${x.has?fmt(x.a-x.t,2):""}</td>${x.rec.map(n=>`<td>${n?fmt(n,2):""}</td>`).join("")}<td class="neg">${x.has&&x.gap>0?fmt(x.gap,2):""}</td><td class="t">${esc(d&&d.note||"")}</td></tr>`; }).join("");
+  const rows=vlMonthDays().map(iso=>{ const d=realDay(v.id,iso), x=calcDay(c,v,iso,d,today), ds=x.has?dayDrivers(v,iso,d,x.a):[];
+    return `<tr class="${ds.some(o=>o.kind==="sub")?"sub":isFri(iso)?"fri":""}"><td>${iso.slice(8)}</td><td class="t">${DN[dOf(iso).getUTCDay()]}</td><td class="t">${ds.map(o=>esc(o.name)+(ds.length>1?` (${fmt(x.a*o.share,1)})`:"")+(o.kind==="sub"?" (بديل)":o.kind==="other"?" *":"")).join(" + ")}</td><td>${fmt(x.t)}</td>${defs.map(f=>`<td>${d&&d[f.k]!=null?fmt(d[f.k],2):""}</td>`).join("")}<td><b>${x.has||x.a?fmt(x.a,2):""}</b></td><td class="${x.a-x.t<0&&x.has?"neg":""}">${x.has?fmt(x.a-x.t,2):""}</td>${x.rec.map(n=>`<td>${n?fmt(n,2):""}</td>`).join("")}<td class="neg">${x.has&&x.gap>0?fmt(x.gap,2):""}</td><td class="t">${esc(d&&d.note||"")}</td></tr>`; }).join("");
   const mo=S.vlog.month, adj=ratio(T.a,T.t-(aggVehicle(c,v,`${mo}-01`,vlMonthDays().slice(-1)[0],realDay,today).ext));
   const body=`<h1>سجل السيارة — ${esc(vehLabel(v))}</h1><div class="sub">${esc(v.type)} · فرع ${esc(v.branch)} · السائق الأساسي: ${esc(vlHomeName(v))} · شهر ${mo.slice(5)}/${mo.slice(0,4)}</div>
    <div class="k"><div><span>المستهدف</span><b>${fmt(T.t)}</b></div><div><span>المحقق</span><b>${fmt(T.a,1)}</b></div><div><span>نسبة التحقيق</span><b>${pct(ratio(T.a,T.t))}</b></div><div><span>التحقيق المعدّل</span><b>${pct(adj)}</b></div><div><span>أيام مسجلة</span><b>${T.days}</b></div><div><span>منها بسائق بديل (عطل)</span><b>${fmt(T.sub,1)}</b></div></div>
@@ -2209,11 +2235,13 @@ async function loadDriverReport(){ const r=drRepState(); r.loading=true; paintDr
   r.loading=false; paintDrivers(); }
 function computeDriverReport(){ const r=drRepState(), c=cfg(), today=localToday(); const by={}, subs=[], vehSub={};
   (r.data||[]).forEach(e=>{ const v=vehById(e.vehicle_id); if(!v) return; const iso=String(e.day).slice(0,10), day=e.data||{}; const x=calcDay(c,v,iso,day,today); if(!x.has) return;
-    const dd=dayDriver(v,iso,day); const d=dd.d; const k=d?String(d.id):"?"+(dd.name||"");
-    if(r.branch&&(d?d.branch||v.branch:v.branch)!==r.branch) return;
-    const A=by[k]=by[k]||{key:k,d,name:dd.name,branch:d?d.branch||"":v.branch,home:d&&d.vehicle_id,days:new Set(),veh:new Set(),t:0,a:0,own:0,other:0,sub:0,none:0,rows:[]};
-    A.days.add(iso); A.veh.add(v.id); A.t+=x.t; A.a+=x.a; A[dd.kind]+=x.a; A.rows.push({iso,v,a:x.a,t:x.t,kind:dd.kind});
-    if(dd.kind==="sub"){ subs.push({iso,v,d,home:dd.home,maint:dd.maint,a:x.a,t:x.t}); const s=vehSub[v.id]=vehSub[v.id]||{v,a:0,days:0}; s.a+=x.a; s.days++; } });
+    const all=dayDrivers(v,iso,day,x.a);
+    all.forEach(dd=>{ const d=dd.d; const k=d?String(d.id):"?"+(dd.name||""); if(r.branch&&(d?d.branch||v.branch:v.branch)!==r.branch) return;
+      const a=x.a*dd.share, t=x.t*dd.share, w=all.length>1?all.filter(o=>o!==dd).map(o=>o.name).join("، "):"";
+      const A=by[k]=by[k]||{key:k,d,name:dd.name,branch:d?d.branch||"":v.branch,home:d&&d.vehicle_id,days:new Set(),veh:new Set(),t:0,a:0,own:0,other:0,sub:0,none:0,shared:0,rows:[]};
+      A.days.add(iso); A.veh.add(v.id); A.t+=t; A.a+=a; A[dd.kind]+=a; if(w) A.shared++; A.rows.push({iso,v,a,t,kind:dd.kind,w});
+      if(dd.kind==="sub"){ subs.push({iso,v,d,home:dd.home,maint:dd.maint,a,t}); const s=vehSub[v.id]=vehSub[v.id]||{v,a:0,days:new Set()}; s.a+=a; s.days.add(iso); } }); });
+  Object.values(vehSub).forEach(s=>s.days=s.days.size);
   const list=Object.values(by).sort((a,b)=>b.a-a.a); subs.sort((a,b)=>a.iso<b.iso?-1:1);
   return {list,subs,vehSub:Object.values(vehSub).sort((a,b)=>b.a-a.a)}; }
 function driverReportHtml(){ const r=drRepState(); const R=r.data?computeDriverReport():null;
@@ -2221,7 +2249,7 @@ function driverReportHtml(){ const r=drRepState(); const R=r.data?computeDriverR
     <label class="f">الفرع<select id="drr-br"><option value="">الكل</option>${BRANCHES.map(b=>`<option ${r.branch===b?"selected":""}>${b}</option>`).join("")}</select></label>
     <label class="f">السائق<select id="drr-d"><option value="">كل السائقين</option>${(R?R.list:[]).map(x=>`<option value="${esc(x.key)}" ${r.driver===x.key?"selected":""}>${esc(x.name)}</option>`).join("")}</select></label>
     <div class="quick"><button class="btn sm" id="drr-run">تحديث</button><button class="btn primary sm" id="drr-print">طباعة A4</button><button class="btn sm" id="drr-xls">تصدير Excel</button></div></div>
-    <p class="small muted" style="margin:8px 0 0">الردود محسوبة لكل سائق حسب السائق المسجل في سجل السيارة لكل يوم (وإذا ما تسجل، سائق السيارة الأساسي). «بديل أثناء عطل سيارته» = اشتغل على سيارة ثانية وسيارته الأساسية عليها طلب صيانة مفتوح في نفس اليوم.</p></div>`;
+    <p class="small muted" style="margin:8px 0 0">الردود محسوبة لكل سائق حسب السائق المسجل في سجل السيارة لكل يوم (وإذا ما تسجل، سائق السيارة الأساسي). «بديل أثناء عطل سيارته» = اشتغل على سيارة ثانية وسيارته الأساسية عليها طلب صيانة مفتوح في نفس اليوم. إذا ركب السيارة أكثر من سائق في نفس اليوم، ينقسم محقق اليوم والمستهدف بينهم حسب ردود كل واحد.</p></div>`;
   if(!R) return head+`<div class="panel empty">${r.loading?"…جاري الحساب":"اضغط تحديث"}</div>`;
   const L=r.driver?R.list.filter(x=>x.key===r.driver):R.list; const T=L.reduce((s,x)=>(s.t+=x.t,s.a+=x.a,s.own+=x.own,s.other+=x.other,s.sub+=x.sub,s.days+=x.days.size,s),{t:0,a:0,own:0,other:0,sub:0,days:0});
   const sum=`<div class="panel"><h2 style="margin-top:0">ردود السائقين ${fd(r.from)} ← ${fd(r.to)}</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">السائق</th><th>الرقم</th><th>الفرع</th><th class="txt">سيارته الأساسية</th><th>أيام العمل</th><th class="txt">السيارات اللي اشتغل عليها</th><th>المستهدف</th><th>المحقق</th><th>التحقيق</th><th>على سيارته</th><th>على سيارة أخرى</th><th style="background:#B42318">بديل أثناء عطل سيارته</th></tr></thead>
@@ -2234,8 +2262,8 @@ function driverReportHtml(){ const r=drRepState(); const R=r.data?computeDriverR
     <div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th class="txt">السائق</th><th class="txt">اشتغل على</th><th class="txt">سيارته المتعطلة</th><th class="txt">العطل</th><th>المستهدف</th><th>المحقق</th></tr></thead><tbody>
     ${subsL.map(s=>`<tr><td>${fd(s.iso)}</td><td class="txt">${esc(s.d.name)}</td><td class="txt">${esc(vehLabel(s.v))}</td><td class="txt">${esc(laneName(s.home))}</td><td class="txt small">#${s.maint.id} ${esc(s.maint.category||"")} — من ${fd(s.maint.opened_on)}</td><td>${fmt(s.t)}</td><td><b>${fmt(s.a,2)}</b></td></tr>`).join("")||`<tr><td colspan="7" class="empty">ما فيه ردود بديلة أثناء أعطال في الفترة.</td></tr>`}
     ${subsL.length?`<tr class="tot"><td colspan="6">الإجمالي</td><td>${fmt(subsL.reduce((s,x)=>s+x.a,0),2)}</td></tr>`:""}</tbody></table></div></div>`;
-  let det=""; if(r.driver&&L[0]){ const x=L[0]; det=`<div class="panel"><h2 style="margin-top:0">تفاصيل ${esc(x.name)} يوم بيوم</h2><div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th class="txt">السيارة</th><th>المستهدف</th><th>المحقق</th><th class="txt">الحالة</th></tr></thead><tbody>
-    ${x.rows.sort((a,b)=>a.iso<b.iso?-1:1).map(d=>`<tr><td>${fd(d.iso)}</td><td class="txt">${esc(vehLabel(d.v))}</td><td>${fmt(d.t)}</td><td>${fmt(d.a,2)}</td><td class="txt ${d.kind==="sub"?"neg":""}">${KIND_L[d.kind]}</td></tr>`).join("")}</tbody></table></div></div>`; }
+  let det=""; if(r.driver&&L[0]){ const x=L[0]; det=`<div class="panel"><h2 style="margin-top:0">تفاصيل ${esc(x.name)} يوم بيوم</h2><div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th class="txt">السيارة</th><th>المستهدف</th><th>المحقق</th><th class="txt">الحالة</th><th class="txt">شاركه في نفس اليوم</th></tr></thead><tbody>
+    ${x.rows.sort((a,b)=>a.iso<b.iso?-1:1).map(d=>`<tr><td>${fd(d.iso)}</td><td class="txt">${esc(vehLabel(d.v))}</td><td>${fmt(d.t,1)}</td><td>${fmt(d.a,2)}</td><td class="txt ${d.kind==="sub"?"neg":""}">${KIND_L[d.kind]}</td><td class="txt small">${esc(d.w||"")}</td></tr>`).join("")}</tbody></table></div></div>`; }
   return head+sum+sub+det; }
 async function printDriverReport(btn){ const r=drRepState(); if(!r.data) return; const R=computeDriverReport(); const L=r.driver?R.list.filter(x=>x.key===r.driver):R.list; const subsL=r.driver?R.subs.filter(s=>s.d&&String(s.d.id)===r.driver):R.subs;
   const body=`<h1>تقرير ردود السائقين</h1><div class="sub">${fd(r.from)} ← ${fd(r.to)}${r.branch?" · فرع "+esc(r.branch):""}${r.driver&&L[0]?" · "+esc(L[0].name):""}</div>
@@ -2247,7 +2275,7 @@ async function printDriverReport(btn){ const r=drRepState(); if(!r.data) return;
 async function exportDriverReport(){ const r=drRepState(); if(!r.data) return; const R=computeDriverReport();
   await exportXLSX(`ردود_السائقين_${r.from}_${r.to}.xlsx`,{"ملخص السائقين":R.list.map(x=>({"السائق":x.name,"الرقم":x.d&&x.d.code||"","الفرع":x.branch||"","سيارته الأساسية":x.home?laneName(x.home):"","أيام العمل":x.days.size,"السيارات":[...x.veh].map(laneName).join("، "),"المستهدف":x.t,"المحقق":+x.a.toFixed(2),"على سيارته":+x.own.toFixed(2),"على سيارة أخرى":+x.other.toFixed(2),"بديل أثناء عطل سيارته":+x.sub.toFixed(2)})),
     "بديل أثناء العطل":R.subs.map(s=>({"التاريخ":s.iso,"السائق":s.d.name,"اشتغل على":vehLabel(s.v),"سيارته المتعطلة":laneName(s.home),"طلب الصيانة":s.maint.id,"المستهدف":s.t,"المحقق":+s.a.toFixed(2)})),
-    "يوم بيوم":R.list.flatMap(x=>x.rows.map(d=>({"التاريخ":d.iso,"السائق":x.name,"السيارة":vehLabel(d.v),"المستهدف":d.t,"المحقق":+d.a.toFixed(2),"الحالة":KIND_L[d.kind]})))}); }
+    "يوم بيوم":R.list.flatMap(x=>x.rows.map(d=>({"التاريخ":d.iso,"السائق":x.name,"السيارة":vehLabel(d.v),"المستهدف":+d.t.toFixed(2),"المحقق":+d.a.toFixed(2),"الحالة":KIND_L[d.kind],"شاركه في نفس اليوم":d.w||""})))}); }
 async function exportDrivers(){ await exportXLSX("السائقين.xlsx",{"السائقين":(DRV.list||[]).map(d=>({"الرقم الوظيفي":d.code||"","اسم السائق":d.name,"السيارة (الكود أو رقم اللوحة)":d.vehicle_id?(vehById(d.vehicle_id)?.code||vehById(d.vehicle_id)?.plate||""):"","الفرع":d.branch||"","الجوال":d.phone||"","رقم الإقامة / الهوية":d.id_no||"","رقم الرخصة":d.license_no||"","انتهاء الرخصة":d.license_exp||"","الحالة":d.active?"نشط":"موقوف","ملاحظات":d.notes||""}))}); }
 
 document.addEventListener("click",e=>{ if(S.view!=="drivers") return; const t=e.target;
@@ -2261,6 +2289,28 @@ document.addEventListener("change",e=>{ if(S.view!=="drivers") return; const t=e
   else if(t.id==="drr-br"){ r.branch=t.value; paintDrivers(); } else if(t.id==="drr-d"){ r.driver=t.value; paintDrivers(); }
   else if(t.id==="drr-from"||t.id==="drr-to"){ r[t.id==="drr-from"?"from":"to"]=t.value; loadDriverReport(); } });
 document.addEventListener("input",e=>{ if(S.view==="drivers"&&e.target.id==="dr-q"){ DRV.q=e.target.value; clearTimeout(DRV.qt); DRV.qt=setTimeout(()=>{ const p=e.target.selectionStart; paintDrivers(); const q=$("#dr-q"); if(q){ q.focus(); try{q.setSelectionRange(p,p)}catch(x){} } },250); } });
+
+async function editDayDrivers(key){
+  const [vid,iso]=key.split("|"); const v=vehById(vid); if(!v) return; await loadDrivers();
+  const day=readEditor(vid,iso)||realDay(vid,iso)||{}; const x=calcDay(cfg(),v,iso,day,localToday());
+  let cur=Array.isArray(day.drvs)&&day.drvs.length>1?day.drvs.map(o=>({id:String(o.id),a:o.a??""})):[{id:String(day.drv||drvHome(v)?.id||""),a:""}];
+  if(cur.length<2) cur.push({id:"",a:""}); let warned=false;
+  const opts=sel=>`<option value="">—</option>`+(DRV.list||[]).filter(d=>d.active||String(d.id)===sel).sort((a,b)=>(a.branch===v.branch?0:1)-(b.branch===v.branch?0:1)||String(a.name).localeCompare(b.name)).map(d=>`<option value="${d.id}" ${String(d.id)===sel?"selected":""}>${esc(d.name)}${d.vehicle_id&&d.vehicle_id!==v.id?" — سيارته "+esc(laneName(d.vehicle_id)):""}</option>`).join("");
+  const rowH=(o,i)=>`<div class="filters" data-dr-row><label class="f" style="flex:3">السائق ${i+1}<select name="d${i}">${opts(o.id)}</select></label><label class="f" style="flex:1">ردوده<input name="a${i}" inputmode="decimal" value="${esc(o.a)}" placeholder="تلقائي"></label></div>`;
+  const res=await modal(`سائقين ${esc(vehLabel(v))} — ${fd(iso)}`,`<p class="small">محقق السيارة في هذا اليوم: <b>${fmt(x.a,2)}</b> رد. اكتب ردود كل سائق، أو اترك الخانة فاضية وينقسم الباقي بالتساوي.</p>
+    <div id="drv-rows">${[0,1,2,3].map(i=>rowH(cur[i]||{id:"",a:""},i)).join("")}</div><p class="small muted">لو اخترت سائق واحد بس، يرجع اليوم بسائق واحد.</p>`,
+    {validate:f=>{ let k=0,all=true,n=0; for(let i=0;i<4;i++){ if(!f["d"+i]) continue; n++; const a=normDigits(String(f["a"+i]||"").trim()); if(a==="") all=false; else if(isNaN(Number(a))) return "ردود السائق "+(i+1)+" لازم رقم"; else k+=Number(a); }
+      const ids=[0,1,2,3].map(i=>f["d"+i]).filter(Boolean); if(new Set(ids).size!==ids.length) return "نفس السائق مكرر";
+      if(n>1&&all&&x.a>0&&Math.abs(k-x.a)>0.01&&!warned){ warned=true; return `مجموع ردود السائقين ${fmt(k,2)} لا يساوي محقق اليوم ${fmt(x.a,2)} — اضغط حفظ مرة ثانية للتوزيع بنفس النسبة`; } return null; }});
+  if(!res) return;
+  const list=[0,1,2,3].map(i=>({id:res["d"+i],a:normDigits(String(res["a"+i]||"").trim())})).filter(o=>o.id).map(o=>({id:String(o.id),a:o.a===""?null:Number(o.a)}));
+  const nd={...day,drv:list[0]?list[0].id:null}; if(list.length>1) nd.drvs=list; else delete nd.drvs;
+  const box=document.querySelector(`.vl-drv[data-k="${CSS.escape(key)}"]`); if(!box) return;
+  box.outerHTML=vlDriverCell(v,iso,nd,key,false);
+  const h=document.querySelector(`input[data-ed="${CSS.escape(key)}"][data-f="drvs"]`); if(h){ h.value=JSON.stringify(list.length?list:[]); if(list.length===1){ const sl=document.querySelector(`select[data-ed="${CSS.escape(key)}"][data-f="drv"]`); if(sl) sl.value=list[0].id===String(drvHome(v)?.id)?"":list[0].id; h.value=""; }
+    h.dispatchEvent(new Event("input",{bubbles:true})); }
+}
+document.addEventListener("click",e=>{ const b=e.target.closest("[data-drvs]"); if(b){ e.preventDefault(); editDayDrivers(b.dataset.drvs); } });
 
 start();
 
