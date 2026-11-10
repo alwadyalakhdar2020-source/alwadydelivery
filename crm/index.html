@@ -1381,9 +1381,11 @@ function banners(){
 /* ============ Al-Wady platform integration (identity, navigation) ============ */
 const WADY_UID=()=>{try{return (window.__wadySession&&window.__wadySession()?.user?.id)||''}catch(e){return ''}};
 // the signed-in account is the team member; sales managers and the system admin may still "view as" a team member
-me=function(){const u=WADY_UID();const self=byId('team',u);const lead=self&&['admin','mgr'].includes(self.role);
+me=function(){const u=WADY_UID();const self=byId('team',u);const lead=(self&&['admin','mgr'].includes(self.role))||!!(window.wadyIsAppAdmin&&wadyIsAppAdmin('crm'));
   try{document.documentElement.classList.toggle('wady-lead',!!lead)}catch(e){}
   if(lead&&viewAs&&viewAs!==u){const v=byId('team',viewAs);if(v)return v}
+  // a CRM app administrator works with full rights inside the CRM
+  if(window.wadyIsAppAdmin&&wadyIsAppAdmin('crm')&&!(window.WADY_PERM||{}).admin)return Object.assign({},self||{id:u,name:'—'},{role:'admin'});
   return self||{id:u,role:(window.wadyAppLvl&&wadyAppLvl('crm')>0)?'mgr':'rep',name:'—',unlinked:!(window.wadyAppLvl&&wadyAppLvl('crm')>0)}};
 // production plan lives in the platform (weekly plan with approvals); it is part of the CRM menu
 NAV.push(['g',()=>L('الإنتاج','Production')],['prodplan','build',()=>L('خطة الإنتاج الأسبوعية','Weekly production plan'),ALL]);

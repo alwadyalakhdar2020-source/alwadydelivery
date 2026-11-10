@@ -2030,7 +2030,7 @@ renderBanner=function(){ _renderBanner0(); const b=$("#banner"); if(!b) return;
   const PLATFORM='../index.html';
   window.WADY_PERM={admin:false,pages:{}};
   const LV={view:1,audit:2,edit:3};
-  window.wadyLvl=function(page){if(WADY_PERM.admin)return 3;const p=(WADY_PERM.pages.fleet||{})[page];return LV[p]||0};
+  window.wadyLvl=function(page){if(WADY_PERM.admin||(WADY_PERM.app_admin||[]).includes('fleet'))return 3;const p=(WADY_PERM.pages.fleet||{})[page];return LV[p]||0};
   /* downloads: .html opens for printing, everything else is saved */
   window.claude=window.claude||{};
   window.claude.use=async function(name){if(name!=='downloads')return null;return {save:async function(o){let data=o.data;

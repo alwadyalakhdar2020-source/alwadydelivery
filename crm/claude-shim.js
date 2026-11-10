@@ -28,13 +28,27 @@
   /* ---------- session ---------- */
   let session = null;
   const LV = { view: 1, audit: 2, edit: 3 };
-  window.WADY_PERM = { admin: false, pages: {} };
-  window.wadyLvl = (app, page) => window.WADY_PERM.admin ? 3 : (LV[(window.WADY_PERM.pages[app] || {})[page]] || 0);
-  window.wadyAppLvl = app => window.WADY_PERM.admin ? 3 : Math.max(0, ...Object.values(window.WADY_PERM.pages[app] || {}).map(v => LV[v] || 0));
+  window.WADY_PERM = { admin: false, pages: {}, appAdmin: [] };
+  // an app administrator has every right inside that one app (users and permissions stay with the system admin)
+  window.wadyIsAppAdmin = app => !!window.WADY_PERM.admin || (window.WADY_PERM.appAdmin || []).includes(app);
+  window.wadyLvl = (app, page) => window.wadyIsAppAdmin(app) ? 3 : (LV[(window.WADY_PERM.pages[app] || {})[page]] || 0);
+  window.wadyAppLvl = app => window.wadyIsAppAdmin(app) ? 3 : Math.max(0, ...Object.values(window.WADY_PERM.pages[app] || {}).map(v => LV[v] || 0));
+  // each account opens only the apps it was given; in HR every employee with a linked file opens their own requests
+  async function appAllowed() {
+    if (window.WADY_PERM.admin || window.wadyAppLvl(CFG.app) > 0) return true;
+    if (CFG.app === 'hr') { try { const { data } = await sb.rpc('hr_my_emp'); return !!data; } catch (e) { return true; } }
+    return false;
+  }
+  function denyApp() {
+    const name = CFG.app === 'hr' ? 'الموارد البشرية والشؤون الإدارية' : 'CRM — المبيعات';
+    const show = () => { document.body.innerHTML = '<div style="min-height:100vh;display:grid;place-items:center;font-family:Tajawal,system-ui,sans-serif;background:#f0f3f8;padding:16px" dir="rtl"><div style="background:#fff;border-radius:14px;padding:28px;max-width:440px;text-align:center;box-shadow:0 6px 24px rgba(5,29,72,.12)"><h2 style="color:#051D48;margin:0 0 10px">ما عندك صلاحية على هذا التطبيق</h2><p style="color:#5a6a82;margin:0 0 18px">حسابك ما له دخول على «' + name + '». تواصل مع مدير النظام لو تحتاج الصلاحية.</p><a href="../index.html#apps" style="display:inline-block;background:#051D48;color:#fff;border-radius:999px;padding:10px 20px;text-decoration:none;font-weight:700">الرجوع لتطبيقاتي</a></div></div>'; };
+    if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+  }
   const ready = sb.auth.getSession().then(async ({ data }) => {
     session = data.session || null;
-    if (session) { try { const { data: p } = await sb.rpc('my_pages'); if (p) window.WADY_PERM = { admin: !!p.admin, pages: p.pages || {} }; } catch (e) { } }
+    if (session) { try { const { data: p } = await sb.rpc('my_pages'); if (p) window.WADY_PERM = { admin: !!p.admin, pages: p.pages || {}, appAdmin: p.app_admin || [] }; } catch (e) { } }
     try { document.documentElement.dataset.wadyAppLvl = String(window.wadyAppLvl(CFG.app)); } catch (e) { }
+    if (session && !(await appAllowed())) { denyApp(); return new Promise(() => { }); }  // stop here: nothing of the app loads
     return session;
   });
   window.__wadyReady = ready;

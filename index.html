@@ -300,7 +300,7 @@ a.chip{text-decoration:none;color:var(--ink)}
 details.card>summary{cursor:pointer;list-style:none}details.card>summary::-webkit-details-marker{display:none}details.card>summary::after{content:" ▾";color:var(--muted)}details.card:not([open])>summary::after{content:" ◂"}
 th.srt:hover{color:var(--ink)}
 html[data-plvl="1"] [data-act="flCsv"],html[data-plvl="1"] [data-act="flPrint"],html[data-plvl="1"] [data-act="flBackup"],html[data-plvl="1"] [data-act="flXlsx"],html[data-plvl="1"] [data-act="flLogXls"],html[data-plvl="1"] [data-act="ppXlsx"],html[data-plvl="1"] [data-act="ppXlsxRange"]{display:none!important}
-.pm-app{border:1px solid var(--line);border-radius:10px;margin-top:10px}.pm-app>summary{padding:10px 12px;cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:center}.pm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:6px 14px;padding:0 12px 12px}.pm-row{display:flex;align-items:center;gap:8px;justify-content:space-between;border-bottom:1px dashed var(--line);padding:4px 0}.pm-row select{max-width:170px}.pm-g{grid-column:1/-1;font-size:12px;color:var(--muted);font-weight:700;margin-top:6px}
+.pm-acc{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin-top:14px;padding:8px 10px;background:var(--bg2,#f4f6fa);border-radius:10px}.pm-chk{display:inline-flex;gap:6px;align-items:center;font-size:.92em;cursor:pointer;white-space:nowrap}.pm-chk input{width:18px;height:18px;min-height:0;padding:0;margin:0;flex:none}.pm-acc+.pm-app{margin-top:6px}.pm-app{border:1px solid var(--line);border-radius:10px;margin-top:10px}.pm-app>summary{padding:10px 12px;cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:center}.pm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:6px 14px;padding:0 12px 12px}.pm-row{display:flex;align-items:center;gap:8px;justify-content:space-between;border-bottom:1px dashed var(--line);padding:4px 0}.pm-row select{max-width:170px}.pm-g{grid-column:1/-1;font-size:12px;color:var(--muted);font-weight:700;margin-top:6px}
 </style>
 </head>
 <body>
@@ -372,7 +372,8 @@ async function fetchAll(q){const out=[];let from=0;const size=1000;for(;;){const
 async function loadBase(){
   const uid=S.session.user.id;
   const {data:me,error}=await sb.from('profiles').select('*').eq('id',uid).single();if(error)throw error;S.me=me;
-  try{const {data:mp}=await sb.rpc('my_pages');S.pages=mp?.pages||{}}catch(e){S.pages={}}
+  try{const {data:mp}=await sb.rpc('my_pages');S.pages=mp?.pages||{};S.appAdmin=mp?.app_admin||[]}catch(e){S.pages={};S.appAdmin=[]}
+  try{const {data:he}=await sb.rpc('hr_my_emp');S.hrEmp=he||null}catch(e){S.hrEmp=null}
   if(me.role==='pending'||!me.active)return;
   const [profiles,regions,settings,customers]=await Promise.all([
     fetchAll(()=>sb.from('profiles').select('*').order('full_name')),
@@ -413,7 +414,8 @@ const LVLS=[['','N/A'],['view','Viewer — عرض'],['audit','Auditor — تدق
 const LVN={view:1,audit:2,edit:3};
 const pagesOf=app=>(PAGES[app]?.groups||[]).flatMap(g=>g[1].map(p=>p[0]));
 const lvl=(app,page)=>isAdmin()?3:(LVN[((S.pages||{})[app]||{})[page]]||0);
-const appLvl=app=>isAdmin()?3:Math.max(0,...Object.values((S.pages||{})[app]||{}).map(v=>LVN[v]||0));
+const isAppAdmin=app=>isAdmin()||(S.appAdmin||[]).includes(app);
+const appLvl=app=>isAppAdmin(app)?3:Math.max(0,...Object.values((S.pages||{})[app]||{}).map(v=>LVN[v]||0));
 const lvlName=n=>['N/A','Viewer','Auditor','Editor'][n]||'N/A';
 // role templates to fill the matrix quickly (the admin can still change any page)
 const PAGE_TEMPLATES={
@@ -865,9 +867,9 @@ const fleetRegion=()=>isAdmin()?null:S.access.fleet?.region_id||null;
 const hrRole=()=>isAdmin()?'hr_admin':S.access.hr?.role||null;
 const hrIs=(...r)=>{const x=hrRole();return x==='hr_admin'||r.includes(x)};
 const APPS=[
-  {id:'sales',name:'CRM — المبيعات والإنتاج',sub:'العملاء والمشاريع، الفرص والعروض، الزيارات الميدانية، العينات، الشكاوى، التحصيل، البايب لاين، خطة الإنتاج',icon:'pipe',tone:'#38AC57',home:()=>'prod',external:()=>(isSales()||pagesOf('crm').some(p=>p!=='prod'&&lvl('crm',p)>0))?'crm/index.html':null,can:()=>isSales()||['prod','plant'].includes(role())||appLvl('crm')>0},
-  {id:'fleet',name:'حركة السيارات والتوصيل',sub:'لوحة الحركة، طلبات التوصيل، تخطيط الردود، الاحتياطي، الصيانة، التوريدات اليومية ومؤشرات الأداء',icon:'truck',tone:'#34BEF0',home:()=>'dash',external:'fleet/index.html',can:()=>appLvl('fleet')>0},
-  {id:'hr',name:'الموارد البشرية والشؤون الإدارية',sub:'الموظفون، الطلبات والاعتمادات، الحضور، الرواتب، التوظيف، الجمارك، النماذج',icon:'users',tone:'#8FC153',home:()=>'home',external:'hr/index.html',can:()=>true},
+  {id:'sales',name:'CRM — المبيعات والإنتاج',sub:'العملاء والمشاريع، الفرص والعروض، الزيارات الميدانية، العينات، الشكاوى، التحصيل، البايب لاين، خطة الإنتاج',icon:'pipe',tone:'#38AC57',home:()=>'prod',external:()=>(isSales()||pagesOf('crm').some(p=>p!=='prod'&&lvl('crm',p)>0))?'crm/index.html':null,can:()=>isAdmin()||appLvl('crm')>0},
+  {id:'fleet',name:'حركة السيارات والتوصيل',sub:'لوحة الحركة، طلبات التوصيل، تخطيط الردود، الاحتياطي، الصيانة، التوريدات اليومية ومؤشرات الأداء',icon:'truck',tone:'#34BEF0',home:()=>'dash',external:'fleet/index.html',can:()=>isAdmin()||appLvl('fleet')>0},
+  {id:'hr',name:'الموارد البشرية والشؤون الإدارية',sub:'الموظفون، الطلبات والاعتمادات، الحضور، الرواتب، التوظيف، الجمارك، النماذج',icon:'users',tone:'#8FC153',home:()=>'home',external:'hr/index.html',can:()=>isAdmin()||appLvl('hr')>0||!!S.hrEmp},
   {id:'admin',name:'إدارة النظام',sub:'المستخدمون والصلاحيات والسجل',icon:'shield',tone:'#051D48',home:()=>'users',can:()=>isAdmin(),hidden:()=>!isAdmin()}
 ];
 const appById=id=>APPS.find(a=>a.id===id);
@@ -967,10 +969,10 @@ function afterLogin(){
 const accOf=(uid,app)=>S.allAccess.find(a=>a.user_id===uid&&a.app===app)||null;
 const factoryRegions=()=>S.regions.filter(r=>r.is_factory);
 const APPS_ORDER=['crm','fleet','hr'];
-function permSummary(p){if(p.role==='admin')return pill('مدير النظام — كل الصلاحيات','strong');const m=(S.allPages||{})[p.id]||{};
-  const parts=APPS_ORDER.map(app=>{const v=Object.values(m[app]||{});if(!v.length)return '';if(pagesOf(app).length&&pagesOf(app).every(pg=>(m[app]||{})[pg]==='edit'))return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> صلاحيات كاملة</span>`;const n=k=>v.filter(x=>x===k).length;
+function permSummary(p){if(p.role==='admin')return pill('مدير النظام — كل الصلاحيات','strong');const m=(S.allPages||{})[p.id]||{};const aa=(S.allAppAdmins||{})[p.id]||[];
+  const parts=APPS_ORDER.map(app=>{if(aa.includes(app))return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> ${pill('مدير التطبيق','strong')}</span>`;const v=Object.values(m[app]||{});if(!v.length)return '';if(pagesOf(app).length&&pagesOf(app).every(pg=>(m[app]||{})[pg]==='edit'))return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> صلاحيات كاملة</span>`;const n=k=>v.filter(x=>x===k).length;
     return `<span class="small"><b>${esc(PAGES[app].name.split(' — ')[0])}</b> ${[['edit','تعديل'],['audit','تدقيق'],['view','عرض']].filter(([k])=>n(k)).map(([k,l])=>`${n(k)} ${l}`).join(' · ')}</span>`}).filter(Boolean);
-  return parts.join('<br>')||'<span class="muted small">بدون صلاحيات صفحات</span>'}
+  return parts.join('<br>')||(empOfUser(p.id)?'<span class="muted small">طلباته في الموارد البشرية فقط</span>':'<span class="muted small">بدون دخول على أي تطبيق</span>')}
 V.users=()=>{
   if(!isAdmin())return `<div class="card empty">إدارة المستخدمين والصلاحيات لمدير النظام.</div>`;
   if(!S.allPagesLoaded){loadAllPages().then(render);return '<div class="card empty">جارٍ التحميل…</div>'}
@@ -986,11 +988,16 @@ V.users=()=>{
      {l:'ملف الموظف',f:p=>{const e=empOfUser(p.id);return e?`${esc(e.name_ar)} <span class="small muted">${esc(e.emp_no||'')}</span>`:pill('غير مربوط','warn')}},
      {l:'الاسم في ملفات Excel',f:p=>(p.aliases||[]).length?`<span class="small">${(p.aliases||[]).map(esc).join('، ')}</span>`:'<span class="muted small">—</span>'}],rows,{open:'user'})}`;
 };
-async function loadAllPages(){const rows=await fetchAll(()=>sb.from('user_pages').select('user_id,app,page,level'));const m={};rows.forEach(r=>{((m[r.user_id]=m[r.user_id]||{})[r.app]=m[r.user_id][r.app]||{})[r.page]=r.level});S.allPages=m;S.allPagesLoaded=true}
-function permMatrix(cur){
-  return APPS_ORDER.map(app=>{const P=PAGES[app];const c=cur[app]||{};const n=Object.keys(c).length;
+async function loadAllPages(){const rows=await fetchAll(()=>sb.from('user_pages').select('user_id,app,page,level'));const m={};rows.forEach(r=>{((m[r.user_id]=m[r.user_id]||{})[r.app]=m[r.user_id][r.app]||{})[r.page]=r.level});S.allPages=m;
+  const aa={};try{const {data}=await sb.from('app_admins').select('user_id,app');(data||[]).forEach(r=>(aa[r.user_id]=aa[r.user_id]||[]).push(r.app))}catch(e){}S.allAppAdmins=aa;S.allPagesLoaded=true}
+function permMatrix(cur,adm){adm=adm||[];
+  return APPS_ORDER.map(app=>{const P=PAGES[app];const c=cur[app]||{};const n=Object.keys(c).length;const isA=adm.includes(app);
     const tpl=Object.keys(PAGE_TEMPLATES[app]||{});const tplName={rep:'مندوب',sup:'مشرف',mgr:'مدير مبيعات',auditor:'مدقق (كل الصفحات)',viewer:'عارض (كل الصفحات)',branch:'مسؤول فرع',fadmin:'مدير الحركة (كل الصفحات)',dispatcher:'منسق حركة',sales_sup:'مشرف مبيعات',manager:'صلاحيات كاملة (كل الصفحات تعديل)'};
-    return `<details class="pm-app" ${n?'open':''}><summary>${esc(P.name)} <span class="small muted" data-pmc="${app}">${n?n+' صفحة':'بدون صلاحية'}</span>
+    return `<div class="pm-acc"><b>${esc(P.name.split(' — ')[0])}</b>
+      <label class="pm-chk"><input type="checkbox" data-pmon="${app}" ${n||isA?'checked':''}> يدخل التطبيق</label>
+      <label class="pm-chk"><input type="checkbox" data-pmadm="${app}" ${isA?'checked':''}> مدير التطبيق (كل الصلاحيات داخله)</label>
+      ${app==='hr'?'<span class="small muted">بدون دخول: الموظف المربوط بملف يدخل لطلباته وبياناته هو فقط.</span>':''}</div>
+    <details class="pm-app" data-pmapp="${app}" ${n&&!isA?'open':''}><summary>${esc(P.name)} <span class="small muted" data-pmc="${app}">${n?n+' صفحة':'بدون صلاحية'}</span>
       <span style="flex:1"></span><select data-pmtpl="${app}" aria-label="تعبئة سريعة"><option value="">تعبئة سريعة…</option>${tpl.map(k=>`<option value="${k}">${tplName[k]||k}</option>`).join('')}<option value="__none">مسح الكل (N/A)</option></select></summary>
       ${P.note?`<p class="small muted" style="margin:0 12px 6px">${esc(P.note)}</p>`:''}
       <div class="pm-grid">${P.groups.map(([g,ps])=>`<div class="pm-g">${esc(g)}</div>`+ps.map(([id,l])=>`<label class="pm-row"><span>${esc(l)}</span><select data-pm="${app}|${id}">${LVLS.map(([v,t])=>`<option value="${v}" ${(c[id]||'')===v?'selected':''}>${t}</option>`).join('')}</select></label>`).join('')).join('')}</div></details>`}).join('')}
@@ -1034,14 +1041,23 @@ async function userForm(p){
    </div>
    <h3 class="fsec">${icon('shield')} صلاحيات الصفحات</h3>
    ${p.role==='admin'?'<div class="banner info"><span class="sp">مدير النظام له صلاحية Editor على كل الصفحات تلقائياً.</span></div>':''}
-   <div id="uf_pm">${permMatrix(cur)}</div>
+   <p class="small muted">«يدخل التطبيق» يحدد التطبيقات اللي تظهر له بنفس اسم المستخدم. «مدير التطبيق» يعطيه كل الصلاحيات داخل هذا التطبيق بس — إدارة المستخدمين والصلاحيات تبقى لمدير النظام.</p>
+   <div id="uf_pm">${permMatrix(cur,(S.allAppAdmins||{})[p.id]||[])}</div>
    <div id="uf_err" class="flag"></div>
    <div class="formbar">${!isNew&&p.id!==S.me.id?`<button type="button" class="btn ${p.active?'d':''}" data-act="userActive" data-id="${p.id}" data-v="${p.active?0:1}">${p.active?'إيقاف الحساب':'تفعيل الحساب'}</button><button type="button" class="btn" data-act="userPass" data-id="${p.id}">تغيير كلمة المرور</button>`:''}<span style="flex:1"></span><button type="button" class="btn" data-act="closeModal">إلغاء</button><button type="submit" class="btn p">حفظ</button></div></form>`,b=>{
     const form=b.querySelector('#userForm');
     const sync=()=>{const r=b.querySelector('#uf_role').value;b.querySelectorAll('.uf-s').forEach(x=>x.hidden=!salesRole(r));b.querySelectorAll('.uf-rep').forEach(x=>x.hidden=r!=='rep');
       b.querySelector('#uf_empno_w').hidden=b.querySelector('#uf_emp').value!=='__new';
-      APPS_ORDER.forEach(app=>{const n=[...b.querySelectorAll(`[data-pm^="${app}|"]`)].filter(s=>s.value).length;const c=b.querySelector(`[data-pmc="${app}"]`);if(c)c.textContent=n?n+' صفحة':'بدون صلاحية'})};
-    form.addEventListener('change',e=>{const t=e.target;if(t.dataset.pmtpl!=null&&t.value){const app=t.dataset.pmtpl;const m=t.value==='__none'?{}:templatePages(app,t.value);
+      APPS_ORDER.forEach(app=>{const n=[...b.querySelectorAll(`[data-pm^="${app}|"]`)].filter(s=>s.value).length;const c=b.querySelector(`[data-pmc="${app}"]`);
+        const adm=b.querySelector(`[data-pmadm="${app}"]`).checked;if(c)c.textContent=adm?'مدير التطبيق — كل الصفحات':n?n+' صفحة':'بدون صلاحية';
+        b.querySelector(`[data-pmon="${app}"]`).checked=adm||n>0;b.querySelectorAll(`[data-pm^="${app}|"],[data-pmtpl="${app}"]`).forEach(s=>s.disabled=adm)})};
+    const setApp=(app,m)=>b.querySelectorAll(`[data-pm^="${app}|"]`).forEach(s=>{s.value=m[s.dataset.pm.split('|')[1]]||''});
+    const allLv=(app,lv)=>Object.fromEntries(pagesOf(app).map(pg=>[pg,lv]));
+    form.addEventListener('change',e=>{const t=e.target;
+      if(t.dataset.pmon!=null){const app=t.dataset.pmon;if(!t.checked){b.querySelector(`[data-pmadm="${app}"]`).checked=false;setApp(app,{})}
+        else if(![...b.querySelectorAll(`[data-pm^="${app}|"]`)].some(s=>s.value)){setApp(app,PAGE_TEMPLATES[app]?.viewer?templatePages(app,'viewer'):allLv(app,'view'));const d=b.querySelector(`[data-pmapp="${app}"]`);if(d)d.open=true}}
+      if(t.dataset.pmadm!=null){const app=t.dataset.pmadm;if(t.checked){setApp(app,allLv(app,'edit'));if(app==='fleet'){const fr=b.querySelector('#uf_frole');if(fr&&!['sysadmin','ops_mgr'].includes(fr.value))fr.value='sysadmin'}}}
+      if(t.dataset.pmtpl!=null&&t.value){const app=t.dataset.pmtpl;const m=t.value==='__none'?{}:templatePages(app,t.value);
       b.querySelectorAll(`[data-pm^="${app}|"]`).forEach(s=>{s.value=m[s.dataset.pm.split('|')[1]]||''});t.value=''}sync()});sync();
     form.addEventListener('submit',async e=>{e.preventDefault();const g=id=>b.querySelector('#'+id)?.value.trim();const err=m=>b.querySelector('#uf_err').textContent=m;
       const rec={full_name:g('uf_name'),role:g('uf_role'),region_id:g('uf_region')||null,supervisor_id:g('uf_sup')||null,rep_code:g('uf_code')||null,coll_target:+parseNum(g('uf_target'))||0,new_target:+parseNum(g('uf_new'))||0,
@@ -1051,6 +1067,7 @@ async function userForm(p){
       if(S.profiles.some(x=>x.id!==p.id&&String(x.username||'').toLowerCase()===username))return err('اسم المستخدم مستخدم لحساب آخر');
       if(!salesRole(rec.role)){rec.region_id=null;rec.supervisor_id=null}
       if(rec.role==='rep'&&!rec.supervisor_id&&!confirmNoSup(b))return;
+      const wantAdm=APPS_ORDER.filter(app=>b.querySelector(`[data-pmadm="${app}"]`)?.checked);
       const want={};b.querySelectorAll('[data-pm]').forEach(s=>{const [app,pg]=s.dataset.pm.split('|');if(s.value)(want[app]=want[app]||{})[pg]=s.value});
       const btn=b.querySelector('button[type=submit]');btn.disabled=true;
       try{
@@ -1065,12 +1082,18 @@ async function userForm(p){
            if(fr||fi0.role){const {error}=await sb.rpc('fleet_link_user',{p_user:uid,p_role:fr||null,p_branch:fb||null,p_sup:fs||null});if(error)throw error}
            if(fr!==((fi0.active===false?'':fi0.role)||'')){const {data:np}=await sb.from('user_pages').select('page,level').eq('user_id',uid).eq('app','fleet');cur.fleet={};(np||[]).forEach(r=>cur.fleet[r.page]=r.level);want.fleet={...cur.fleet}}
            S.fleetInfo=null}}
+        // an app administrator holds every page of that app at edit
+        wantAdm.forEach(app=>{want[app]=Object.fromEntries(pagesOf(app).map(pg=>[pg,'edit']))});
         // page permissions: write only what changed
         const ups=[],dels=[];APPS_ORDER.forEach(app=>{const a=want[app]||{},c=cur[app]||{};
           Object.entries(a).forEach(([pg,lv])=>{if(c[pg]!==lv)ups.push({user_id:uid,app,page:pg,level:lv,updated_at:new Date().toISOString()})});
           Object.keys(c).forEach(pg=>{if(!a[pg])dels.push([app,pg])})});
         if(ups.length){const {error}=await sb.from('user_pages').upsert(ups,{onConflict:'user_id,app,page'});if(error)throw error}
         for(const [app,pg] of dels){const {error}=await sb.from('user_pages').delete().eq('user_id',uid).eq('app',app).eq('page',pg);if(error)throw error}
+        // app administrators
+        {const had=(S.allAppAdmins||{})[uid]||[];const add=wantAdm.filter(a=>!had.includes(a)).map(app=>({user_id:uid,app,granted_by:S.me.id}));const rm=had.filter(a=>!wantAdm.includes(a));
+         if(add.length){const {error}=await sb.from('app_admins').insert(add);if(error)throw error}
+         if(rm.length){const {error}=await sb.from('app_admins').delete().eq('user_id',uid).in('app',rm);if(error)throw error}}
         // employee file link
         const ev=g('uf_emp')||'';const ce=uid?empOfUser(uid):null;
         if(ev!==(ce?.id||'')){let target=ev;
