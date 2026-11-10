@@ -3138,7 +3138,7 @@ Object.assign(ACT,{
 NAV.splice(Math.max(0,NAV.findIndex(n=>n[0]==='dash')),0,['mydash','gauge',()=>L('لوحتي','My board'),()=>wadyLvl('crm','dash')>=1]);
 
 /* ============ Delivery inside the CRM: the delivery screens open here, in place, on the same login ============ */
-const DLV_TABS=[['dlvops','ops','map',()=>L('لوحة الحركة','Dispatch board')],['dlv','orders','field',()=>L('طلبات التوصيل','Delivery requests')],['dlvplan','plan','plan',()=>L('تنسيق الردود','Trip planning')],['dlvreserve','reserve','alert',()=>L('الاحتياطي','Reserve')],['dlvmaint','maint','build',()=>L('الصيانة','Maintenance')],['dlvreports','dreports','report',()=>L('تقارير التوصيل','Delivery reports')]];
+const DLV_TABS=[['dlvops','ops','map',()=>L('لوحة الحركة','Dispatch board')],['dlv','orders','field',()=>L('طلبات التوصيل','Delivery requests')],['dlvplan','plan','plan',()=>L('تنسيق الردود','Trip planning')],['dlvreserve','reserve','alert',()=>L('الاحتياطي','Reserve')],['dlvmaint','maint','build',()=>L('الصيانة','Maintenance')],['dlvreports','dreports','report',()=>L('تقارير التوصيل','Delivery reports')],['dlvvehicle','vehicle','log',()=>L('سجل السيارة','Vehicle log')],['dlvdrivers','drivers','users',()=>L('السائقين وتقرير ردودهم','Drivers & driver report')]];
 {const at=Math.max(0,NAV.findIndex(n=>n[0]==='field'));NAV.splice(at,0,['g',()=>L('التوصيل','Delivery')],...DLV_TABS.map(([r,t,ic,l])=>[r,ic,l,()=>wadyLvl('fleet',t)>=1]))}
 const DLV={tab:null};
 function dlvHost(){let h=document.getElementById('dlvHost');if(h)return h;const v=document.getElementById('view');if(!v)return null;
