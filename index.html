@@ -875,7 +875,7 @@ const canApp=id=>{const a=appById(id);return !!(a&&S.me&&S.me.active&&a.can())};
 const NAVS={
   sales:[['crmback','pipe','الرجوع إلى CRM',()=>!!appExt('sales')],['prod','factory','خطة الإنتاج',()=>lvl('crm','prod')>0||['prod','plant','admin','mgr'].includes(role())]],
   fleet:[['dash','dash','لوحة الأداء',()=>lvl('fleet','dash')>0],['entry','plus','الإدخال اليومي',()=>lvl('fleet','entry')>0],['vehicle','truck','سجل السيارة',()=>lvl('fleet','vehicle')>0],['carrier','swap','الناقل الخارجي',()=>lvl('fleet','carrier')>0],['report','chart','التقرير',()=>lvl('fleet','report')>0],['customers','users','التوريد حسب العميل',()=>lvl('fleet','customers')>0],['places','pin','الأحياء والمسافات',()=>lvl('fleet','places')>0],['log','log','سجل الحركات',()=>lvl('fleet','log')>0],['import','upload','استيراد Excel',()=>lvl('fleet','import')>0],['setup','gear','الإعدادات',()=>lvl('fleet','setup')>0]],
-  admin:[['users','user','المستخدمون والصلاحيات',()=>true],['ai','spark','المساعد الذكي',()=>true],['audit','log','سجل التدقيق',()=>true]]
+  admin:[['users','user','المستخدمون والصلاحيات',()=>true],['ai','spark','المساعد الذكي',()=>true],['reports','log','التقرير الأسبوعي',()=>isAdmin()],['audit','log','سجل التدقيق',()=>true]]
 };
 let AUTH_FORCE_PICKER=false,AUTH_EXT=false;
 const appExt=id=>{const a=appById(id);if(!a||!a.external)return null;return typeof a.external==='function'?a.external():a.external};
@@ -1099,6 +1099,7 @@ V.ai=()=>{if(!isAdmin())return '<div class="card empty">لمدير النظام.
   <div class="card"><h2>الاستخدام حسب المستخدم<span class="sub">هذا الشهر</span></h2>${table([{l:'المستخدم',f:r=>esc(pName(r.user_id))},{l:'الطلبات',c:'n',f:r=>num(r.calls)},{l:'التوكن',c:'n',f:r=>num(r.tokens)},{l:'من الحد',c:'n',f:r=>fpct(Number(r.tokens)/(s.monthly_tokens_per_user||1))}],AIA.u,{empty:'ما فيه استخدام هذا الشهر'})}</div>
   <div class="card"><h2>آخر الطلبات<span class="sub">السجل كامل محفوظ ولا يقدر المستخدم يعدّله</span></h2>${table([{l:'الوقت',c:'nw',f:r=>fdt(r.created_at)},{l:'المستخدم',f:r=>esc(pName(r.user_id))},{l:'المهمة',f:r=>esc(T[r.task]||r.task)},{l:'الحالة',f:r=>r.status==='ok'?pill('تم','ok'):pill('خطأ','bad')+` <span class="small muted">${esc(r.error||'')}</span>`},{l:'التوكن',c:'n',f:r=>num(r.tokens_in+r.tokens_out)}],AIA.l,{empty:'لا توجد طلبات بعد'})}</div>`};
 document.addEventListener('input',e=>{if(e.target.id!=='uf_sapq')return;const q=wn(e.target.value);document.querySelectorAll('#uf_sap [data-sname]').forEach(l=>{l.style.display=!q||l.dataset.sname.includes(q)?'':'none'})});
+
 
 /* ===== Shell, auth, events ===== */
 /* modal */
@@ -2096,6 +2097,32 @@ V.crmback=()=>{setTimeout(()=>{location.href='crm/index.html'},30);return '<div 
 
 ACT.aiSave=async()=>{const g=id=>document.getElementById(id).value;const v={enabled:g('ai_en')==='1',model:g('ai_model'),monthly_tokens_per_user:Math.max(0,parseInt(parseNum(g('ai_cap')))||0),monthly_tokens_company:Math.max(0,parseInt(parseNum(g('ai_capc')))||0),updated_at:new Date().toISOString()};
   const {error}=await sb.from('ai_settings').update(v).eq('id','main');if(error)return toast(errText(error));AIA.loaded=false;toast('حُفظت إعدادات المساعد');render()};
+
+/* ===== Weekly management report: recipients, preview, send now (system admin) ===== */
+const RPT={loaded:false,list:[],log:[],busy:false};
+const RPT_SCOPES=[['all','التقرير الشامل (الحركة + المبيعات + شئون العاملين)'],['fleet','الحركة — الفرعين'],['fleet:مكة','الحركة — فرع مكة'],['fleet:عسفان','الحركة — فرع عسفان'],['sales','المبيعات والتحصيل'],['hr','شئون العاملين']];
+const rptScope=s=>(RPT_SCOPES.find(x=>x[0]===s)||[s,s])[1];
+async function rptLoad(){const [a,b]=await Promise.all([sb.from('report_recipients').select('*').order('id'),sb.from('report_log').select('*').order('id',{ascending:false}).limit(40)]);RPT.list=a.data||[];RPT.log=b.data||[];RPT.loaded=true;render()}
+async function rptCall(body){const {data:{session}}=await sb.auth.getSession();const r=await fetch(SUPABASE_URL+'/functions/v1/weekly-report',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+(session&&session.access_token)},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));if(!r.ok||j.error)throw new Error(j.error||('خطأ '+r.status));return j}
+V.reports=()=>{if(!isAdmin())return '<div class="card empty">لمدير النظام.</div>';
+  if(!RPT.loaded){rptLoad();return '<div class="card empty">جارٍ التحميل…</div>'}
+  return `<div class="card"><h2>التقرير الإداري الأسبوعي<span class="sub">يوصل بالإيميل كل أحد الساعة 7:30 الصبح، عن الأسبوع اللي قبله (الأحد إلى السبت)</span></h2>
+   <p class="small muted">كل مستلم يوصله التقرير حسب نطاقه: مسؤول حركة الفرع يشوف فرعه، مدير المبيعات يشوف المبيعات، وهكذا. التعريفات في وثيقة مؤشرات الأداء.</p>
+   ${table([{l:'الاسم',f:r=>esc(r.name)},{l:'الإيميل',f:r=>`<span dir="ltr">${esc(r.email)}</span>`},{l:'النطاق',f:r=>esc(rptScope(r.scope))},{l:'الحالة',f:r=>r.active?pill('مفعّل','ok'):pill('موقوف','')},
+     {l:'',f:r=>`<button class="btn sm" data-act="rptPrev" data-s="${esc(r.scope)}">معاينة</button> <button class="btn sm" data-act="rptOne" data-id="${r.id}">إرسال الآن</button> <button class="btn sm" data-act="rptTog" data-id="${r.id}">${r.active?'إيقاف':'تفعيل'}</button> <button class="btn sm" data-act="rptDel" data-id="${r.id}">حذف</button>`}],RPT.list,{empty:'ما فيه مستلمين بعد — أضف أول مستلم تحت.'})}
+   <div class="fgrid" style="margin-top:12px"><div class="fld"><label for="rp_n">الاسم</label><input id="rp_n" placeholder="مثال: مدير المبيعات"></div><div class="fld"><label for="rp_e">الإيميل</label><input id="rp_e" dir="ltr" type="email" placeholder="name@company.com"></div>
+    <div class="fld"><label for="rp_s">النطاق</label><select id="rp_s">${opt(RPT_SCOPES,'all')}</select></div></div>
+   <div class="formbar"><button class="btn" data-act="rptPrev" data-s="all">معاينة التقرير الشامل</button><button class="btn" data-act="rptAll">إرسال الآن لكل المستلمين</button><span style="flex:1"></span><button class="btn p" data-act="rptAdd">+ إضافة مستلم</button></div></div>
+  <div class="card" id="rpt_prev_card" hidden><h2>معاينة<span class="sub" id="rpt_prev_sub"></span></h2><iframe id="rpt_prev" style="width:100%;height:900px;border:1px solid var(--line);border-radius:8px;background:#fff" title="معاينة التقرير"></iframe></div>
+  <div class="card"><h2>سجل الإرسال<span class="sub">آخر 40</span></h2>${table([{l:'الوقت',c:'nw',f:r=>fdt(r.at)},{l:'الأسبوع',f:r=>esc(r.period)},{l:'المستلم',f:r=>`<span dir="ltr">${esc(r.recipient)}</span>`},{l:'النطاق',f:r=>esc(rptScope(r.scope))},{l:'النتيجة',f:r=>r.status==='sent'?pill('وصل','ok'):pill('فشل','bad')+` <span class="small muted">${esc(r.detail||'')}</span>`}],RPT.log,{empty:'ما تم إرسال أي تقرير بعد.'})}</div>`};
+ACT.rptAdd=async()=>{const n=document.getElementById('rp_n').value.trim(),e=document.getElementById('rp_e').value.trim().toLowerCase(),s=document.getElementById('rp_s').value;
+  if(!n||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))return toast('اكتب الاسم وإيميل صحيح');const {error}=await sb.from('report_recipients').insert({name:n,email:e,scope:s});if(error)return toast(/duplicate/.test(error.message)?'المستلم مضاف بنفس النطاق':error.message);toast('تمت الإضافة');rptLoad()};
+ACT.rptDel=async el=>{if(!confirm('حذف المستلم؟'))return;await sb.from('report_recipients').delete().eq('id',el.dataset.id);rptLoad()};
+ACT.rptTog=async el=>{const r=RPT.list.find(x=>String(x.id)===el.dataset.id);await sb.from('report_recipients').update({active:!r.active}).eq('id',r.id);rptLoad()};
+ACT.rptPrev=async el=>{const c=document.getElementById('rpt_prev_card');c.hidden=false;document.getElementById('rpt_prev_sub').textContent='جارٍ التجهيز…';
+  try{const j=await rptCall({action:'preview',scope:el.dataset.s});document.getElementById('rpt_prev').srcdoc=j.html;document.getElementById('rpt_prev_sub').textContent=j.subject;c.scrollIntoView({behavior:'smooth'})}catch(e){document.getElementById('rpt_prev_sub').textContent=e.message}};
+ACT.rptOne=async el=>{try{const j=await rptCall({action:'send',id:+el.dataset.id});toast(j.sent?'تم الإرسال':'ما وصل: '+((j.failed[0]||{}).detail||''));rptLoad()}catch(e){toast(e.message)}};
+ACT.rptAll=async()=>{if(!confirm('إرسال تقرير الأسبوع الماضي الآن لكل المستلمين المفعّلين؟'))return;try{const j=await rptCall({action:'send'});toast(`تم: ${j.sent} من ${j.recipients}`);rptLoad()}catch(e){toast(e.message)}};
 
 /* ===== Generic Excel import: any column names, mapped by the user, remembered per file layout ===== */
 const empByTxt=v=>{const n=normTxt(v);if(!n)return null;return S.empDir.find(e=>normTxt(e.emp_no)===n)||S.empDir.find(e=>normTxt(e.name_ar)===n||normTxt(e.name_en)===n)||null};
