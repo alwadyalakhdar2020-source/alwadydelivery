@@ -23,3 +23,44 @@
   new MutationObserver(function(){clearTimeout(window.__wbT);window.__wbT=setTimeout(decorate,60)}).observe(document.documentElement,{childList:true,subtree:true});
   window.WADY_LOGO_DATA=LOGO_DATA;
 })();
+
+/* ===== Phone notifications (web push): one button in every app; the server sends, even when the app is closed ===== */
+(function(){
+  var ME=document.currentScript&&document.currentScript.src; if(!ME) return;
+  var ROOT=new URL('../',ME).href, SB='https://kpdvgmioltltshzersyc.supabase.co', ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU';
+  var VAPID='BAhRrMwKXa656l1JLXN96wao0FYeQplzaNFNA9_JZjzu9bjvqogJG4w1nCVeSTL9OsangdFwt-vZSmZ1ou5E06I';
+  var ok=('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window)&&window.isSecureContext;
+  function tok(){ try{ var s=JSON.parse(localStorage.getItem('sb-kpdvgmioltltshzersyc-auth-token')||'null'); return s&&(s.access_token||(s.currentSession&&s.currentSession.access_token)); }catch(e){ return null; } }
+  function rpc(fn,args){ var t=tok(); if(!t) return Promise.reject(new Error('سجّل دخول أولاً'));
+    return fetch(SB+'/rest/v1/rpc/'+fn,{method:'POST',headers:{'Content-Type':'application/json',apikey:ANON,Authorization:'Bearer '+t},body:JSON.stringify(args||{})}).then(function(r){ if(!r.ok) return r.text().then(function(x){ throw new Error(x||r.status); }); return r.text(); }); }
+  function key(b){ var p='='.repeat((4-b.length%4)%4), s=atob((b+p).replace(/-/g,'+').replace(/_/g,'/')), a=new Uint8Array(s.length); for(var i=0;i<s.length;i++) a[i]=s.charCodeAt(i); return a; }
+  function b64(buf){ var s=String.fromCharCode.apply(null,new Uint8Array(buf)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+  var inCrm=/\/crm\//.test(location.pathname);
+  function reg(){ if(inCrm) return navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; });
+    return navigator.serviceWorker.register(ROOT+'sw-push.js',{scope:ROOT}); }
+  function current(){ return reg().then(function(r){ return r.pushManager.getSubscription().then(function(s){ return {r:r,s:s}; }); }); }
+  function save(s){ var j=s.toJSON(); return rpc('push_subscribe',{p_endpoint:s.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth,p_app:inCrm?'crm':(/\/hr\//.test(location.pathname)?'hr':(/\/fleet\//.test(location.pathname)?'fleet':'platform')),p_ua:navigator.userAgent}); }
+  var W=window.wadyPush={supported:ok,
+    enable:function(){ if(!ok) return Promise.reject(new Error('الجهاز أو المتصفح ما يدعم الإشعارات. على الآيفون: ثبّت التطبيق على الشاشة الرئيسية وافتحه منها.'));
+      return Notification.requestPermission().then(function(p){ if(p!=='granted') throw new Error('ما تم السماح بالإشعارات — فعّلها من إعدادات المتصفح لهذا الموقع');
+        return current(); }).then(function(c){ return c.s||c.r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(VAPID)}); })
+        .then(function(s){ return save(s); }).then(function(){ return rpc('push_test'); }).then(function(){ paint(); return true; }); },
+    forget:function(){ if(!ok) return Promise.resolve(); return current().then(function(c){ if(c.s) return rpc('push_unsubscribe',{p_endpoint:c.s.endpoint}).catch(function(){}); }).catch(function(){}); },
+    state:function(){ if(!ok) return Promise.resolve('unsupported'); if(Notification.permission==='denied') return Promise.resolve('denied');
+      return current().then(function(c){ return c.s&&Notification.permission==='granted'?'on':'off'; }).catch(function(){ return 'off'; }); }};
+  // keep the device tied to whoever is signed in now (shared phones, account switch)
+  if(ok&&tok()&&Notification.permission==='granted'){ setTimeout(function(){ current().then(function(c){ if(c.s&&!sessionStorage.getItem('wady.push.ok')){ save(c.s).then(function(){ sessionStorage.setItem('wady.push.ok','1'); }).catch(function(){}); } }).catch(function(){}); },2500); }
+  var css=document.createElement('style'); css.textContent='.wady-bell{display:inline-flex;align-items:center;gap:6px;background:#fff;color:#051D48;border:1px solid #cfd8e6;cursor:pointer;border-radius:999px;padding:8px 12px;font:600 13px Tajawal,system-ui,sans-serif;box-shadow:0 2px 10px rgba(5,29,72,.15)}.wady-bell.fix{position:fixed;inset-inline-start:12px;bottom:calc(60px + env(safe-area-inset-bottom,0px));z-index:9998}@media print{.wady-bell{display:none}}';
+  (document.head||document.documentElement).appendChild(css);
+  var btn=null;
+  function paint(){ if(!ok||!tok()){ if(btn) btn.remove(); btn=null; return; }
+    W.state().then(function(st){ if(st==='on'||st==='unsupported'){ if(btn){ btn.remove(); btn=null; } return; }
+      if(!btn){ btn=document.createElement('button'); btn.type='button'; btn.className='wady-bell'; btn.setAttribute('data-wady-bell','');
+        btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> تفعيل الإشعارات';
+        var box=document.querySelector('.wady-back'); if(box) box.appendChild(btn); else { btn.classList.add('fix'); document.body.appendChild(btn); } }
+      btn.title=st==='denied'?'الإشعارات محظورة لهذا الموقع — فعّلها من إعدادات المتصفح':'استقبال تنبيهات المنصة على هذا الجهاز حتى لو التطبيق مقفول'; }); }
+  document.addEventListener('click',function(e){ var b=e.target.closest&&e.target.closest('[data-wady-bell]'); if(!b) return; e.preventDefault(); var t=b.innerHTML; b.disabled=true; b.textContent='…';
+    W.enable().then(function(){ b.textContent='تم التفعيل ✓'; setTimeout(paint,2500); }).catch(function(err){ b.disabled=false; b.innerHTML=t; alert(err.message||err); }); });
+  var start=function(){ setTimeout(paint,1500); setInterval(function(){ if(!btn) paint(); },60000); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
+})();
