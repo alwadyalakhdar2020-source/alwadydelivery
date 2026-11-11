@@ -293,6 +293,11 @@ button.brand.appsw:hover{background:rgba(255,255,255,.08)}
 .pp-t td .btn.s{padding:3px 7px;min-height:28px}
 .pp-tw{overflow:visible}
 #view:has(.pp-line){max-width:none}
+.pp-t tr.pp-chg>td:not([rowspan]){background:#FFF3B0}
+.pp-t tr.pp-chg>td input,.pp-t tr.pp-chg>td textarea{background:#FFFBE0;border-color:#E3C75A}
+.pp-chgnote{background:#FFF8D6;border-color:#E3C75A;color:#5C4500}.pp-sw{display:inline-block;width:16px;height:12px;background:#FFF3B0;border:1px solid #E3C75A;vertical-align:-1px;border-radius:2px}
+@media print{.pp-t tr.pp-chg>td{background:#FFF3B0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+html[data-theme=dark] .pp-t tr.pp-chg>td:not([rowspan]){background:#4a3f10}
 .formbar.sticky{position:sticky;bottom:0;z-index:5;background:var(--bg);padding-block:10px;flex-wrap:wrap}
 @media (max-width:860px){.formbar.sticky{position:static}}
 @media print{
@@ -1307,6 +1312,9 @@ async function ppLoad(){
     const {data:w,error}=await sb.from('prod_weeks').select('*').eq('week_start',ws).maybeSingle();if(error)throw error;
     let lr=[],it=[];if(w){const [a,b]=await Promise.all([sb.from('prod_week_lines_current').select('*').eq('week_id',w.id).order('seq'),fetchAll(()=>sb.from('prod_items_current').select('*').eq('week_id',w.id).order('day').order('seq'))]);if(a.error)throw a.error;lr=a.data;it=b}
     if(ws!==PP.ws)return;
+    // baseline = the first approved version: rows changed after it are highlighted
+    PP.base=null;const ar=w&&w.first_approved_rev;
+    if(ar){if(ar===w.rev)PP.base=ppBuild(ws,lr,it);else{const [ba,bb]=await Promise.all([sb.from('prod_week_lines').select('*').eq('week_id',w.id).eq('rev',ar).order('seq'),fetchAll(()=>sb.from('prod_items').select('*').eq('week_id',w.id).eq('rev',ar).order('day').order('seq'))]);if(!ba.error)PP.base=ppBuild(ws,ba.data,bb)}}
     PP.doc=w||{status:'none',week_start:ws,week_no:weekNoOf(ws),note:''};PP.lines=ppBuild(ws,lr,it);PP.dirty=false;PP.errors={};
     if(!w&&isProdEditor())await ppAutoPlanNos();
   }catch(e){toast(errText(e));PP.doc=null}
@@ -1359,7 +1367,8 @@ function ppWeekBar(){const d=PP.doc,st=d.status;const ws=PP.ws,we=addDays(ws,6);
    <span class="grow"><b>خطة الإنتاج — الأسبوع ${esc(d.week_no||weekNoOf(ws))}</b> <span class="muted small">من السبت ${fdate(ws)} إلى الجمعة ${fdate(we)}</span></span>${pill(...PSTATUS[st])}</div>`}
 function ppPlanView(){
   const d=PP.doc,st=d.status,ro=!ppCanEdit(),E=PP.errors;
-  let h=ppWeekBar();
+  let h=ppWeekBar();const CHG=ppChanged();
+  if(CHG.size)h+=`<div class="banner pp-chgnote"><span class="sp"><span class="pp-sw"></span> <b>${CHG.size}</b> ${CHG.size===1?'صف معدّل':'صفوف معدّلة'} بعد اعتماد الخطة — ملوّنة بالأصفر في الجدول وفي الطباعة.</span></div>`;
   if(st==='none'&&!isProdEditor())return h+`<div class="card empty">لا توجد خطة ${isProdStaff()?'لهذا الأسبوع بعد':'معتمدة لهذا الأسبوع'}.</div>`;
   if(st==='returned'&&d.review_note)h+=`<div class="banner bad"><span class="sp"><b>أُعيدت للتعديل:</b> ${esc(d.review_note)}${d.reviewed_by?' — '+esc(pName(d.reviewed_by)):''}</span></div>`;
   if(st==='submitted')h+=`<div class="banner warn noprint"><span class="sp">الخطة مرسلة وبانتظار الاعتماد${isAdmin()?'. أي حفظ من مدير النظام يعيدها مسودة':''}.</span></div>`;
@@ -1377,9 +1386,9 @@ function ppPlanView(){
   PP.lines.forEach((l,li)=>{
     if(ro&&!lineHas(l))return;
     const dayIdx={};l.rows.forEach((r,ri)=>{(dayIdx[r.day]=dayIdx[r.day]||[]).push(ri)});
-    const stops=l.rows.reduce((a,r)=>a+['m','n'].filter(s=>isStop(r[s].item)).length,0);
+    const LS=lineShifts(l),stops=LS.stop;
     const wh=lineWhs(l.line_id);
-    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">رقم الخطة ${esc(l.plan_no||'—')} · ${fdate(l.start_date)} – ${fdate(l.end_date)}${stops?` · ${stops} وردية توقف`:''}${wh?` · الأرصدة من مستودع ${esc(wh)}${WHS_NAME[wh]?' ('+WHS_NAME[wh]+')':''}`:''}</span></h2>
+    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">رقم الخطة ${esc(l.plan_no||'—')} · ${fdate(l.start_date)} – ${fdate(l.end_date)}${LS.slots?` · ${LS.prod} وردية إنتاج · ${LS.items} منتج`:''}${stops?` · ${stops} وردية توقف`:''}${wh?` · الأرصدة من مستودع ${esc(wh)}${WHS_NAME[wh]?' ('+WHS_NAME[wh]+')':''}`:''}</span></h2>
      ${ro?'':`<div class="fgrid noprint" style="margin-bottom:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="fld"><label for="pp_l${li}_plan">رقم الخطة</label><input id="pp_l${li}_plan" dir="ltr" data-pp="line" data-l="${li}" data-k="plan_no" value="${esc(l.plan_no)}"></div>
       <div class="fld"><label for="pp_l${li}_s">تاريخ البدء</label><input type="date" id="pp_l${li}_s" data-pp="line" data-l="${li}" data-k="start_date" value="${esc(l.start_date)}"></div>
       <div class="fld"><label for="pp_l${li}_e">تاريخ الانتهاء</label><input type="date" id="pp_l${li}_e" data-pp="line" data-l="${li}" data-k="end_date" value="${esc(l.end_date)}"></div>
@@ -1387,7 +1396,7 @@ function ppPlanView(){
      ${E['l'+li]?`<div class="flag">راجع تاريخ البدء والانتهاء</div>`:''}
      <div class="tw pp-tw"><table class="pp-t${ro?' ro':''}">${ppCols(F,ro)}<thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="pp-m" style="text-align:center">الوردية الصباحية</th><th colspan="${F.length}" class="pp-n" style="text-align:center">الوردية المسائية</th>${ro?'':'<th rowspan="2" class="noprint"></th>'}</tr>
       <tr>${['m','n'].map(s=>F.map(f=>`<th class="pp-${s}${f[0]==='stock'||f[0]==='q'?' n':''}">${f[1]}</th>`).join('')).join('')}</tr></thead><tbody>
-      ${Object.entries(dayIdx).map(([day,idx])=>idx.map((ri,j)=>{const r=l.rows[ri];return `<tr class="${j===0?'pp-d':''}">${j===0?`<td rowspan="${idx.length}"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${idx.length}" class="pp-date">${fdate(day)}</td>`:''}
+      ${Object.entries(dayIdx).map(([day,idx])=>idx.map((ri,j)=>{const r=l.rows[ri];return `<tr class="${j===0?'pp-d':''}${CHG.has(r)?' pp-chg':''}"${CHG.has(r)?' title="معدّل بعد اعتماد الخطة"':''}>${j===0?`<td rowspan="${idx.length}"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${idx.length}" class="pp-date">${fdate(day)}</td>`:''}
         ${['m','n'].map(s=>F.map(([k,,w])=>ro?`<td class="${k==='stock'||k==='q'?'n':''}${k==='code'?' nw':''}" ${k==='code'?'dir="ltr" style="text-align:right"':''}>${k==='stock'&&sv(r[s].stock)!==''?num(+r[s].stock):esc(r[s][k])}</td>`:`<td>${inp(li,ri,s,k,r[s][k],w,k==='code'?'dl_pcode':k==='item'?'dl_pitem':k==='q'?'dl_pqty':'')}</td>`).join('')).join('')}
         ${ro?'':`<td class="nw noprint">${j===0?`<button class="btn s" data-act="ppAddRow" data-l="${li}" data-d="${day}" aria-label="إضافة منتج في نفس اليوم" title="إضافة منتج في نفس اليوم">+</button>${idx.length===1&&(slotHas(r.m)||slotHas(r.n))?` <button class="btn s" data-act="ppClearRow" data-l="${li}" data-r="${ri}" aria-label="تفريغ اليوم" title="تفريغ اليوم">⌫</button>`:''}`:`<button class="btn s d" data-act="ppDelRow" data-l="${li}" data-r="${ri}" aria-label="حذف السطر">✕</button>`}</td>`}</tr>`}).join('')).join('')||`<tr><td colspan="${F.length*2+3}" class="empty">حدد تاريخ البدء والانتهاء</td></tr>`}
       </tbody></table></div>${l.note&&ro?`<p class="small"><b>ملاحظة:</b> ${esc(l.note)}</p>`:''}</div>`});
@@ -1412,21 +1421,40 @@ function ppAutosize(){document.querySelectorAll('textarea.pp-ta').forEach(el=>{e
 document.addEventListener('input',e=>{if(e.target.matches&&e.target.matches('textarea.pp-ta')){e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+2+'px'}});
 function ppStockAll(){if(!ppCanEdit())return;let n=0,miss=0;PP.lines.forEach(l=>l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!sv(x.code))return;const q=stockFor(x.code,l.line_id);if(q==null){miss++;return}if(fmtQ(q)!==sv(x.stock)){x.stock=fmtQ(q);n++}})));
   if(n){PP.dirty=true;render()}toast(n?`تحدّث رصيد ${n} منتج${miss?` · ${miss} بدون رصيد في المستودع`:''}`:miss?`ما تغيّر شي · ${miss} منتج بدون رصيد في المستودع`:'الأرصدة محدّثة')}
+/* a shift = one day × (morning | night) of one line, however many products run in it.
+   A shift with any product is a production shift; otherwise mould change, otherwise stop. */
+/* rows that differ from the approved version (same line and day); a removed row marks the day's first row */
+function ppChanged(){const out=new Set();if(!PP.base)return out;
+  const sig=x=>['code','item','q','mould','cycle'].map(k=>sv(x[k])).join('\u0001');const rs=r=>slotHas(r.m)||slotHas(r.n)?sig(r.m)+'\u0002'+sig(r.n):'';
+  PP.lines.forEach(l=>{const b=PP.base.find(x=>x.line_id===l.line_id);const byDay={};
+    (b?b.rows:[]).forEach(r=>{const k=rs(r);if(k)(byDay[r.day]=byDay[r.day]||[]).push(k)});
+    const days={};l.rows.forEach(r=>(days[r.day]=days[r.day]||[]).push(r));
+    Object.entries(days).forEach(([day,rows])=>{const pool=[...(byDay[day]||[])];
+      rows.forEach(r=>{const k=rs(r);if(!k)return;const i=pool.indexOf(k);if(i>=0)pool.splice(i,1);else out.add(r)});
+      if(pool.length)out.add(rows[0])});
+    Object.keys(byDay).forEach(day=>{if(!days[day]){const r=l.rows[0];if(r)out.add(r)}})});
+  return out}
+function lineShifts(l){const sh=new Map();
+  l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!slotHas(x))return;const k=r.day+'|'+s;const o=sh.get(k)||{day:r.day,s,prod:[],stop:false,mould:false};sh.set(k,o);
+    if(isStop(x.item))o.stop=true;else if(isMould(x.item))o.mould=true;else if(sv(x.code)||sv(x.item))o.prod.push(x)}));
+  let prod=0,stop=0,mould=0;const items=new Set();
+  sh.forEach(o=>{o.prod.forEach(x=>items.add(normCode(x.code)||('~'+sv(x.item))));if(o.prod.length)prod++;else if(o.mould)mould++;else if(o.stop)stop++});
+  return {shifts:sh,slots:sh.size,prod,stop,mould,items:items.size}}
 function ppStats(lines){
-  const prods={},byLine=[];let slots=0,stop=0,mould=0;
-  lines.forEach(l=>{let ls=0,lstop=0,lm=0;l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!slotHas(x))return;slots++;ls++;
-    if(isStop(x.item)){stop++;lstop++;return}if(isMould(x.item)){mould++;lm++;return}if(!sv(x.code)&&!sv(x.item))return;
-    const k=normCode(x.code)||('~'+x.item);const p=prods[k]=prods[k]||{code:x.code,item:x.item,shifts:0,qty:0,text:0,lines:new Set(),days:new Set(),stock:null};
-    p.shifts++;p.lines.add(lineName(l.line_id));p.days.add(r.day);const st=parseNum(x.stock);if(Number.isFinite(st))p.stock=st;const q=qSplit(x.q);if(q.qty!=null)p.qty+=q.qty;else p.text++}));
-    if(ls)byLine.push({name:lineName(l.line_id),plan:l.plan_no,slots:ls,stop:lstop,mould:lm})});
-  return {prods:Object.values(prods).sort((a,b)=>b.shifts-a.shifts||String(a.code).localeCompare(String(b.code))),byLine,slots,stop,mould};
+  const prods={},byLine=[];let slots=0,stop=0,mould=0,prodN=0;
+  lines.forEach(l=>{const L=lineShifts(l);if(!L.slots)return;slots+=L.slots;stop+=L.stop;mould+=L.mould;prodN+=L.prod;
+    L.shifts.forEach(o=>{const seen=new Set();o.prod.forEach(x=>{const k=normCode(x.code)||('~'+sv(x.item));
+      const p=prods[k]=prods[k]||{code:x.code,item:x.item,shifts:0,qty:0,text:0,lines:new Set(),days:new Set(),stock:null};
+      if(!seen.has(k)){p.shifts++;seen.add(k)}p.lines.add(lineName(l.line_id));p.days.add(o.day);const st=parseNum(x.stock);if(Number.isFinite(st))p.stock=st;const q=qSplit(x.q);if(q.qty!=null)p.qty+=q.qty;else p.text++})});
+    byLine.push({name:lineName(l.line_id),plan:l.plan_no,slots:L.slots,prod:L.prod,stop:L.stop,mould:L.mould,items:L.items})});
+  return {prods:Object.values(prods).sort((a,b)=>b.shifts-a.shifts||String(a.code).localeCompare(String(b.code))),byLine,slots,stop,mould,prod:prodN};
 }
 function ppSummaryView(){
   const s=ppStats(PP.lines);let h=ppWeekBar();
   if(!s.slots)return h+`<div class="card empty">لا توجد بنود في خطة هذا الأسبوع.</div>`;
-  h+=`<div class="kpis k5">${kpiTile('الخطوط العاملة',s.byLine.filter(l=>l.slots>l.stop).length,`من ${s.byLine.length}`)}${kpiTile('ورديات مخططة',s.slots)}${kpiTile('ورديات إنتاج',s.slots-s.stop-s.mould)}${kpiTile('ورديات توقف',s.stop)}${kpiTile('منتجات مختلفة',s.prods.length,s.mould?`تغيير قالب ${s.mould}`:'')}</div>`;
+  h+=`<div class="kpis k5">${kpiTile('الخطوط العاملة',s.byLine.filter(l=>l.prod>0).length,`من ${s.byLine.length}`)}${kpiTile('ورديات مخططة',s.slots,'كل يوم وردية صباحية ومسائية')}${kpiTile('ورديات إنتاج',s.prod)}${kpiTile('ورديات توقف',s.stop)}${kpiTile('منتجات مختلفة',s.prods.length,s.mould?`تغيير قالب ${s.mould}`:'')}</div>`;
   h+=`<div class="card"><h2>المنتجات المخططة هذا الأسبوع<span class="sub">الكمية الرقمية مجموع ما كُتب بالأرقام. البنود المكتوبة «وردية» تُحسب بعدد الورديات.</span></h2>${table([{l:'الكود',c:'nw',f:p=>`<span dir="ltr">${esc(p.code||'—')}</span>`},{l:'المنتج',f:p=>esc(p.item)},{l:'الخطوط',f:p=>esc([...p.lines].join('، '))},{l:'أيام',c:'n',f:p=>p.days.size},{l:'ورديات',c:'n',f:p=>p.shifts,t:r=>r.reduce((a,p)=>a+p.shifts,0)},{l:'الكمية الرقمية',c:'n',f:p=>p.qty?num(p.qty):'—'},{l:'رصيد المنتج',c:'n',f:p=>p.stock!=null?num(p.stock):'—'}],s.prods,{foot:1})}</div>`;
-  h+=`<div class="card"><h2>حسب خط الإنتاج</h2>${table([{l:'الخط',f:l=>`<b>${esc(l.name)}</b>`},{l:'رقم الخطة',f:l=>`<span dir="ltr">${esc(l.plan||'—')}</span>`},{l:'ورديات مخططة',c:'n',f:l=>l.slots},{l:'توقف',c:'n',f:l=>l.stop||''},{l:'تغيير قالب',c:'n',f:l=>l.mould||''},{l:'تشغيل',c:'n',f:l=>l.slots-l.stop-l.mould}],s.byLine)}</div>`;
+  h+=`<div class="card"><h2>حسب خط الإنتاج</h2>${table([{l:'الخط',f:l=>`<b>${esc(l.name)}</b>`},{l:'رقم الخطة',f:l=>`<span dir="ltr">${esc(l.plan||'—')}</span>`},{l:'ورديات مخططة',c:'n',f:l=>l.slots},{l:'ورديات إنتاج',c:'n',f:l=>l.prod},{l:'عدد المنتجات',c:'n',f:l=>l.items},{l:'توقف',c:'n',f:l=>l.stop||''},{l:'تغيير قالب',c:'n',f:l=>l.mould||''}],s.byLine)}</div>`;
   return h+`<div class="formbar noprint"><button class="btn" data-act="ppXlsx">تصدير Excel</button></div>`;
 }
 function ppWeeksView(){
@@ -1644,13 +1672,14 @@ function ppPrint(){
   const has=(l,k)=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k]));
   const W={code:12,item:25,q:8,stock:8,mould:8,cycle:6};
   const cell=(x,k)=>{const v=x[k];if(k==='stock')return sv(v)!==''&&Number.isFinite(parseNum(v))?num(parseNum(v)):esc(v);if(k==='item'&&(isStop(v)||isMould(v)))return `<span class="tag ${isStop(v)?'stop':'mould'}">${esc(v)}</span>`;return esc(v)};
+  const CHG=ppChanged();
   const page=(l,i)=>{
     const F=K.filter(([k])=>k==='code'||k==='item'||k==='q'||has(l,k));const tw=F.reduce((a,[k])=>a+W[k],0)*2+14;
     const col=k=>`<col style="width:${(W[k]/tw*100).toFixed(2)}%">`;
     const days={};l.rows.forEach(r=>{(days[r.day]=days[r.day]||[]).push(r)});
-    let prod=0,stop=0;l.rows.forEach(r=>['m','n'].forEach(s=>{if(!slotHas(r[s]))return;if(isStop(r[s].item)||isMould(r[s].item))stop++;else prod++}));
+    const LS=lineShifts(l),prod=LS.prod,stop=LS.stop+LS.mould;
     const body=Object.entries(days).map(([day,rows])=>{const keep=rows.filter((x,j)=>j===0||slotHas(x.m)||slotHas(x.n));
-      return keep.map((x,j)=>`<tr class="${j===0?'d0':''} ${dow(day)===5?'fri':''}">${j===0?`<td rowspan="${keep.length}" class="day"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${keep.length}" class="date">${fdate(day)}</td>`:''}
+      return keep.map((x,j)=>`<tr class="${j===0?'d0':''} ${dow(day)===5?'fri':''} ${CHG.has(x)?'chg':''}">${j===0?`<td rowspan="${keep.length}" class="day"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${keep.length}" class="date">${fdate(day)}</td>`:''}
         ${['m','n'].map(s=>F.map(([k])=>`<td class="${k} ${s==='n'?'nt':''}${k==='code'?' ltr':''}">${cell(x[s],k)}</td>`).join('')).join('')}</tr>`).join('')}).join('');
     const wh=lineWhs(l.line_id);
     return `<section class="page"><div class="fit">
@@ -1659,10 +1688,11 @@ function ppPrint(){
       <div class="meta"><div><span>الأسبوع</span><b>${esc(wk)}</b></div><div><span>الحالة</span><b class="st ${st}">${esc(stTxt)}</b></div></div></header>
      <div class="line"><div class="ln"><span>خط الإنتاج</span><b>${esc(lineName(l.line_id))}</b></div>
       <div><span>رقم الخطة</span><b class="ltr">${esc(l.plan_no||'—')}</b></div><div><span>من</span><b>${fdate(l.start_date)}</b></div><div><span>إلى</span><b>${fdate(l.end_date)}</b></div>
-      <div><span>ورديات إنتاج</span><b>${prod}</b></div><div><span>توقف / تغيير قالب</span><b>${stop}</b></div>${wh?`<div><span>مستودع الأرصدة</span><b>${esc(wh)}${WHS_NAME[wh]?' '+WHS_NAME[wh]:''}</b></div>`:''}</div>
+      <div><span>ورديات إنتاج</span><b>${prod}</b></div><div><span>عدد المنتجات</span><b>${LS.items}</b></div><div><span>توقف / تغيير قالب</span><b>${stop}</b></div>${wh?`<div><span>مستودع الأرصدة</span><b>${esc(wh)}${WHS_NAME[wh]?' '+WHS_NAME[wh]:''}</b></div>`:''}</div>
      <table><colgroup><col style="width:${(6/tw*100).toFixed(2)}%"><col style="width:${(8/tw*100).toFixed(2)}%">${F.map(([k])=>col(k)).join('')}${F.map(([k])=>col(k)).join('')}</colgroup>
       <thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="sh m">الوردية الصباحية <small>Morning</small></th><th colspan="${F.length}" class="sh n">الوردية المسائية <small>Night</small></th></tr>
       <tr>${['m','n'].map(s=>F.map(([,t])=>`<th class="${s==='n'?'nt':''}">${t}</th>`).join('')).join('')}</tr></thead><tbody>${body}</tbody></table>
+     ${l.rows.some(r=>CHG.has(r))?`<div class="legend"><i></i> صف معدّل بعد اعتماد الخطة</div>`:''}
      ${l.note?`<div class="note"><b>ملاحظة:</b> ${esc(l.note)}</div>`:''}${d.note&&i===0?`<div class="note"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</div>`:''}
      <div class="sign">${['نائب المدير','مدير التشغيل','مدير المصنع'].map(t=>`<div><span>${t}</span><i>التوقيع</i></div>`).join('')}</div>
      <footer><span>شركة الوادي الأخضر المميز — خطة الإنتاج</span><span>صفحة ${i+1} من ${lines.length}</span><span>طُبعت ${fdt(new Date().toISOString())}</span></footer>
@@ -1688,6 +1718,7 @@ function ppPrint(){
   td.q,td.stock,td.cycle,td.mould{text-align:center;font-variant-numeric:tabular-nums}td.ltr{direction:ltr;text-align:right;font-size:10px}
   td.nt{background:#FAFAFC}tr.d0 td{border-top:2px solid #8B9AB3}tr.fri td.day,tr.fri td.date{background:#FFF6E5}
   td.item{text-align:right;line-height:1.35}
+  tr.chg td:not(.day):not(.date){background:#FFF3B0!important}.legend{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;color:#7A5B00;margin-top:5px}.legend i{width:14px;height:10px;background:#FFF3B0;border:1px solid #E3C75A;display:inline-block}
   .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:9.5px;font-weight:700}.tag.stop{background:#FDE7E5;color:#B3261E}.tag.mould{background:#FFF1D6;color:#8A5A00}
   .note{margin-top:6px;font-size:10.5px;padding:5px 9px;background:#FFFBEA;border:1px solid #F0E2A8;border-radius:6px}
   .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:14px}.sign div{text-align:center}.sign span{font-size:11.5px!important;font-weight:700;color:#051D48!important}.sign i{font-style:normal;font-size:9px;color:#8B9AB3;display:block;margin-top:30px;border-top:1.5px solid #051D48;padding-top:3px}
