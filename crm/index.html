@@ -221,6 +221,11 @@ td.nw{white-space:nowrap}
 }
 @media (max-width:420px){.kpis,.kpis.k5{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kpi .v{font-size:18px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.rk-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.rk{background:var(--card,#fff);border:1px solid var(--line,#E3E8F0);border-radius:12px;padding:12px 14px;border-top:3px solid #38AC57}.rk .l{display:block;font-size:12px;color:var(--muted,#5A6A82)}.rk .v{display:block;font-size:22px;font-weight:800;margin-top:2px}.rk .s{display:block;font-size:11.5px;color:var(--muted,#5A6A82)}
+.rk-bar{position:relative;height:16px;background:rgba(127,140,160,.15);border-radius:4px;min-width:90px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;background:#38AC57;border-radius:4px}.rk-bar span{position:absolute;inset-inline-end:6px;top:0;font-size:11px;font-weight:700;line-height:16px}
+.rk-t tr.rk-grp td{background:#051D48;color:#fff;font-weight:800}.rk-t tr.rk-grp td span{font-weight:400;opacity:.85}.rk-t tr.rk-c0 td{border-top:1.5px solid rgba(127,140,160,.5)}
+.rk-t tr.rk-sub td{background:rgba(127,140,160,.1);font-weight:700;font-size:.92em}.rk-t tr.rk-rt td{background:rgba(56,172,87,.14);font-weight:800}
 </style>
 
 </head><body><div id="app">
@@ -1622,8 +1627,13 @@ const REPORTS=[
   rows:(f,P)=>I().quotes.filter(q=>['accepted','rejected','expired','cancelled'].includes(q.st)&&(q.close||q.date)>=P.from&&(q.close||q.date)<=P.to&&rowOK(f,q.rep,q.reg)).sort((a,b)=>(b.close||b.date).localeCompare(a.close||a.date))},
  {id:'collections',ar:'تقرير التحصيل',en:'Collection report',cols:[col('رقم السند','Voucher',r=>r.v),col('التاريخ','Date',r=>r.d),col('كود العميل','Code',r=>r.code),col('العميل','Customer',r=>r.cid?cName(r.cid):(r.cn+' '+L('(غير مطابق)','(unmatched)'))),col('المندوب','Rep',r=>tName(r.rep)),col('المنطقة','Region',r=>regName(r.reg)),col('المبلغ','Amount',r=>r.amt,{m:1}),col('طريقة الدفع','Method',r=>r.pm),col('الفاتورة','Invoice',r=>r.inv),col('ملف الاستيراد','Import file',r=>byId('imports',r.imp)?.fileName||'')],
   rows:(f,P)=>I().coll.filter(r=>r.d>=P.from&&r.d<=P.to&&rowOK(f,r.rep,r.reg))},
- {id:'firstPay',ar:'العملاء الجدد بأول دفعة',en:'First-time paying customers',cols:[col('كود العميل','Code',r=>r.code||''),col('اسم العميل','Customer',r=>r.name+(r.cid?'':' ('+L('غير مطابق','unmatched')+')')),col('نوع العميل','Kind',r=>r.kind?CUST_KIND[r.kind][1]:''),col('تاريخ أول دفعة','First payment',r=>r.d),col('رقم السند','Voucher',r=>r.v),col('مبلغ أول دفعة','First amount',r=>r.amt,{m:1}),col('إجمالي تحصيل الفترة','Period total',r=>r.tot,{m:1}),col('المندوب','Rep',r=>tName(r.rep)),col('المنطقة','Region',r=>regName(r.reg))],
-  rows:(f,P)=>firstPayRows(f,P),note:L('العميل يظهر هنا لو أول سند قبض له في كل السجلات المستوردة داخل الفترة. يُستحسن استيراد سجل التحصيل لآخر 12 شهراً على الأقل حتى يكون «أول دفعة» دقيقاً.','A customer appears when their first voucher across all imported records is inside the period. Import at least 12 months of history for accuracy.')},
+ {id:'firstPay',ar:'العملاء الجدد بأول دفعة',en:'First-time paying customers',land:1,
+  cols:[col('المندوب','Rep',r=>r.repName),col('كود العميل','Code',r=>r.code||''),col('اسم العميل','Customer',r=>r.name+(r.cid?'':' ('+L('غير مطابق','unmatched')+')')),col('نوع العميل','Kind',r=>r.kind?CUST_KIND[r.kind][1]:''),col('تاريخ الدفعة','Date',r=>r.d),col('رقم السند','Voucher',r=>r.v),col('المبلغ','Amount',r=>r.amt,{m:1}),col('أول دفعة؟','First payment?',r=>r.first?L('نعم','Yes'):'')],
+  rows:(f,P)=>firstPayData(f,P).pays,
+  view:(f,P)=>firstPayView(firstPayData(f,P),false),print:(f,P)=>firstPayView(firstPayData(f,P),true),
+  xlsx:(f,P)=>{const d=firstPayData(f,P);return [[L('ملخص المندوبين','By rep'),[[L('المندوب','Rep'),L('عدد العملاء الجدد','New customers'),L('عدد الدفعات','Payments'),L('إجمالي التحصيل','Total collected'),L('متوسط العميل','Avg per customer')],...d.reps.map(r=>[r.name,r.n,r.pays,r.tot,r.n?Math.round(r.tot/r.n):0]),[L('الإجمالي','Total'),d.n,d.pays.length,d.tot,d.n?Math.round(d.tot/d.n):0]]],
+    [L('العملاء الجدد','New customers'),[[L('المندوب','Rep'),L('كود العميل','Code'),L('اسم العميل','Customer'),L('نوع العميل','Kind'),L('تاريخ أول دفعة','First payment'),L('عدد الدفعات','Payments'),L('تحصيل الفترة','Period total')],...d.custs.map(c=>[c.repName,c.code,c.name,c.kind?CUST_KIND[c.kind][1]:'',c.d,c.pays.length,c.tot])]]]},
+  note:L('العميل الجديد = أول سند قبض له في كل السجلات المستوردة يقع داخل الفترة. المبالغ = كل دفعاته خلال الفترة. يُستحسن استيراد سجل التحصيل لآخر 12 شهراً على الأقل حتى يكون «أول دفعة» دقيقاً.','A new customer\'s first voucher in all imported records is inside the period; amounts are all their payments in the period.')},
  {id:'payClass',ar:'تصنيف العملاء حسب الدفعات',en:'Customers by payment class',cols:[col('كود العميل','Code',r=>r.c.code||''),col('اسم العميل','Customer',r=>r.c.name),col('نوع العميل','Kind',r=>r.c.kind?CUST_KIND[r.c.kind][1]:''),col('التصنيف','Class',r=>lab(PAY_CLS,r.p)),col('أول دفعة','First payment',r=>r.f?r.f.d:''),col('آخر دفعة','Last payment',r=>r.l?r.l.d:''),col('تحصيل 12 شهراً','12-month collections',r=>r.v12,{m:1}),col('المندوب','Rep',r=>tName(r.c.repId)),col('المنطقة','Region',r=>regName(r.c.region))],
   rows:(f,P)=>{const ix=I();const s12=addDays(P.to,-365);return segRows(f,P).map(c=>{const rs=(ix.collByCust.get(c.id)||[]).filter(r=>r.d<=P.to);return {c,p:payClass(c.id,P.to),f:ix.payFirst.get(c.id),l:rs[rs.length-1],v12:rs.filter(r=>r.d>=s12).reduce((s,r)=>s+r.amt,0)}}).sort((a,b)=>PAY_ORDER.indexOf(a.p)-PAY_ORDER.indexOf(b.p)||b.v12-a.v12)},note:L('التصنيف محسوب في نهاية الفترة المختارة: جديد = أول دفعة له في شهر نهاية الفترة · قديم = سدد قبل ذلك وعنده دفعة خلال 12 شهراً · متوقف = لا دفعات خلال 12 شهراً · لم يسدد بعد = Lead بدون دفعات.','Class at period end.')},
  {id:'repPerf',ar:'أداء المندوبين',en:'Representative performance',cols:[col('الترتيب','Rank',r=>r.rank,{n:1}),col('المندوب','Rep',r=>r.x.name),col('المنطقة','Region',r=>regName(r.x.region)),col('المشرف','Supervisor',r=>tName(supOf(r.x))),col('العملاء','Customers',r=>r.k.m.assigned,{n:1}),col('نشط','Active',r=>r.k.m.activeN,{n:1}),col('جدد','New',r=>r.k.m.newN,{n:1}),col('خامل','Dormant',r=>r.k.m.dormantN,{n:1}),col('التحصيل','Collected',r=>r.k.m.coll,{m:1}),col('المستهدف','Target',r=>Math.round(r.k.collT),{m:1}),col('التحقيق %','Ach. %',r=>pc(r.k.items[0].ach),{p:1}),col('النمو %','Growth %',r=>pc(r.k.m.growth),{p:1}),col('عروض مفتوحة','Open',r=>r.k.m.openN,{n:1}),col('مقبولة','Won',r=>r.k.m.accN,{n:1}),col('مرفوضة','Lost',r=>r.k.m.rejN,{n:1}),col('التحويل %','Conv. %',r=>pc(r.k.m.conv),{p:1}),col('متوسط/عميل نشط','Avg/active',r=>Math.round(r.k.m.avgPerActive),{m:1}),col('التنشيط %','Activation %',r=>pc(r.k.m.activation),{p:1}),col('الدرجة','Score',r=>r.score==null?'':+r.score.toFixed(1),{n:1})],
@@ -1644,13 +1654,67 @@ V.reports=()=>{
   const id=fv('rep','repPerf');const {def,P,rows}=reportData(id);const lim=fv('rLim',200);
   const tot=c=>c.m||(c.n&&!['الترتيب','الأيام المتبقية','أيام منذ آخر نشاط','الدرجة'].includes(c.ar))?num(rows.reduce((s,r)=>s+(+c.v(r)||0),0)):'';
   return `<div class="fbar"><label class="fl" style="flex:2 1 240px" for="repSel">${L('التقرير','Report')}<select id="repSel" data-act="filtSel" data-k="rep">${opt(REPORTS.map((r,i)=>[r.id,`${i+1}. ${L(r.ar,r.en)}`]),id)}</select></label>
-   <button class="btn p" data-act="repXlsx">${L('تصدير Excel','Export Excel')}</button><button class="btn" data-act="repPdf">${L('تصدير PDF','Export PDF')}</button>${isMgr()?`<button class="btn" data-act="exportAll">${L('تصدير كل البيانات','Export all data')}</button>`:''}</div>
+   <button class="btn p" data-act="repXlsx">${L('تصدير Excel','Export Excel')}</button><button class="btn" data-act="repPrint">${L('طباعة A4','Print A4')}</button><button class="btn" data-act="repPdf">${L('تصدير PDF','Export PDF')}</button>${isMgr()?`<button class="btn" data-act="exportAll">${L('تصدير كل البيانات','Export all data')}</button>`:''}</div>
   ${fbar()}
-  <div class="card"><h2>${L(def.ar,def.en)}<span class="sub">${rows.length} ${L('سطر','rows')} · ${esc(filterLabel(P))}</span></h2>${def.note?`<p class="small muted" style="margin-top:0">${esc(def.note)}</p>`:''}
+  ${def.view?`<div class="card"><h2>${L(def.ar,def.en)}<span class="sub">${esc(filterLabel(P))}</span></h2>${def.note?`<p class="small muted" style="margin-top:0">${esc(def.note)}</p>`:''}</div>${def.view(fx(),P)}`:`<div class="card"><h2>${L(def.ar,def.en)}<span class="sub">${rows.length} ${L('سطر','rows')} · ${esc(filterLabel(P))}</span></h2>${def.note?`<p class="small muted" style="margin-top:0">${esc(def.note)}</p>`:''}
   <div class="tw"><table><thead><tr>${def.cols.map(c=>`<th class="${c.m||c.n||c.p?'n':''}">${L(c.ar,c.en)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0,lim).map(r=>`<tr>${def.cols.map(c=>`<td class="${c.m||c.n||c.p?'n':''}">${fmtCell(c,c.v(r))}</td>`).join('')}</tr>`).join('')||`<tr><td class="empty" colspan="${def.cols.length}">${L('لا توجد بيانات ضمن التصفية','No data for these filters')}</td></tr>`}</tbody>
   ${rows.length?`<tfoot><tr>${def.cols.map((c,i)=>`<td class="${c.m||c.n?'n':''}">${i===0?L('الإجمالي','Total'):tot(c)}</td>`).join('')}</tr></tfoot>`:''}</table></div>
-  ${rows.length>lim?`<button class="btn" data-act="more" data-k="rLim" data-n="${lim+500}" style="margin-top:8px">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>`;
+  ${rows.length>lim?`<button class="btn" data-act="more" data-k="rLim" data-n="${lim+500}" style="margin-top:8px">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>`}`;
 };
+/* ---------- first-time payers: dashboard + payment detail by rep ---------- */
+function firstPayData(f,P){const ix=I();const custs=firstPayRows(f,P).map(c=>Object.assign({},c,{repName:c.rep?tName(c.rep):L('بدون مندوب','No rep'),pays:[]}));const byK=new Map(custs.map(c=>[c.k,c]));
+  ix.coll.forEach(r=>{if(r.d<P.from||r.d>P.to)return;const c=byK.get(r.cid||('?'+normCode(r.code)));if(c)c.pays.push(r)});
+  const pays=[];custs.forEach(c=>{c.pays.sort((a,b)=>a.d<b.d?-1:1);c.tot=c.pays.reduce((s,r)=>s+r.amt,0);c.pays.forEach(r=>pays.push({rep:c.rep,repName:c.repName,cid:c.cid,code:c.code,name:c.name,kind:c.kind,d:r.d,v:r.v,amt:r.amt,first:r.v===c.v&&r.d===c.d}))});
+  const rm=new Map();custs.forEach(c=>{const k=c.rep||'';const o=rm.get(k)||{rep:k,name:c.repName,n:0,pays:0,tot:0,custs:[]};o.n++;o.pays+=c.pays.length;o.tot+=c.tot;o.custs.push(c);rm.set(k,o)});
+  const reps=[...rm.values()].sort((a,b)=>b.tot-a.tot||b.n-a.n);reps.forEach(r=>r.custs.sort((a,b)=>b.tot-a.tot));
+  pays.sort((a,b)=>reps.findIndex(r=>r.rep===(a.rep||''))-reps.findIndex(r=>r.rep===(b.rep||''))||String(a.name).localeCompare(String(b.name),'ar')||(a.d<b.d?-1:1));
+  return {custs,reps,pays,n:custs.length,tot:custs.reduce((s,c)=>s+c.tot,0)}}
+function firstPayView(d,pr){
+  if(!d.n)return `<div class="card empty">${L('ما فيه عملاء سددوا لأول مرة في هذه الفترة.','No first-time payers in this period.')}</div>`;
+  const mx=Math.max(...d.reps.map(r=>r.tot),1);const kd=k=>k?`<span class="pill ${CUST_KIND[k][2]}">${CUST_KIND[k][1]}</span>`:'';
+  const kp=(l,v,s)=>`<div class="rk"><span class="l">${l}</span><span class="v">${v}</span>${s?`<span class="s">${s}</span>`:''}</div>`;
+  const top=d.reps[0];
+  let h=`<div class="rk-row">${kp(L('عملاء جدد','New customers'),num(d.n))}${kp(L('إجمالي تحصيلهم في الفترة','Collected in period'),money(d.tot))}${kp(L('عدد الدفعات','Payments'),num(d.pays.length))}${kp(L('متوسط العميل','Avg per customer'),money(Math.round(d.tot/d.n)))}${kp(L('المندوبون','Reps'),num(d.reps.filter(r=>r.rep).length),top?L('الأعلى: ','Top: ')+esc(top.name):'')}</div>
+  <div class="card rk-card"><h2>${L('ملخص المندوبين','Summary by rep')}</h2><div class="tw"><table class="rk-t"><thead><tr><th>${L('المندوب','Rep')}</th><th class="n">${L('عملاء جدد','New customers')}</th><th class="n">${L('الدفعات','Payments')}</th><th class="n">${L('إجمالي التحصيل','Total collected')}</th><th class="n">${L('متوسط العميل','Avg / customer')}</th><th style="width:28%">${L('الحصة','Share')}</th></tr></thead><tbody>
+   ${d.reps.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td class="n">${num(r.n)}</td><td class="n">${num(r.pays)}</td><td class="n"><b>${money(r.tot)}</b></td><td class="n">${money(Math.round(r.tot/r.n))}</td><td><div class="rk-bar"><i style="width:${(r.tot/mx*100).toFixed(1)}%"></i><span>${d.tot?(r.tot/d.tot*100).toFixed(1):0}%</span></div></td></tr>`).join('')}</tbody>
+   <tfoot><tr><td>${L('الإجمالي','Total')}</td><td class="n">${num(d.n)}</td><td class="n">${num(d.pays.length)}</td><td class="n">${money(d.tot)}</td><td class="n">${money(Math.round(d.tot/d.n))}</td><td></td></tr></tfoot></table></div></div>`;
+  h+=`<div class="card rk-card rk-detail"><h2>${L('البيان التفصيلي للدفعات حسب المندوب','Payment detail by rep')}</h2><div class="tw"><table class="rk-t"><thead><tr><th>${L('العميل','Customer')}</th><th>${L('النوع','Kind')}</th><th>${L('تاريخ الدفعة','Date')}</th><th>${L('رقم السند','Voucher')}</th><th class="n">${L('المبلغ','Amount')}</th></tr></thead><tbody>
+   ${d.reps.map(r=>`<tr class="rk-grp"><td colspan="5">${esc(r.name)} <span>· ${num(r.n)} ${L('عميل','customers')} · ${money(r.tot)}</span></td></tr>`+r.custs.map(c=>c.pays.map((p,j)=>`<tr${j===0?' class="rk-c0"':''}><td>${j===0?`${!pr&&c.cid?`<a href="#" data-open="client" data-id="${c.cid}">${esc(c.name)}</a>`:esc(c.name)} <span class="small muted" dir="ltr">${esc(c.code)}</span>${c.cid?'':` <span class="pill warn">${L('غير مطابق','Unmatched')}</span>`}`:''}</td><td>${j===0?kd(c.kind):''}</td><td class="nw">${fdate(p.d)}${p.v===c.v&&p.d===c.d?` <span class="pill ok">${L('أول دفعة','First')}</span>`:''}</td><td dir="ltr" style="text-align:start">${esc(p.v)}</td><td class="n">${money(p.amt)}</td></tr>`).join('')+(c.pays.length>1?`<tr class="rk-sub"><td colspan="4">${L('إجمالي العميل','Customer total')} — ${esc(c.name)}</td><td class="n">${money(c.tot)}</td></tr>`:'')).join('')+`<tr class="rk-rt"><td colspan="4">${L('إجمالي المندوب','Rep total')} — ${esc(r.name)}</td><td class="n">${money(r.tot)}</td></tr>`).join('')}</tbody>
+   <tfoot><tr><td colspan="4">${L('الإجمالي العام','Grand total')}</td><td class="n">${money(d.tot)}</td></tr></tfoot></table></div></div>`;
+  return h}
+/* ---------- print any report on A4 ---------- */
+function printReport(){
+  const id=fv('rep','repPerf');const {def,P,rows}=reportData(id);const f=fx();
+  const land=def.land||def.cols.length>6;const logo=window.WADY_LOGO_DATA||'';
+  const tot=c=>c.m||(c.n&&!['الترتيب','الأيام المتبقية','أيام منذ آخر نشاط','الدرجة'].includes(c.ar))?num(rows.reduce((s,r)=>s+(+c.v(r)||0),0)):'';
+  const body=def.print?def.print(f,P):(rows.length?`<table class="rk-t"><thead><tr>${def.cols.map(c=>`<th class="${c.m||c.n||c.p?'n':''}">${esc(L(c.ar,c.en))}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${def.cols.map(c=>`<td class="${c.m||c.n||c.p?'n':''}">${fmtCell(c,c.v(r))}</td>`).join('')}</tr>`).join('')}</tbody><tfoot><tr>${def.cols.map((c,i)=>`<td class="${c.m||c.n?'n':''}">${i===0?L('الإجمالي','Total'):tot(c)}</td>`).join('')}</tr></tfoot></table>`:`<p>${L('لا توجد بيانات ضمن التصفية','No data')}</p>`);
+  const css=`@page{size:A4 ${land?'landscape':'portrait'};margin:12mm 10mm 14mm;@bottom-center{content:"${L('صفحة','Page')} " counter(page) " / " counter(pages);font:9px Tajawal,Tahoma,sans-serif;color:#8B9AB3}}
+  *{box-sizing:border-box}body{margin:0;font-family:Tajawal,Tahoma,sans-serif;direction:${lang==='ar'?'rtl':'ltr'};color:#0B1B33;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;border-bottom:3px solid #051D48;padding-bottom:7px;margin-bottom:6px}
+  header img{height:42px}.ttl{text-align:center}.ttl h1{margin:0;font-size:19px;color:#051D48}.ttl div{font-size:10px;color:#5A6A82}.meta{text-align:end;font-size:9.5px;color:#5A6A82;line-height:1.5}
+  .flt{background:#F2F5FA;border-right:4px solid #38AC57;border-radius:6px;padding:5px 9px;margin:6px 0 10px;font-size:10px}
+  .note{font-size:9.5px;color:#5A6A82;margin:-4px 0 8px}
+  table{width:100%;border-collapse:collapse}thead{display:table-header-group}tfoot{display:table-footer-group}tr{page-break-inside:avoid;break-inside:avoid}
+  th,td{border:1px solid #D3DBE6;padding:4px 6px;text-align:start;vertical-align:middle;overflow-wrap:anywhere}th{background:#051D48;color:#fff;font-size:10px}td.n,th.n{text-align:end;font-variant-numeric:tabular-nums}
+  tbody tr:nth-child(even) td{background:#F7F9FC}tfoot td{background:#E8EEF6;font-weight:800}
+  .card{margin-bottom:12px}.card h2{font-size:13px;color:#051D48;margin:0 0 6px;border-bottom:1.5px solid #E3E8F0;padding-bottom:3px}.card h2 .sub{display:none}.tw{overflow:visible}
+  .rk-detail{break-before:page;page-break-before:always}
+  .rk-row{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-bottom:12px}.rk{border:1px solid #D9E1EC;border-radius:8px;padding:7px 9px;border-top:3px solid #38AC57}.rk .l{display:block;font-size:9px;color:#5A6A82}.rk .v{display:block;font-size:16px;font-weight:800;color:#051D48}.rk .s{display:block;font-size:8.5px;color:#5A6A82}
+  .rk-bar{position:relative;height:13px;background:#EEF2F7;border-radius:3px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;background:#38AC57;border-radius:3px}.rk-bar span{position:absolute;inset-inline-end:4px;top:-1px;font-size:8.5px;font-weight:700}
+  tr.rk-grp td{background:#051D48!important;color:#fff;font-weight:800;font-size:11px}tr.rk-grp td span{font-weight:400;opacity:.85}tr.rk-c0 td{border-top:1.5px solid #9AA8BE}
+  tr.rk-sub td{background:#F2F5FA!important;font-weight:700;font-size:10px}tr.rk-rt td{background:#E3F3E7!important;font-weight:800}
+  .pill{display:inline-block;padding:0 6px;border-radius:9px;font-size:8.5px;font-weight:700;background:#EEF2F7}.pill.ok{background:#E3F3E7;color:#1E7B3C}.pill.warn{background:#FFF1D6;color:#8A5A00}.pill.strong{background:#051D48;color:#fff}.pill.info{background:#E3EEFB;color:#1F4E8C}
+  .small{font-size:9px}.muted{color:#5A6A82}a{color:inherit;text-decoration:none}
+  @media screen{body{background:#E6EAF0}.sheet{max-width:${land?'297mm':'210mm'};margin:10px auto;background:#fff;padding:12mm 10mm;box-shadow:0 2px 12px rgba(0,0,0,.15)}}`;
+  const html=`<!doctype html><html lang="${lang}" dir="${lang==='ar'?'rtl':'ltr'}"><head><meta charset="utf-8"><title>${esc(L(def.ar,def.en))}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" media="none" onload="this.media='all'"><style>${css}</style></head><body><div class="sheet">
+   <header><div>${logo?`<img src="${logo}" alt="">`:`<b>${L('الوادي الأخضر المميز','Al Wady Al Akhdar')}</b>`}</div><div class="ttl"><h1>${esc(L(def.ar,def.en))}</h1><div>${L('مصنع الوادي الأخضر المميز','Al Wady Al Akhdar Almumayaz Factory')}</div></div>
+    <div class="meta">${L('أعدّه','Prepared by')}: ${esc(me().name||'')}<br>${new Date().toLocaleString(loc())}${def.print?'':`<br>${rows.length} ${L('سطر','rows')}`}</div></header>
+   <div class="flt">${esc(filterLabel(P))}</div>${def.note?`<div class="note">${esc(def.note)}</div>`:''}${body}</div>
+   <script>window.addEventListener("load",function(){var go=function(){setTimeout(function(){window.print()},300)};if(document.fonts&&document.fonts.ready)document.fonts.ready.then(go);else setTimeout(go,600)});<\/script></body></html>`;
+  const w=window.open('','_blank');if(!w){saveFile(`${L(def.ar,def.en)}.html`,new Blob([html],{type:'text/html'}));return}
+  w.document.open();w.document.write(html);w.document.close();
+  logAudit({col:'reports',docId:def.id,action:'export',changes:{format:['—','print'],rows:['—',String(rows.length)]}});
+}
 async function saveFile(name,blob){
   if(!downloads){toast(L('التنزيل غير متاح في هذا العرض. افتح الصفحة داخل Claude.','Downloads are unavailable here. Open the page in Claude.'));return false}
   try{await downloads.save({filename:name,data:blob});return true}catch(e){if(e&&e.code!=='declined')toast(L('تعذّر تنزيل الملف','Could not download'));return false}
@@ -1659,7 +1723,7 @@ function xlsxOk(){if(typeof XLSX==='undefined'){toast(L('تعذّر تحميل �
 async function exportReportXlsx(){
   if(!xlsxOk())return;const {def,P,rows}=reportData(fv('rep','repPerf'));
   const aoa=[[L(def.ar,def.en)],[filterLabel(P)],[`${L('أُعد بواسطة','Prepared by')}: ${me().name} · ${new Date().toLocaleString(loc())}`],hasDemo()?[L('تنبيه: يحتوي بيانات تجريبية','Note: contains demo data')]:[],[],def.cols.map(c=>L(c.ar,c.en)),...rows.map(r=>def.cols.map(c=>{const v=c.v(r);return v===''?null:v}))];
-  const ok=await saveFile(`${L(def.ar,def.en)}-${P.from}_${P.to}.xlsx`,await xlsxBlob(aoa,L(def.ar,def.en)));
+  const ok=await saveFile(`${L(def.ar,def.en)}-${P.from}_${P.to}.xlsx`,await xlsxBlob(aoa,L(def.ar,def.en),def.xlsx?def.xlsx(fx(),P):null));
   if(ok)logAudit({col:'reports',docId:def.id,action:'export',changes:{format:['—','xlsx'],rows:['—',String(rows.length)]}});
 }
 const loadScript=src=>new Promise((res,rej)=>{if(document.querySelector(`script[src="${src}"]`))return res();const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('load '+src));document.head.appendChild(s)});
@@ -2611,7 +2675,7 @@ const ACT={
   loadDemo:()=>loadDemo(),upgradeDemo:()=>upgradeDemo(),clearDemo:()=>clearDemo(false),clearDemoGo:()=>{BUSY=false;clearDemo(true)},
   goImport:d=>{impReset(d.t);go('imports')},
   // --- reports
-  repXlsx:()=>exportReportXlsx(),repPdf:()=>exportReportPdf(),exportAll:()=>exportAll(),
+  repXlsx:()=>exportReportXlsx(),repPdf:()=>exportReportPdf(),repPrint:()=>printReport(),exportAll:()=>exportAll(),
   // --- import center
   impTab:d=>{if(d.v==='history'){IMP.tab='history';IMP.step='pick'}else impReset(d.v);render()},
   impBack:()=>{impReset();render()},
