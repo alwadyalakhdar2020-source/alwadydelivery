@@ -1638,7 +1638,7 @@ function ppPrint(){
   const d=PP.doc;if(!d)return;const lines=PP.lines.filter(lineHas);if(!lines.length)return toast('الخطة فارغة — ما فيه شي للطباعة');
   const wk=d.week_no||weekNoOf(PP.ws),st=d.status,stTxt={none:'غير محفوظة',draft:'مسودة',submitted:'بانتظار الاعتماد',returned:'معادة للتعديل',approved:'معتمدة'}[st]||'';
   const nm=id=>{const n=id?pName(id):'';return n==='—'?'':n};
-  const maker=nm(d.submitted_by||d.created_by),approver=st==='approved'?nm(d.reviewed_by):'';
+  
   const logo=window.WADY_LOGO_DATA||'';
   const K=[['code','الكود'],['item','المنتج'],['q','الكمية'],['stock','الرصيد'],['mould','القالب'],['cycle','السايكل']];
   const has=(l,k)=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k]));
@@ -1664,7 +1664,7 @@ function ppPrint(){
       <thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="sh m">الوردية الصباحية <small>Morning</small></th><th colspan="${F.length}" class="sh n">الوردية المسائية <small>Night</small></th></tr>
       <tr>${['m','n'].map(s=>F.map(([,t])=>`<th class="${s==='n'?'nt':''}">${t}</th>`).join('')).join('')}</tr></thead><tbody>${body}</tbody></table>
      ${l.note?`<div class="note"><b>ملاحظة:</b> ${esc(l.note)}</div>`:''}${d.note&&i===0?`<div class="note"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</div>`:''}
-     <div class="sign"><div><span>مدير الإنتاج</span><b>${esc(maker)||'&nbsp;'}</b><i>التوقيع</i></div><div><span>الاعتماد</span><b>${esc(approver)||'&nbsp;'}</b><i>التوقيع</i></div></div>
+     <div class="sign">${['نائب المدير','مدير التشغيل','مدير المصنع'].map(t=>`<div><span>${t}</span><i>التوقيع</i></div>`).join('')}</div>
      <footer><span>شركة الوادي الأخضر المميز — خطة الإنتاج</span><span>صفحة ${i+1} من ${lines.length}</span><span>طُبعت ${fdt(new Date().toISOString())}</span></footer>
     </div>${st!=='approved'?`<div class="wm">${esc(stTxt)}</div>`:''}</section>`};
   const css=`@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;background:#fff}
@@ -1690,7 +1690,7 @@ function ppPrint(){
   td.item{text-align:right;line-height:1.35}
   .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:9.5px;font-weight:700}.tag.stop{background:#FDE7E5;color:#B3261E}.tag.mould{background:#FFF1D6;color:#8A5A00}
   .note{margin-top:6px;font-size:10.5px;padding:5px 9px;background:#FFFBEA;border:1px solid #F0E2A8;border-radius:6px}
-  .sign{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:12px}.sign div{border-top:1.5px solid #051D48;padding-top:4px;text-align:center}.sign b{font-size:12px;display:block;min-height:16px}.sign i{font-style:normal;font-size:9px;color:#8B9AB3;display:block;margin-top:16px}
+  .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:14px}.sign div{text-align:center}.sign span{font-size:11.5px!important;font-weight:700;color:#051D48!important}.sign i{font-style:normal;font-size:9px;color:#8B9AB3;display:block;margin-top:30px;border-top:1.5px solid #051D48;padding-top:3px}
   footer{position:absolute;bottom:5mm;right:10mm;left:10mm;display:flex;justify-content:space-between;font-size:8.5px;color:#8B9AB3;border-top:1px solid #E3E8F0;padding-top:3px}
   .wm{position:absolute;top:45%;left:50%;transform:translate(-50%,-50%) rotate(-18deg);font-size:110px;font-weight:800;color:rgba(179,38,30,.06);pointer-events:none;white-space:nowrap}
   @media screen{body{background:#E6EAF0}.page{margin:10px auto;box-shadow:0 2px 12px rgba(0,0,0,.15);background:#fff}}`;
