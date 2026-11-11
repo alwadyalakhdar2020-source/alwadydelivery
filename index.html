@@ -281,7 +281,18 @@ button.brand.appsw:hover{background:rgba(255,255,255,.08)}
 .pp-t th.pp-m{background:var(--info-soft)}
 .pp-t th.pp-n{background:var(--warn-soft)}
 .pp-t tr.pp-d td{border-top:2px solid var(--line)}
-.pp-t td input{padding:5px 6px;font-size:13px}
+.pp-t{table-layout:fixed;width:100%;font-size:12.5px}
+.pp-t th{white-space:normal;line-height:1.25;padding:6px 4px;text-align:center}
+.pp-t td{padding:3px;vertical-align:middle;overflow-wrap:anywhere;word-break:break-word}
+.pp-t.ro td{padding:6px 5px;line-height:1.4}
+.pp-t td input,.pp-t td textarea{padding:4px 5px;font-size:12.5px;width:100%;min-width:0;min-height:32px;border-radius:6px}
+.pp-t td.pp-date{font-size:11.5px;}.pp-t td:first-child b{word-break:keep-all;overflow-wrap:normal;font-size:12px}.pp-t td.pp-date{text-align:center;line-height:1.3}
+.pp-t td input[data-k="stock"],.pp-t td input[data-k="q"],.pp-t td input[data-k="cycle"]{text-align:center;padding-inline:2px}
+.pp-t td input[data-k="code"]{font-size:11px;padding-inline:3px;letter-spacing:-.2px}
+.pp-t td textarea.pp-ta{resize:none;overflow:hidden;line-height:1.35;display:block;field-sizing:content}
+.pp-t td .btn.s{padding:3px 7px;min-height:28px}
+.pp-tw{overflow:visible}
+#view:has(.pp-line){max-width:none}
 .formbar.sticky{position:sticky;bottom:0;z-index:5;background:var(--bg);padding-block:10px;flex-wrap:wrap}
 @media (max-width:860px){.formbar.sticky{position:static}}
 @media print{
@@ -1269,9 +1280,17 @@ const lineHas=l=>l.rows.some(r=>slotHas(r.m)||slotHas(r.n));
 
 async function ppRefs(force){
   if(PP.lineDefs&&PP.products&&!force)return;
-  const [l,p]=await Promise.all([sb.from('prod_lines').select('*').order('sort').order('name'),fetchAll(()=>sb.from('prod_products').select('code,name').order('code'))]);
-  if(l.error)throw l.error;PP.lineDefs=l.data;PP.products=p;
+  const [l,p,st]=await Promise.all([sb.from('prod_lines').select('*').order('sort').order('name'),fetchAll(()=>sb.from('prod_products').select('code,name').order('code')),sb.rpc('prod_stock')]);
+  if(l.error)throw l.error;PP.lineDefs=l.data;
+  // product list = the products of the fleet app (with their balances) + codes used before in plans
+  const stock=new Map();let at='';(st.data||[]).forEach(x=>{stock.set(normCode(x.code),x);if(x.at&&x.at>at)at=x.at});PP.stock=stock;PP.stockAt=at;
+  const seen=new Set(stock.keys());PP.products=[...(st.data||[]).map(x=>({code:x.code,name:x.name})),...p.filter(x=>!seen.has(normCode(x.code)))];
 }
+const WHS_NAME={'005':'مكة','1005':'عسفان'};
+const lineWhs=id=>(PP.lineDefs||[]).find(l=>l.id===id)?.whs||'';
+/* balance of a product in the warehouse of the line; null when unknown */
+function stockFor(code,lineId){const x=PP.stock&&PP.stock.get(normCode(code));const w=lineWhs(lineId);if(!x||!w)return null;const q=x.s&&x.s[w];return q==null?null:+q}
+const fmtQ=n=>n==null?'':String(Math.round(n*100)/100);
 /* DB rows -> editable blocks (one per production line) */
 function ppBuild(ws,lineRows,items){
   const defs=(PP.lineDefs||[]).filter(l=>l.active||lineRows.some(r=>r.line_id===l.id)||items.some(i=>i.line_id===l.id));
@@ -1346,25 +1365,29 @@ function ppPlanView(){
   if(st==='submitted')h+=`<div class="banner warn noprint"><span class="sp">الخطة مرسلة وبانتظار الاعتماد${isAdmin()?'. أي حفظ من مدير النظام يعيدها مسودة':''}.</span></div>`;
   if(st==='approved')h+=`<div class="banner info noprint"><span class="sp">معتمدة${d.reviewed_by?' من '+esc(pName(d.reviewed_by)):''} في ${fdt(d.reviewed_at)}.${isAdmin()?' تعديلها من مدير النظام يعيدها مسودة وتحتاج اعتماداً جديداً.':''}</span></div>`;
   if(st==='none')h+=`<div class="banner info noprint"><span class="sp">لا توجد خطة لهذا الأسبوع. املأ الجدول مباشرة، أو انسخ خطة الأسبوع السابق، أو استوردها من ملف Excel.</span><button class="btn s" data-act="ppCopyPrev">نسخ الأسبوع السابق</button><button class="btn s" data-act="ppTab" data-v="import">استيراد Excel</button></div>`;
-  if(!ro)h+=`<datalist id="dl_pcode">${(PP.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}</datalist><datalist id="dl_pitem">${[...PSPECIAL,...new Set((PP.products||[]).map(p=>p.name))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist><datalist id="dl_pqty">${PQTY.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`;
+  if(!ro)h+=`<p class="small muted noprint" style="margin:0 0 8px">${PP.stockAt?`أرصدة المنتجات محدّثة حتى ${fdt(PP.stockAt)} — تتحدث من «استيراد الأصناف» في تطبيق حركة السيارات.`:'ما فيه أرصدة مستوردة بعد — ارفع ملف الأصناف بأعمدة الأرصدة من تطبيق حركة السيارات.'}</p>`;
+  if(!ro)h+=`<datalist id="dl_pcode">${(PP.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}${PSPECIAL.map(n=>`<option value="${esc(n)}">بدون منتج</option>`).join('')}</datalist><datalist id="dl_pitem">${[...PSPECIAL,...new Set((PP.products||[]).map(p=>p.name))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist><datalist id="dl_pqty">${PQTY.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`;
   if(ro){if(d.note)h+=`<div class="banner"><span class="sp"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</span></div>`}else h+=`<div class="card noprint"><div class="fgrid" style="grid-template-columns:minmax(110px,160px) 1fr"><div class="fld"><label for="pp_wn">رقم الأسبوع</label><input id="pp_wn" inputmode="numeric" data-pp="week" data-k="week_no" value="${esc(d.week_no??'')}" ${ro?'disabled':''}></div><div class="fld"><label for="pp_wnote">ملاحظات عامة للأسبوع</label><input id="pp_wnote" data-pp="week" data-k="note" value="${esc(d.note||'')}" ${ro?'disabled':''}></div></div>
    ${ro?'':`<p class="small muted" style="margin:8px 0 0">اكتب الكود ويظهر اسم المنتج تلقائياً. الكمية رقم (مثل 8000) أو نص مثل «وردية» و«باقي الوردية» و«300م». لإيقاف الخط اكتب في المنتج «متوقف» أو «تغيير القالب». زر «+» يضيف منتجاً ثانياً في نفس اليوم.</p>`}</div>`;
-  const inp=(li,ri,s,k,v,w,list)=>{const bad=(E[`c${li}_${ri}_${s}`]||[]).includes(k);return `<input id="pp_${li}_${ri}_${s}_${k}" data-pp="cell" data-l="${li}" data-r="${ri}" data-s="${s}" data-k="${k}" value="${esc(v)}" ${list?`list="${list}"`:''} ${k==='stock'?'inputmode="decimal"':''} ${k==='code'||k==='mould'?'dir="ltr"':''} aria-label="${SLOTF.find(f=>f[0]===k)[1]} ${s==='m'?'صباحي':'مسائي'}" style="min-width:${w}px${bad?';border-color:var(--bad);background:var(--bad-soft)':''}">`};
+  const inp=(li,ri,s,k,v,w,list)=>{const bad=(E[`c${li}_${ri}_${s}`]||[]).includes(k);
+    if(k==='item')return `<textarea class="pp-ta" rows="1" id="pp_${li}_${ri}_${s}_${k}" data-pp="cell" data-l="${li}" data-r="${ri}" data-s="${s}" data-k="${k}" aria-label="المنتج ${s==='m'?'صباحي':'مسائي'}"${bad?' style="border-color:var(--bad);background:var(--bad-soft)"':''}>${esc(v)}</textarea>`;
+    return `<input id="pp_${li}_${ri}_${s}_${k}" data-pp="cell" data-l="${li}" data-r="${ri}" data-s="${s}" data-k="${k}" value="${esc(v)}" ${list?`list="${list}"`:''} ${k==='stock'?'inputmode="decimal"':''} ${k==='code'||k==='mould'?'dir="ltr"':''} aria-label="${SLOTF.find(f=>f[0]===k)[1]} ${s==='m'?'صباحي':'مسائي'}"${k==='stock'?` title="الرصيد يُقرأ من المخزون عند اختيار المنتج"`:''}${bad?' style="border-color:var(--bad);background:var(--bad-soft)"':''}>`};
   const hasF=(k)=>PP.lines.some(l=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k])));
   const F=SLOTF.filter(([k])=>!ro||k==='code'||k==='item'||k==='q'||hasF(k));
   PP.lines.forEach((l,li)=>{
     if(ro&&!lineHas(l))return;
     const dayIdx={};l.rows.forEach((r,ri)=>{(dayIdx[r.day]=dayIdx[r.day]||[]).push(ri)});
     const stops=l.rows.reduce((a,r)=>a+['m','n'].filter(s=>isStop(r[s].item)).length,0);
-    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">رقم الخطة ${esc(l.plan_no||'—')} · ${fdate(l.start_date)} – ${fdate(l.end_date)}${stops?` · ${stops} وردية توقف`:''}</span></h2>
+    const wh=lineWhs(l.line_id);
+    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">رقم الخطة ${esc(l.plan_no||'—')} · ${fdate(l.start_date)} – ${fdate(l.end_date)}${stops?` · ${stops} وردية توقف`:''}${wh?` · الأرصدة من مستودع ${esc(wh)}${WHS_NAME[wh]?' ('+WHS_NAME[wh]+')':''}`:''}</span></h2>
      ${ro?'':`<div class="fgrid noprint" style="margin-bottom:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))"><div class="fld"><label for="pp_l${li}_plan">رقم الخطة</label><input id="pp_l${li}_plan" dir="ltr" data-pp="line" data-l="${li}" data-k="plan_no" value="${esc(l.plan_no)}"></div>
       <div class="fld"><label for="pp_l${li}_s">تاريخ البدء</label><input type="date" id="pp_l${li}_s" data-pp="line" data-l="${li}" data-k="start_date" value="${esc(l.start_date)}"></div>
       <div class="fld"><label for="pp_l${li}_e">تاريخ الانتهاء</label><input type="date" id="pp_l${li}_e" data-pp="line" data-l="${li}" data-k="end_date" value="${esc(l.end_date)}"></div>
       <div class="fld"><label for="pp_l${li}_n">ملاحظة الخط</label><input id="pp_l${li}_n" data-pp="line" data-l="${li}" data-k="note" value="${esc(l.note)}"></div></div>`}
      ${E['l'+li]?`<div class="flag">راجع تاريخ البدء والانتهاء</div>`:''}
-     <div class="tw"><table class="pp-t"><thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="pp-m" style="text-align:center">الوردية الصباحية</th><th colspan="${F.length}" class="pp-n" style="text-align:center">الوردية المسائية</th>${ro?'':'<th rowspan="2" class="noprint"></th>'}</tr>
+     <div class="tw pp-tw"><table class="pp-t${ro?' ro':''}">${ppCols(F,ro)}<thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="pp-m" style="text-align:center">الوردية الصباحية</th><th colspan="${F.length}" class="pp-n" style="text-align:center">الوردية المسائية</th>${ro?'':'<th rowspan="2" class="noprint"></th>'}</tr>
       <tr>${['m','n'].map(s=>F.map(f=>`<th class="pp-${s}${f[0]==='stock'||f[0]==='q'?' n':''}">${f[1]}</th>`).join('')).join('')}</tr></thead><tbody>
-      ${Object.entries(dayIdx).map(([day,idx])=>idx.map((ri,j)=>{const r=l.rows[ri];return `<tr class="${j===0?'pp-d':''}">${j===0?`<td rowspan="${idx.length}"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${idx.length}" class="nw">${fdate(day)}</td>`:''}
+      ${Object.entries(dayIdx).map(([day,idx])=>idx.map((ri,j)=>{const r=l.rows[ri];return `<tr class="${j===0?'pp-d':''}">${j===0?`<td rowspan="${idx.length}"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${idx.length}" class="pp-date">${fdate(day)}</td>`:''}
         ${['m','n'].map(s=>F.map(([k,,w])=>ro?`<td class="${k==='stock'||k==='q'?'n':''}${k==='code'?' nw':''}" ${k==='code'?'dir="ltr" style="text-align:right"':''}>${k==='stock'&&sv(r[s].stock)!==''?num(+r[s].stock):esc(r[s][k])}</td>`:`<td>${inp(li,ri,s,k,r[s][k],w,k==='code'?'dl_pcode':k==='item'?'dl_pitem':k==='q'?'dl_pqty':'')}</td>`).join('')).join('')}
         ${ro?'':`<td class="nw noprint">${j===0?`<button class="btn s" data-act="ppAddRow" data-l="${li}" data-d="${day}" aria-label="إضافة منتج في نفس اليوم" title="إضافة منتج في نفس اليوم">+</button>${idx.length===1&&(slotHas(r.m)||slotHas(r.n))?` <button class="btn s" data-act="ppClearRow" data-l="${li}" data-r="${ri}" aria-label="تفريغ اليوم" title="تفريغ اليوم">⌫</button>`:''}`:`<button class="btn s d" data-act="ppDelRow" data-l="${li}" data-r="${ri}" aria-label="حذف السطر">✕</button>`}</td>`}</tr>`}).join('')).join('')||`<tr><td colspan="${F.length*2+3}" class="empty">حدد تاريخ البدء والانتهاء</td></tr>`}
       </tbody></table></div>${l.note&&ro?`<p class="small"><b>ملاحظة:</b> ${esc(l.note)}</p>`:''}</div>`});
@@ -1376,9 +1399,19 @@ function ppPlanView(){
   if(isProdApprover()&&st==='approved')acts+=`<button class="btn" data-act="ppReopen">إعادة فتح للتعديل</button>`;
   if(isProdEditor())acts+=`<button class="btn s" data-act="ppLines">خطوط الإنتاج</button>`;
   acts+=`<span style="flex:1"></span><button class="btn" data-act="ppPrint">طباعة</button>${st!=='none'||PP.dirty?`<button class="btn" data-act="ppXlsx">تصدير Excel</button>`:''}`;
+  if(!ro)acts=acts.replace('<span style="flex:1"></span>',`<button class="btn s" data-act="ppStockAll" title="يحدّث خانة الرصيد لكل المنتجات في الخطة من آخر أرصدة مستوردة">تحديث الأرصدة</button><span style="flex:1"></span>`);
+  setTimeout(ppAutosize,0);
   h+=`<div class="formbar sticky noprint">${PP.dirty?`<span class="flag" id="ppDirty">تعديلات غير محفوظة</span>`:''}${acts}</div>`;
   return h;
 }
+/* the plan fits the page width: fixed columns sized by weight, text wraps inside the cells */
+const PP_W={day:6,date:6.5,mould:5,cycle:4.5,code:13,item:15,stock:7,q:7,act:3.5};
+function ppCols(F,ro){const c=[PP_W.day,PP_W.date,...['m','n'].flatMap(()=>F.map(([k])=>PP_W[k])),...(ro?[]:[PP_W.act])];const t=c.reduce((a,b)=>a+b,0);
+  return `<colgroup>${c.map(w=>`<col style="width:${(w/t*100).toFixed(2)}%">`).join('')}</colgroup>`}
+function ppAutosize(){document.querySelectorAll('textarea.pp-ta').forEach(el=>{el.style.height='auto';el.style.height=el.scrollHeight+2+'px'})}
+document.addEventListener('input',e=>{if(e.target.matches&&e.target.matches('textarea.pp-ta')){e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+2+'px'}});
+function ppStockAll(){if(!ppCanEdit())return;let n=0,miss=0;PP.lines.forEach(l=>l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!sv(x.code))return;const q=stockFor(x.code,l.line_id);if(q==null){miss++;return}if(fmtQ(q)!==sv(x.stock)){x.stock=fmtQ(q);n++}})));
+  if(n){PP.dirty=true;render()}toast(n?`تحدّث رصيد ${n} منتج${miss?` · ${miss} بدون رصيد في المستودع`:''}`:miss?`ما تغيّر شي · ${miss} منتج بدون رصيد في المستودع`:'الأرصدة محدّثة')}
 function ppStats(lines){
   const prods={},byLine=[];let slots=0,stop=0,mould=0;
   lines.forEach(l=>{let ls=0,lstop=0,lm=0;l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!slotHas(x))return;slots++;ls++;
@@ -1542,8 +1575,10 @@ function ppEdit(t,structural){
     l[k]=t.value;PP.dirty=true;ppDirtyMark();return}
   const r=l.rows[+t.dataset.r];if(!r)return;const s=t.dataset.s;r[s][k]=t.value;PP.dirty=true;
   const setEl=(f,v)=>{r[s][f]=v;const el=document.getElementById(`pp_${t.dataset.l}_${t.dataset.r}_${s}_${f}`);if(el)el.value=v};
-  if(k==='code'&&structural){const p=(PP.products||[]).find(x=>normCode(x.code)===normCode(t.value));if(p){const prev=r[s].item;if(!prev||(PP.products||[]).some(x=>x.name===prev))setEl('item',p.name);if(!r[s].q)setEl('q','وردية')}}
-  if(k==='item'&&structural&&!r[s].code){const p=(PP.products||[]).find(x=>x.name===t.value);if(p)setEl('code',p.code)}
+  if(k==='code'&&structural&&PSPECIAL.includes(sv(t.value))){setEl('item',sv(t.value));setEl('code','');setEl('stock','');ppAutosize()}
+  else if(k==='code'&&structural){const p=(PP.products||[]).find(x=>normCode(x.code)===normCode(t.value));if(p){const prev=r[s].item;if(!prev||(PP.products||[]).some(x=>x.name===prev))setEl('item',p.name);if(!r[s].q)setEl('q','وردية')}
+    setEl('stock',fmtQ(stockFor(t.value,l.line_id)));ppAutosize()}
+  if(k==='item'&&structural&&!r[s].code){const p=(PP.products||[]).find(x=>sv(x.name)===sv(t.value));if(p){setEl('code',p.code);setEl('stock',fmtQ(stockFor(p.code,l.line_id)))}}
   if(structural&&Object.keys(PP.errors).length){ppValidate();render();return}
   ppDirtyMark();
 }
@@ -1562,13 +1597,13 @@ async function ppCopyPrev(){
 }
 function ppLinesForm(){
   const rows=(PP.lineDefs||[]).map(l=>({...l}));
-  const draw=()=>`<form id="plnF"><p class="small muted" style="margin-top:0">الخط الموقوف لا يظهر في الخطط الجديدة، ويبقى ظاهراً في الخطط القديمة.</p><div class="list">${rows.map((l,i)=>`<div class="toolbar"><input aria-label="اسم الخط" data-ln="${i}" data-k="name" value="${esc(l.name)}" style="flex:1;min-width:160px"><input aria-label="الترتيب" data-ln="${i}" data-k="sort" inputmode="numeric" value="${esc(l.sort)}" style="width:60px"><label class="small"><input type="checkbox" data-ln="${i}" data-k="active" ${l.active?'checked':''}> فعّال</label></div>`).join('')}</div>
+  const draw=()=>`<form id="plnF"><p class="small muted" style="margin-top:0">الخط الموقوف لا يظهر في الخطط الجديدة، ويبقى ظاهراً في الخطط القديمة. «المستودع» هو اللي تُقرأ منه أرصدة المنتجات لهذا الخط (005 مكة، 1005 عسفان).</p><div class="list">${rows.map((l,i)=>`<div class="toolbar"><input aria-label="اسم الخط" data-ln="${i}" data-k="name" value="${esc(l.name)}" style="flex:1;min-width:160px"><input aria-label="مستودع الأرصدة" title="رقم المستودع اللي تُقرأ منه الأرصدة (005 مكة، 1005 عسفان)" placeholder="المستودع" data-ln="${i}" data-k="whs" dir="ltr" value="${esc(l.whs||'')}" style="width:90px"><input aria-label="الترتيب" data-ln="${i}" data-k="sort" inputmode="numeric" value="${esc(l.sort)}" style="width:60px"><label class="small"><input type="checkbox" data-ln="${i}" data-k="active" ${l.active?'checked':''}> فعّال</label></div>`).join('')}</div>
    <div class="toolbar" style="margin-top:8px"><button type="button" class="btn s" id="pln_add">+ خط جديد</button></div><div id="pln_e" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">إلغاء</button><button class="btn p">حفظ</button></div></form>`;
   const pull=b=>b.querySelectorAll('[data-ln]').forEach(el=>{const o=rows[+el.dataset.ln];o[el.dataset.k]=el.type==='checkbox'?el.checked:el.value});
   const mount=b=>{b.querySelector('#pln_add').addEventListener('click',()=>{pull(b);rows.push({name:'',sort:rows.length+1,active:true});b.innerHTML=draw();mount(b)});
     b.querySelector('#plnF').addEventListener('submit',async e=>{e.preventDefault();pull(b);
       if(rows.some(r=>!sv(r.name)))return b.querySelector('#pln_e').textContent='اسم الخط مطلوب';
-      for(const r of rows){const rec={name:sv(r.name),sort:+r.sort||0,active:!!r.active};const old=(PP.lineDefs||[]).find(x=>x.id===r.id);if(old&&old.name===rec.name&&old.sort===rec.sort&&old.active===rec.active)continue;
+      for(const r of rows){const rec={name:sv(r.name),sort:+r.sort||0,active:!!r.active,whs:sv(r.whs)||null};const old=(PP.lineDefs||[]).find(x=>x.id===r.id);if(old&&old.name===rec.name&&old.sort===rec.sort&&old.active===rec.active&&(old.whs||null)===rec.whs)continue;
         const {error}=await(r.id?sb.from('prod_lines').update(rec).eq('id',r.id):sb.from('prod_lines').insert(rec));if(error)return b.querySelector('#pln_e').textContent=errText(error)}
       closeModal();await ppRefs(true);if(!PP.dirty)PP.key='';toast('حُفظت خطوط الإنتاج');render()})};
   openModal('خطوط الإنتاج',draw(),mount);
@@ -1589,7 +1624,7 @@ const PP_ACT={
   ppApprove:()=>{if(PP.dirty)return toast('احفظ التعديلات أولاً');ppReview('approved','')},
   ppReturn:()=>askText('إعادة الخطة لمدير الإنتاج','سبب الإعادة (يظهر لمدير الإنتاج)',v=>ppReview('returned',v),true),
   ppReopen:()=>askText('إعادة فتح الخطة','سبب إعادة الفتح',v=>ppReview('returned',v),true),
-  ppCopyPrev:()=>ppCopyPrev(),ppLines:()=>ppLinesForm(),ppPrint:()=>window.print(),
+  ppCopyPrev:()=>ppCopyPrev(),ppLines:()=>ppLinesForm(),ppPrint:()=>ppPrint(),ppStockAll:()=>ppStockAll(),
   ppXlsx:()=>ppExportWeek(),ppXlsxRange:()=>ppExportRange(),
   ppImpReset:()=>{PP.imp={step:'pick'};render()},
   ppImpAll:d=>{PP.imp.sheets.forEach(s=>{s.on=d.v==='1'?!s.dupe&&!s.locked:false});render()},
@@ -1597,6 +1632,76 @@ const PP_ACT={
 };
 
 Object.assign(ACT,PP_ACT);
+
+/* ---------- printing: one production line per A4 landscape page ---------- */
+function ppPrint(){
+  const d=PP.doc;if(!d)return;const lines=PP.lines.filter(lineHas);if(!lines.length)return toast('الخطة فارغة — ما فيه شي للطباعة');
+  const wk=d.week_no||weekNoOf(PP.ws),st=d.status,stTxt={none:'غير محفوظة',draft:'مسودة',submitted:'بانتظار الاعتماد',returned:'معادة للتعديل',approved:'معتمدة'}[st]||'';
+  const nm=id=>{const n=id?pName(id):'';return n==='—'?'':n};
+  const maker=nm(d.submitted_by||d.created_by),approver=st==='approved'?nm(d.reviewed_by):'';
+  const logo=window.WADY_LOGO_DATA||'';
+  const K=[['code','الكود'],['item','المنتج'],['q','الكمية'],['stock','الرصيد'],['mould','القالب'],['cycle','السايكل']];
+  const has=(l,k)=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k]));
+  const W={code:12,item:25,q:8,stock:8,mould:8,cycle:6};
+  const cell=(x,k)=>{const v=x[k];if(k==='stock')return sv(v)!==''&&Number.isFinite(parseNum(v))?num(parseNum(v)):esc(v);if(k==='item'&&(isStop(v)||isMould(v)))return `<span class="tag ${isStop(v)?'stop':'mould'}">${esc(v)}</span>`;return esc(v)};
+  const page=(l,i)=>{
+    const F=K.filter(([k])=>k==='code'||k==='item'||k==='q'||has(l,k));const tw=F.reduce((a,[k])=>a+W[k],0)*2+14;
+    const col=k=>`<col style="width:${(W[k]/tw*100).toFixed(2)}%">`;
+    const days={};l.rows.forEach(r=>{(days[r.day]=days[r.day]||[]).push(r)});
+    let prod=0,stop=0;l.rows.forEach(r=>['m','n'].forEach(s=>{if(!slotHas(r[s]))return;if(isStop(r[s].item)||isMould(r[s].item))stop++;else prod++}));
+    const body=Object.entries(days).map(([day,rows])=>{const keep=rows.filter((x,j)=>j===0||slotHas(x.m)||slotHas(x.n));
+      return keep.map((x,j)=>`<tr class="${j===0?'d0':''} ${dow(day)===5?'fri':''}">${j===0?`<td rowspan="${keep.length}" class="day"><b>${DAY_AR[dow(day)]}</b></td><td rowspan="${keep.length}" class="date">${fdate(day)}</td>`:''}
+        ${['m','n'].map(s=>F.map(([k])=>`<td class="${k} ${s==='n'?'nt':''}${k==='code'?' ltr':''}">${cell(x[s],k)}</td>`).join('')).join('')}</tr>`).join('')}).join('');
+    const wh=lineWhs(l.line_id);
+    return `<section class="page"><div class="fit">
+     <header><div class="brand">${logo?`<img src="${logo}" alt="">`:'<b>الوادي الأخضر المميز</b>'}</div>
+      <div class="ttl"><h1>خطة الإنتاج الأسبوعية</h1><div class="en">Weekly Production Plan</div></div>
+      <div class="meta"><div><span>الأسبوع</span><b>${esc(wk)}</b></div><div><span>الحالة</span><b class="st ${st}">${esc(stTxt)}</b></div></div></header>
+     <div class="line"><div class="ln"><span>خط الإنتاج</span><b>${esc(lineName(l.line_id))}</b></div>
+      <div><span>رقم الخطة</span><b class="ltr">${esc(l.plan_no||'—')}</b></div><div><span>من</span><b>${fdate(l.start_date)}</b></div><div><span>إلى</span><b>${fdate(l.end_date)}</b></div>
+      <div><span>ورديات إنتاج</span><b>${prod}</b></div><div><span>توقف / تغيير قالب</span><b>${stop}</b></div>${wh?`<div><span>مستودع الأرصدة</span><b>${esc(wh)}${WHS_NAME[wh]?' '+WHS_NAME[wh]:''}</b></div>`:''}</div>
+     <table><colgroup><col style="width:${(6/tw*100).toFixed(2)}%"><col style="width:${(8/tw*100).toFixed(2)}%">${F.map(([k])=>col(k)).join('')}${F.map(([k])=>col(k)).join('')}</colgroup>
+      <thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="sh m">الوردية الصباحية <small>Morning</small></th><th colspan="${F.length}" class="sh n">الوردية المسائية <small>Night</small></th></tr>
+      <tr>${['m','n'].map(s=>F.map(([,t])=>`<th class="${s==='n'?'nt':''}">${t}</th>`).join('')).join('')}</tr></thead><tbody>${body}</tbody></table>
+     ${l.note?`<div class="note"><b>ملاحظة:</b> ${esc(l.note)}</div>`:''}${d.note&&i===0?`<div class="note"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</div>`:''}
+     <div class="sign"><div><span>مدير الإنتاج</span><b>${esc(maker)||'&nbsp;'}</b><i>التوقيع</i></div><div><span>الاعتماد</span><b>${esc(approver)||'&nbsp;'}</b><i>التوقيع</i></div></div>
+     <footer><span>شركة الوادي الأخضر المميز — خطة الإنتاج</span><span>صفحة ${i+1} من ${lines.length}</span><span>طُبعت ${fdt(new Date().toISOString())}</span></footer>
+    </div>${st!=='approved'?`<div class="wm">${esc(stTxt)}</div>`:''}</section>`};
+  const css=`@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0;background:#fff}
+  body{font-family:"Tajawal",Tahoma,sans-serif;direction:rtl;color:#0B1B33;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{width:297mm;height:210mm;padding:9mm 10mm 8mm;position:relative;overflow:hidden;page-break-after:always;break-after:page}
+  .page:last-child{page-break-after:auto;break-after:auto}
+  .fit{transform-origin:top right;width:100%}
+  header{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding-bottom:7px;border-bottom:3px solid #051D48}
+  .brand img{height:44px;width:auto;display:block}.brand b{font-size:16px;color:#051D48}
+  .ttl{text-align:center}.ttl h1{margin:0;font-size:21px;font-weight:800;color:#051D48;letter-spacing:.2px}.ttl .en{font-size:10.5px;color:#5A6A82;letter-spacing:1.5px;text-transform:uppercase}
+  .meta{display:flex;gap:8px;justify-content:flex-end}.meta div{border:1px solid #D9E1EC;border-radius:7px;padding:3px 10px;text-align:center;min-width:70px}
+  .meta span,.line span,.sign span{display:block;font-size:9px;color:#5A6A82}.meta b{font-size:14px}
+  .st.approved{color:#1E7B3C}.st.draft,.st.none,.st.returned{color:#B3261E}.st.submitted{color:#9A6400}
+  .line{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 8px;padding:7px 10px;background:#F2F5FA;border-radius:8px;border-right:5px solid #38AC57}
+  .line>div{padding:0 10px;border-left:1px solid #D9E1EC}.line>div:last-child{border-left:0}.line b{font-size:12.5px}.line .ln b{font-size:16px;color:#051D48}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10.5px}
+  th,td{border:1px solid #C9D3E0;padding:4px 5px;vertical-align:middle;word-break:break-word;overflow-wrap:anywhere}
+  th{background:#051D48;color:#fff;font-weight:700;font-size:10px}th.sh{font-size:11.5px;padding:5px}th.sh small{font-weight:400;opacity:.8}
+  th.sh.m{background:#1F4E8C}th.sh.n{background:#3A3F58}thead tr:nth-child(2) th{background:#E8EEF6;color:#051D48}thead tr:nth-child(2) th.nt{background:#ECECF2}
+  td.day,td.date{text-align:center;background:#F7F9FC}td.day b{font-size:11px}td.date{font-size:10px;white-space:nowrap}
+  td.q,td.stock,td.cycle,td.mould{text-align:center;font-variant-numeric:tabular-nums}td.ltr{direction:ltr;text-align:right;font-size:10px}
+  td.nt{background:#FAFAFC}tr.d0 td{border-top:2px solid #8B9AB3}tr.fri td.day,tr.fri td.date{background:#FFF6E5}
+  td.item{text-align:right;line-height:1.35}
+  .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:9.5px;font-weight:700}.tag.stop{background:#FDE7E5;color:#B3261E}.tag.mould{background:#FFF1D6;color:#8A5A00}
+  .note{margin-top:6px;font-size:10.5px;padding:5px 9px;background:#FFFBEA;border:1px solid #F0E2A8;border-radius:6px}
+  .sign{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:12px}.sign div{border-top:1.5px solid #051D48;padding-top:4px;text-align:center}.sign b{font-size:12px;display:block;min-height:16px}.sign i{font-style:normal;font-size:9px;color:#8B9AB3;display:block;margin-top:16px}
+  footer{position:absolute;bottom:5mm;right:10mm;left:10mm;display:flex;justify-content:space-between;font-size:8.5px;color:#8B9AB3;border-top:1px solid #E3E8F0;padding-top:3px}
+  .wm{position:absolute;top:45%;left:50%;transform:translate(-50%,-50%) rotate(-18deg);font-size:110px;font-weight:800;color:rgba(179,38,30,.06);pointer-events:none;white-space:nowrap}
+  @media screen{body{background:#E6EAF0}.page{margin:10px auto;box-shadow:0 2px 12px rgba(0,0,0,.15);background:#fff}}`;
+  const fit=`function fit(){document.querySelectorAll('.page').forEach(function(p){var f=p.querySelector('.fit');f.style.transform='';f.style.width='100%';var avail=p.clientHeight-parseFloat(getComputedStyle(p).paddingTop)-parseFloat(getComputedStyle(p).paddingBottom)-14;var tb=f.querySelector('tbody'),rows=tb?tb.rows:[];for(var i=0;i<rows.length;i++)rows[i].style.height='';var h=f.scrollHeight;
+    if(h<avail&&rows.length){var extra=(avail-h-4)/rows.length,maxH=56;for(var j=0;j<rows.length;j++){var rh=rows[j].getBoundingClientRect().height;rows[j].style.height=Math.min(maxH,rh+extra)+'px'}h=f.scrollHeight}
+    if(h>avail){var k=Math.max(.45,avail/h);f.style.transform='scale('+k+')';f.style.width=(100/k)+'%'}})}`;
+  const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>خطة الإنتاج — الأسبوع ${esc(wk)}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" media="none" onload="this.media='all'"><style>${css}</style></head><body>
+   ${lines.map(page).join('')}
+   <script>${fit};fit();window.addEventListener("beforeprint",fit);window.addEventListener("load",function(){fit();var go=function(){fit();setTimeout(function(){window.print()},250)};if(document.fonts&&document.fonts.ready)document.fonts.ready.then(go);else setTimeout(go,600)});<\/script></body></html>`;
+  const w=window.open('','_blank');if(!w){downloadBlob(`خطة_الإنتاج_أسبوع_${wk}.html`,new Blob([html],{type:'text/html'}));return toast('افتح الملف المنزّل واطبعه')}w.document.open();w.document.write(html);w.document.close();
+}
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
