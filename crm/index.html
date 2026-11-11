@@ -279,6 +279,11 @@ function fnv(str){let h=0x811c9dc5;for(let i=0;i<str.length;i++){h^=str.charCode
 
 /* ============ Reference data ============ */
 const CLIENT_TYPES={contractor:['مقاول','Contractor'],distributor:['موزع','Distributor'],consultant:['مكتب استشاري','Consultant'],gov:['جهة حكومية','Government'],developer:['مطور عقاري','Developer']};
+/* customer kind (SAP CardType): a current customer or a sales lead */
+const CUST_KIND={customer:['Customer — عميل حالي','Customer','strong'],lead:['Lead — فرصة بيعية','Lead','info']};
+/* payment class from collection vouchers: new = first ever payment this month · old = paid before this month and within 12 months · stopped = nothing in 12 months */
+const PAY_CLS={new:['جديد','New','ok'],old:['قديم','Returning','info'],stopped:['متوقف','Stopped','warn'],none:['لم يسدد بعد','No payments','']};
+const PAY_ORDER=['new','old','stopped','none'];
 const CLIENT_STATUS={active:['نشط','Active','ok'],prospect:['محتمل','Prospect','info'],inactive:['متوقف','Inactive',''],lost:['مفقود','Lost','bad']};
 const ROLES={rep:['مندوب','Sales rep'],sup:['مشرف منطقة','Regional supervisor'],mgr:['مدير المبيعات','Sales manager'],admin:['مدير النظام','System admin']};
 const REGIONS=[
@@ -689,7 +694,9 @@ function I(){
   const strategic=new Set(ranked.slice(0,Math.max(1,Math.round(S.clients.length*C.strategicTop/100))).map(x=>x[0]));
   S.clients.forEach(c=>{if(/استراتيج|strateg/i.test(c.category||''))strategic.add(c.id)});
   const collByCust=new Map();coll.forEach(r=>{if(r.cid)(collByCust.get(r.cid)||collByCust.set(r.cid,[]).get(r.cid)).push(r)});
-  IDX={v:dataVer,custByCode,coll,quotes,tx,act,first,strategic,collByCust,v12,segCache:new Map()};
+  // first and last payment per customer (unmatched vouchers keyed by their code)
+  const payFirst=new Map(),payLast=new Map();coll.forEach(r=>{const k=r.cid||('?'+normCode(r.code));if(!payFirst.has(k))payFirst.set(k,r);payLast.set(k,r)});
+  IDX={v:dataVer,custByCode,coll,payFirst,payLast,quotes,tx,act,first,strategic,collByCust,v12,segCache:new Map()};
   return IDX;
 }
 function lastBefore(arr,asOf){if(!arr)return null;for(let i=arr.length-1;i>=0;i--)if(arr[i]<=asOf)return arr[i];return null}
@@ -704,6 +711,15 @@ function segmentOf(cid,asOf){
     if(days>C.lostDays)s='lost';else if(days>C.activeDays)s='dormant';else if(daysBetween(ft,asOf)<=C.newDays)s='new';else if(ix.strategic.has(cid))s='strategic';else s='active'}
   ix.segCache.set(k,s);return s;
 }
+function payClass(cid,asOf){asOf=asOf||TODAY();const ix=I();const f=ix.payFirst.get(cid);
+  if(!f||f.d>asOf)return byId('clients',cid)?.kind==='lead'?'none':'stopped';
+  let l=null;for(const r of (ix.collByCust.get(cid)||[]))if(r.d<=asOf)l=r;
+  if(!l||l.d<addDays(asOf,-365))return 'stopped';return f.d>=asOf.slice(0,8)+'01'?'new':'old'}
+/* customers whose first ever payment falls inside the period */
+function firstPayRows(f,P){const ix=I();const tot=new Map();ix.coll.forEach(r=>{if(r.d>=P.from&&r.d<=P.to){const k=r.cid||('?'+normCode(r.code));tot.set(k,(tot.get(k)||0)+r.amt)}});
+  const out=[];ix.payFirst.forEach((r,k)=>{if(r.d<P.from||r.d>P.to)return;const c=r.cid?byId('clients',r.cid):null;const rep=c?.repId||r.rep;const reg=c?.region||r.reg;if(!rowOK(f,rep,reg))return;
+    out.push({k,cid:r.cid,code:c?.code||r.code,name:c?.name||r.cn||r.code,kind:c?.kind||'',rep,reg,d:r.d,v:r.v,amt:r.amt,tot:tot.get(k)||0})});
+  return out.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:b.tot-a.tot)}
 const isActiveSeg=s=>s==='strategic'||s==='active'||s==='new';
 function hasTx(cid,from,to){const a=I().tx.get(cid);return !!a&&a.some(d=>d>=from&&d<=to)}
 function lastActivity(cid){const a=I().act.get(cid);return a&&a.length?a[a.length-1]:''}
@@ -878,7 +894,8 @@ const IMP_DEF={
   F_('histVolume','حجم المبيعات التاريخي','Historical sales volume',['حجم المبيعات التاريخي','الكمية التاريخية','حجم المبيعات','الكمية','historical sales volume','sales volume','volume','quantity'],{t:'num'}),
   F_('histValue','قيمة المبيعات التاريخية','Historical sales value',['قيمة المبيعات التاريخية','المبيعات التاريخية','قيمة المبيعات','historical sales value','sales value','total sales'],{t:'num'}),
   F_('lastTx','تاريخ آخر عملية','Last transaction date',['تاريخ آخر عملية','تاريخ اخر معامله','آخر عملية','last transaction date','last transaction','last invoice date'],{t:'date'}),
-  F_('status','حالة العميل','Customer status',['حالة العميل','الحالة','customer status','status'])]},
+  F_('status','حالة العميل','Customer status',['حالة العميل','الحالة','customer status','status']),
+  F_('kind','نوع العميل (Customer / Lead)','Customer kind (Customer / Lead)',['نوع العميل','نوع البطاقه','نوع الحساب','cardtype','card type','customer type','kind','customer/lead'])]},
  quotes:{ar:'عروض الأسعار',en:'Quotations',fields:[
   F_('no','رقم العرض','Quotation number',['رقم العرض','رقم عرض السعر','quotation number','quotation no','quote no','docnum','رقم المستند'],{req:1}),
   F_('code','كود العميل','Customer code',['كود العميل','رمز العميل','رقم العميل','customer code','cardcode'],{req:1}),
@@ -934,6 +951,7 @@ function impCfg(type){const s=(S.settings.find(x=>x.id==='impcfg')||{}).types||{
 function impFields(type){const c=impCfg(type);const key=IMP_KEY[type];return (IMP_DEF[type]?.fields||[]).map(f=>{const lb=(c.label||{})[f.k];const o={...f,syn:[...f.syn,...((c.syn||{})[f.k]||[]),...(lb?[lb]:[])]};if(f.k!==key&&c.req&&f.k in c.req)o.req=c.req[f.k]?1:0;return o})}
 function impDef(type){return {...IMP_DEF[type],fields:impFields(type)}}
 const QS_MAP={open:['open','مفتوح','مفتوحه','جديد','new','قائم'],pending:['pending','معلق','قيدالانتظار','قيدالدراسه','قيدالمراجعه','انتظار','تحتالدراسه'],accepted:['accepted','مقبول','مقبوله','won','closedwon','تمالقبول','موافق','موافقعليه','فائز','ترسيه'],rejected:['rejected','مرفوض','مرفوضه','lost','closedlost','خساره','خاسر'],expired:['expired','منتهي','منتهيه','منتهيالصلاحيه','انتهي'],cancelled:['cancelled','canceled','ملغي','ملغيه','الغاء','ملغا']};
+const KIND_MAP={customer:['customer','c','cust','عميل','عميلحالي','عميلفعلي','حالي'],lead:['lead','l','leed','ليد','فرصه','فرصهبيعيه','فرصهبيع','عميلمحتمل','محتمل']};
 const CS_MAP={active:['active','نشط','فعال','قائم','y','yes','نعم'],inactive:['inactive','موقوف','متوقف','غيرنشط','blocked','frozen','مجمد','n','no','لا'],prospect:['prospect','lead','محتمل','عميلمحتمل'],lost:['lost','مفقود','خاسر']};
 const REG_SYN={mak:['mak','makkah','mecca','makka','مكه','مكهالمكرمه','منطقهمكه','فرعمكه'],jed:['jed','jeddah','jiddah','jedda','جده','منطقهجده','فرعجده'],office:['office','salesoffice','hq','مكتبالمبيعات','المكتب','مكتب','الاداره','المركزالرئيسي','مبيعاتالمكتب']};
 const lookup=(map,v)=>{const n=normTxt(v);if(!n)return '';for(const[k,a]of Object.entries(map))if(a.includes(n))return k;return null};
@@ -1006,6 +1024,7 @@ function impValidate(){
       if(has('sup')&&g('sup')!==''&&!supByTxt(g('sup')))it.note=L('المشرف غير معرّف، سيُعتمد مشرف المنطقة','Supervisor not found; regional supervisor used');
       const data={code,name:String(g('name')).trim(),region};
       if(repId)data.repId=repId;if(status)data.status=status;
+      if(has('kind')&&g('kind')!==''){const kd=lookup(KIND_MAP,g('kind'));if(!kd)return rej(L('نوع عميل غير معروف (المسموح Customer أو Lead): ','Unknown kind (Customer or Lead): ')+g('kind'));data.kind=kd}
       if(has('category')&&g('category')!==''){data.category=String(g('category')).trim();const ty=typeOf(data.category);if(ty)data.type=ty}
       if('histVolume'in nums)data.histVolume=nums.histVolume;if('histValue'in nums)data.histValue=nums.histValue;if('lastTx'in dates)data.lastTxDate=dates.lastTx;
       if(has('sup')&&supByTxt(g('sup')))data.supId=supByTxt(g('sup'));
@@ -1165,7 +1184,7 @@ async function reverseImport(imp,reason){
 }
 
 /* --- templates & self-test files --- */
-const IMP_EX={customers:{code:'CU-9001',name:'مؤسسة مثال للمقاولات',region:'مكة المكرمة',category:'مقاول',histVolume:12000,histValue:350000,lastTx:'2026-06-30',status:'نشط'},
+const IMP_EX={customers:{code:'CU-9001',name:'مؤسسة مثال للمقاولات',region:'مكة المكرمة',category:'مقاول',histVolume:12000,histValue:350000,lastTx:'2026-06-30',status:'نشط',kind:'Customer'},
   quotes:{no:'SQ-26-9001',code:'CU-9001',name:'مؤسسة مثال للمقاولات',date:'2026-10-01',region:'مكة المكرمة',cat:'الإنترلوك',value:250000,status:'مفتوح',expClose:'2026-11-15'},
   collections:{voucher:'RV-26-9001',date:'2026-10-05',code:'CU-9001',name:'مؤسسة مثال للمقاولات',amount:85000,inv:'INV-29001',pm:'تحويل بنكي',so:'SO-26-9001'},
   items:{code:'IT-1001',name:'بلاط إنترلوك رمادي 6 سم',family:'الإنترلوك',unit:'م²',size:'20×10×6',price:38,status:'نشط'},
@@ -1531,10 +1550,14 @@ V.collections=()=>{
   const byRep=Object.entries(m.byRep).map(([id,v])=>({id,v})).sort((a,b)=>b.v-a.v);
   const lim=fv('colLim',200);
   return fbar()+`<div class="kpis">${kpiTile(L('التحصيل في الفترة','Collected in period'),smoney(m.coll),`${m.n} ${L('سند','vouchers')}`)}${kpiTile(L('الفترة السابقة','Previous period'),smoney(m.prev),fgrowth(m.growth))}
-   ${kpiTile(L('متوسط لكل عميل نشط','Avg per active customer'),smoney(m.avgPerActive))}${kpiTile(L('غير مطابق لعميل','Unmatched'),smoney(unm.reduce((s,r)=>s+r.amt,0)),`${unm.length} ${L('سند — راجع «سلامة البيانات»','vouchers — see Data integrity')}`)}</div>
+   ${kpiTile(L('عملاء سددوا لأول مرة','First-time payers'),num(firstPayRows(f,P).length),L('خلال الفترة','in period'))}${kpiTile(L('غير مطابق لعميل','Unmatched'),smoney(unm.reduce((s,r)=>s+r.amt,0)),`${unm.length} ${L('سند — راجع «سلامة البيانات»','vouchers — see Data integrity')}`)}</div>
    ${canImport()?`<div class="toolbar"><span class="grow small muted">${L('سجلات التحصيل تأتي من ملفات Excel. الاستيراد الجديد يُضاف ولا يستبدل الفترات السابقة.','Collections come from Excel files. New imports append; earlier periods are never overwritten.')}</span><button class="btn p" data-act="goImport" data-t="collections">${L('استيراد ملف تحصيل','Import collections file')}</button></div>`:''}
    <div class="grid g2"><div class="card"><h2>${L('التحصيل الشهري','Monthly collections')}</h2>${chart({type:'bar',labels:mo.keys.map(monthLabel),series:[{label:L('التحصيل','Collections'),data:mo.coll,color:'--c2'},{label:L('المستهدف','Target'),data:mo.target,color:'--c3',type:'line',dashed:1}],money:1})}</div>
    <div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:x=>x.id?esc(tName(x.id)):`<span class="muted">${L('بدون مندوب','No rep')}</span>`},{l:L('التحصيل','Collected'),c:'n',f:x=>money(x.v),t:r=>money(r.reduce((s,x)=>s+x.v,0))},{l:L('الحصة','Share'),c:'n',f:x=>fpct(m.coll?x.v/m.coll:null)}],byRep.map(x=>({...x,id:x.id||null})),'rep',{foot:1})}</div></div>
+   ${(()=>{const fp=firstPayRows(f,P);const fl=fv('fpLim',10);return `<div class="card"><h2>${L('عملاء سددوا لأول مرة في الفترة','Customers who paid for the first time in the period')}<span class="sub">${fp.length} ${L('عميل','customers')} · ${smoney(fp.reduce((s,x)=>s+x.tot,0))} ${L('تحصيلهم في الفترة','collected in period')}</span></h2>
+    <p class="small muted" style="margin-top:0">${L('أول سند قبض للعميل في كل السجلات المستوردة يقع داخل الفترة المختارة. التصدير من «التقارير ← العملاء الجدد بأول دفعة».','The customer\'s first voucher in all imported records falls inside the selected period. Export from Reports.')}</p>
+    ${fp.length?table([{l:L('العميل','Customer'),f:x=>`${x.cid?`<a href="#" data-open="client" data-id="${x.cid}">${esc(x.name)}</a>`:esc(x.name)+' '+pill(L('غير مطابق','Unmatched'),'warn')} <span class="small muted">${esc(x.code)}</span>`},{l:L('النوع','Kind'),f:x=>x.kind?pill(CUST_KIND[x.kind][1],CUST_KIND[x.kind][2]):'<span class="muted">—</span>'},{l:L('أول دفعة','First payment'),c:'nw',f:x=>fdate(x.d)},{l:L('السند','Voucher'),f:x=>esc(x.v)},{l:L('مبلغ أول دفعة','First amount'),c:'n',f:x=>money(x.amt)},{l:L('إجمالي الفترة','Period total'),c:'n',f:x=>money(x.tot)},{l:L('المندوب','Rep'),f:x=>esc(tName(x.rep))}],fp.slice(0,fl)):`<div class="empty small">${L('ما فيه عملاء سددوا لأول مرة في هذه الفترة.','No first-time payers in this period.')}</div>`}
+    ${fp.length>fl?`<button class="btn" data-act="more" data-k="fpLim" data-n="${fl+50}">${L('عرض المزيد','Show more')} (${fp.length-fl})</button>`:''}</div>`})()}
    <div class="card"><h2>${L('سندات القبض','Collection vouchers')}<span class="sub">${rows.length} ${L('سند في الفترة','in period')}</span></h2>
    <div class="toolbar" style="margin-bottom:8px"><span class="grow"><input id="colq" type="search" placeholder="${L('بحث برقم السند أو العميل أو الفاتورة','Search voucher, customer, invoice')}" value="${esc(fv('colq',''))}" data-act="filtIn" data-k="colq"></span></div>
    ${table([{l:L('السند','Voucher'),f:r=>`<b>${esc(r.v)}</b>`},{l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.d)},{l:L('العميل','Customer'),f:r=>r.cid?esc(cName(r.cid)):`${esc(r.cn||r.code)} ${pill(L('غير مطابق','Unmatched'),'warn')}`},{l:L('المندوب','Rep'),f:r=>esc(tName(r.rep))},{l:L('المبلغ','Amount'),c:'n',f:r=>money(r.amt),t:rs=>money(rows.reduce((s,x)=>s+x.amt,0))},{l:L('الطريقة','Method'),f:r=>esc(r.pm||'—')},{l:L('الفاتورة','Invoice'),f:r=>esc(r.inv||'—')}],rows.slice(0,lim).map(r=>({...r,id:r.cid})),'client',{foot:1})}
@@ -1544,10 +1567,13 @@ V.collections=()=>{
 /* --- Customers --- */
 V.clients=()=>{
   const t=TODAY();const ix=I();
-  const q=normTxt(fv('cq','')),ty=fv('cty',''),rg=fv('crg',''),rp=fv('crp',''),sp=fv('csp',''),sg=fv('cseg',''),cat=fv('ccat','');
+  const q=normTxt(fv('cq','')),ty=fv('cty',''),rg=fv('crg',''),rp=fv('crp',''),sp=fv('csp',''),sg=fv('cseg',''),cat=fv('ccat',''),kd=fv('ckind',''),pc=fv('cpay','');
   const base=vis(S.clients).filter(c=>(!q||normTxt(c.name+' '+(c.code||'')+' '+(c.district||'')+' '+(c.phone||'')).includes(q))&&(!ty||c.type===ty)&&(!rg||c.region===rg)&&(!rp||c.repId===rp)&&(!sp||supOf(byId('team',c.repId)||{region:c.region})===sp)&&(!cat||(c.category||'')===cat));
-  const segs={};base.forEach(c=>{const s=segmentOf(c.id,t);segs[s]=(segs[s]||0)+1;c._s=s});
-  const rows=base.filter(c=>!sg||c._s===sg).sort((a,b)=>(ix.v12.get(b.id)||0)-(ix.v12.get(a.id)||0)||a.name.localeCompare(b.name,'ar'));
+  const kinds={customer:0,lead:0,'-':0};base.forEach(c=>{kinds[c.kind==='customer'||c.kind==='lead'?c.kind:'-']++});
+  const kbase=base.filter(c=>!kd||(kd==='-'?!(c.kind==='customer'||c.kind==='lead'):c.kind===kd));
+  const pays={};kbase.forEach(c=>{const p=payClass(c.id,t);pays[p]=(pays[p]||0)+1;c._p=p});
+  const segs={};kbase.forEach(c=>{const s=segmentOf(c.id,t);segs[s]=(segs[s]||0)+1;c._s=s});
+  const rows=kbase.filter(c=>(!sg||c._s===sg)&&(!pc||c._p===pc)).sort((a,b)=>(ix.v12.get(b.id)||0)-(ix.v12.get(a.id)||0)||a.name.localeCompare(b.name,'ar'));
   const cats=[...new Set(S.clients.map(c=>c.category).filter(Boolean))];const lim=fv('cLim',150);
   return `<div class="fbar"><label class="fl" style="flex:2 1 220px" for="cq">${L('بحث','Search')}<input id="cq" type="search" placeholder="${L('الاسم أو الكود أو الحي أو الجوال','Name, code, district, phone')}" value="${esc(fv('cq',''))}" data-act="filtIn" data-k="cq"></label>
    ${isLead()?`<label class="fl" for="crg">${L('المنطقة','Region')}<select id="crg" data-act="filtSel" data-k="crg">${opt(REGIONS.map(r=>[r.id,L(r.ar,r.en)]),rg,L('الكل','All'))}</select></label>`:''}
@@ -1556,10 +1582,12 @@ V.clients=()=>{
    <label class="fl" for="ccat">${L('التصنيف','Category')}<select id="ccat" data-act="filtSel" data-k="ccat">${opt(cats.map(c=>[c,c]),cat,L('الكل','All'))}</select></label>
    <label class="fl" for="cty">${L('النشاط','Business type')}<select id="cty" data-act="filtSel" data-k="cty">${opt(Object.entries(CLIENT_TYPES).map(([k,v])=>[k,L(v[0],v[1])]),ty,L('الكل','All'))}</select></label>
    <button class="btn p" data-act="newClient">+ ${L('عميل','Customer')}</button></div>
-   <div class="chips"><button class="chip ${!sg?'on':''}" data-act="filt" data-k="cseg" data-v="">${L('الكل','All')} ${base.length}</button>${SEG_ORDER.map(s=>`<button class="chip ${sg===s?'on':''}" data-act="filt" data-k="cseg" data-v="${s}">${lab(SEGMENTS,s)} ${segs[s]||0}</button>`).join('')}</div>
+   <div class="chips" aria-label="${L('نوع العميل','Customer kind')}"><b class="small muted" style="align-self:center">${L('النوع','Kind')}:</b><button class="chip ${!kd?'on':''}" data-act="filt" data-k="ckind" data-v="">${L('الكل','All')} ${base.length}</button>${Object.keys(CUST_KIND).map(k=>`<button class="chip ${kd===k?'on':''}" data-act="filt" data-k="ckind" data-v="${k}">${CUST_KIND[k][1]} ${kinds[k]}</button>`).join('')}${kinds['-']?`<button class="chip ${kd==='-'?'on':''}" data-act="filt" data-k="ckind" data-v="-">${L('غير محدد','Not set')} ${kinds['-']}</button>`:''}</div>
+   <div class="chips" aria-label="${L('تصنيف الدفعات','Payment class')}"><b class="small muted" style="align-self:center" title="${L('جديد: أول دفعة في حياته هذا الشهر · قديم: سدد قبل هذا الشهر وعنده دفعة خلال 12 شهراً · متوقف: لا دفعات خلال 12 شهراً','New: first ever payment this month · Returning: paid before and within 12 months · Stopped: none in 12 months')}">${L('الدفعات','Payments')}:</b><button class="chip ${!pc?'on':''}" data-act="filt" data-k="cpay" data-v="">${L('الكل','All')} ${kbase.length}</button>${PAY_ORDER.filter(p=>pays[p]||pc===p).map(p=>`<button class="chip ${pc===p?'on':''}" data-act="filt" data-k="cpay" data-v="${p}">${lab(PAY_CLS,p)} ${pays[p]||0}</button>`).join('')}</div>
+   <div class="chips"><b class="small muted" style="align-self:center" title="${L('حسب آخر نشاط وإعدادات المؤشرات','By last activity and KPI settings')}">${L('النشاط','Activity')}:</b><button class="chip ${!sg?'on':''}" data-act="filt" data-k="cseg" data-v="">${L('الكل','All')} ${kbase.length}</button>${SEG_ORDER.map(s=>`<button class="chip ${sg===s?'on':''}" data-act="filt" data-k="cseg" data-v="${s}">${lab(SEGMENTS,s)} ${segs[s]||0}</button>`).join('')}</div>
    <div class="small muted">${rows.length} ${L('عميل · مرتبون حسب تحصيل آخر 12 شهراً','customers · sorted by last-12-month collections')}</div>
    <div class="list">${rows.slice(0,lim).map(c=>{const open=ix.quotes.filter(q=>q.cid===c.id&&(q.st==='open'||q.st==='pending'));const la=lastActivity(c.id);
-    return `<div class="li" data-open="client" data-id="${c.id}"><div class="main"><div class="t">${esc(c.name)} <span class="small muted">${esc(c.code||'')}</span></div><div class="m">${esc(c.category||lab(CLIENT_TYPES,c.type))} · ${regName(c.region)}${c.district?' · '+esc(c.district):''} · ${esc(tName(c.repId))}</div><div class="m">${L('تحصيل 12 شهراً','12-mo collections')}: ${smoney(ix.v12.get(c.id)||0)} · ${L('عروض مفتوحة','Open quotes')}: ${open.length}${open.length?' ('+smoney(open.reduce((s,q)=>s+q.value,0))+')':''} · ${L('آخر نشاط','Last activity')}: ${fdate(la)}</div></div><div class="end">${segPill(c._s)}</div></div>`}).join('')||`<div class="card empty">${L('لا يوجد عملاء مطابقون','No matching customers')}</div>`}</div>
+    return `<div class="li" data-open="client" data-id="${c.id}"><div class="main"><div class="t">${esc(c.name)} <span class="small muted">${esc(c.code||'')}</span> ${c.kind?pill(CUST_KIND[c.kind][1],CUST_KIND[c.kind][2]):''} ${pill(lab(PAY_CLS,c._p),PAY_CLS[c._p][2])}</div><div class="m">${esc(c.category||lab(CLIENT_TYPES,c.type))} · ${regName(c.region)}${c.district?' · '+esc(c.district):''} · ${esc(tName(c.repId))}</div><div class="m">${L('تحصيل 12 شهراً','12-mo collections')}: ${smoney(ix.v12.get(c.id)||0)} · ${L('عروض مفتوحة','Open quotes')}: ${open.length}${open.length?' ('+smoney(open.reduce((s,q)=>s+q.value,0))+')':''} · ${L('آخر نشاط','Last activity')}: ${fdate(la)}</div></div><div class="end">${segPill(c._s)}</div></div>`}).join('')||`<div class="card empty">${L('لا يوجد عملاء مطابقون','No matching customers')}</div>`}</div>
    ${rows.length>lim?`<button class="btn" data-act="more" data-k="cLim" data-n="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}`;
 };
 
@@ -1594,6 +1622,10 @@ const REPORTS=[
   rows:(f,P)=>I().quotes.filter(q=>['accepted','rejected','expired','cancelled'].includes(q.st)&&(q.close||q.date)>=P.from&&(q.close||q.date)<=P.to&&rowOK(f,q.rep,q.reg)).sort((a,b)=>(b.close||b.date).localeCompare(a.close||a.date))},
  {id:'collections',ar:'تقرير التحصيل',en:'Collection report',cols:[col('رقم السند','Voucher',r=>r.v),col('التاريخ','Date',r=>r.d),col('كود العميل','Code',r=>r.code),col('العميل','Customer',r=>r.cid?cName(r.cid):(r.cn+' '+L('(غير مطابق)','(unmatched)'))),col('المندوب','Rep',r=>tName(r.rep)),col('المنطقة','Region',r=>regName(r.reg)),col('المبلغ','Amount',r=>r.amt,{m:1}),col('طريقة الدفع','Method',r=>r.pm),col('الفاتورة','Invoice',r=>r.inv),col('ملف الاستيراد','Import file',r=>byId('imports',r.imp)?.fileName||'')],
   rows:(f,P)=>I().coll.filter(r=>r.d>=P.from&&r.d<=P.to&&rowOK(f,r.rep,r.reg))},
+ {id:'firstPay',ar:'العملاء الجدد بأول دفعة',en:'First-time paying customers',cols:[col('كود العميل','Code',r=>r.code||''),col('اسم العميل','Customer',r=>r.name+(r.cid?'':' ('+L('غير مطابق','unmatched')+')')),col('نوع العميل','Kind',r=>r.kind?CUST_KIND[r.kind][1]:''),col('تاريخ أول دفعة','First payment',r=>r.d),col('رقم السند','Voucher',r=>r.v),col('مبلغ أول دفعة','First amount',r=>r.amt,{m:1}),col('إجمالي تحصيل الفترة','Period total',r=>r.tot,{m:1}),col('المندوب','Rep',r=>tName(r.rep)),col('المنطقة','Region',r=>regName(r.reg))],
+  rows:(f,P)=>firstPayRows(f,P),note:L('العميل يظهر هنا لو أول سند قبض له في كل السجلات المستوردة داخل الفترة. يُستحسن استيراد سجل التحصيل لآخر 12 شهراً على الأقل حتى يكون «أول دفعة» دقيقاً.','A customer appears when their first voucher across all imported records is inside the period. Import at least 12 months of history for accuracy.')},
+ {id:'payClass',ar:'تصنيف العملاء حسب الدفعات',en:'Customers by payment class',cols:[col('كود العميل','Code',r=>r.c.code||''),col('اسم العميل','Customer',r=>r.c.name),col('نوع العميل','Kind',r=>r.c.kind?CUST_KIND[r.c.kind][1]:''),col('التصنيف','Class',r=>lab(PAY_CLS,r.p)),col('أول دفعة','First payment',r=>r.f?r.f.d:''),col('آخر دفعة','Last payment',r=>r.l?r.l.d:''),col('تحصيل 12 شهراً','12-month collections',r=>r.v12,{m:1}),col('المندوب','Rep',r=>tName(r.c.repId)),col('المنطقة','Region',r=>regName(r.c.region))],
+  rows:(f,P)=>{const ix=I();const s12=addDays(P.to,-365);return segRows(f,P).map(c=>{const rs=(ix.collByCust.get(c.id)||[]).filter(r=>r.d<=P.to);return {c,p:payClass(c.id,P.to),f:ix.payFirst.get(c.id),l:rs[rs.length-1],v12:rs.filter(r=>r.d>=s12).reduce((s,r)=>s+r.amt,0)}}).sort((a,b)=>PAY_ORDER.indexOf(a.p)-PAY_ORDER.indexOf(b.p)||b.v12-a.v12)},note:L('التصنيف محسوب في نهاية الفترة المختارة: جديد = أول دفعة له في شهر نهاية الفترة · قديم = سدد قبل ذلك وعنده دفعة خلال 12 شهراً · متوقف = لا دفعات خلال 12 شهراً · لم يسدد بعد = Lead بدون دفعات.','Class at period end.')},
  {id:'repPerf',ar:'أداء المندوبين',en:'Representative performance',cols:[col('الترتيب','Rank',r=>r.rank,{n:1}),col('المندوب','Rep',r=>r.x.name),col('المنطقة','Region',r=>regName(r.x.region)),col('المشرف','Supervisor',r=>tName(supOf(r.x))),col('العملاء','Customers',r=>r.k.m.assigned,{n:1}),col('نشط','Active',r=>r.k.m.activeN,{n:1}),col('جدد','New',r=>r.k.m.newN,{n:1}),col('خامل','Dormant',r=>r.k.m.dormantN,{n:1}),col('التحصيل','Collected',r=>r.k.m.coll,{m:1}),col('المستهدف','Target',r=>Math.round(r.k.collT),{m:1}),col('التحقيق %','Ach. %',r=>pc(r.k.items[0].ach),{p:1}),col('النمو %','Growth %',r=>pc(r.k.m.growth),{p:1}),col('عروض مفتوحة','Open',r=>r.k.m.openN,{n:1}),col('مقبولة','Won',r=>r.k.m.accN,{n:1}),col('مرفوضة','Lost',r=>r.k.m.rejN,{n:1}),col('التحويل %','Conv. %',r=>pc(r.k.m.conv),{p:1}),col('متوسط/عميل نشط','Avg/active',r=>Math.round(r.k.m.avgPerActive),{m:1}),col('التنشيط %','Activation %',r=>pc(r.k.m.activation),{p:1}),col('الدرجة','Score',r=>r.score==null?'':+r.score.toFixed(1),{n:1})],
   rows:(f,P)=>ranking(repsFor(f),P,r=>({rep:r.id}))},
  {id:'regionPerf',ar:'الأداء الإقليمي',en:'Regional performance',cols:[col('الترتيب','Rank',r=>r.rank,{n:1}),col('المنطقة','Region',r=>L(r.x.ar,r.x.en)),col('المشرف','Supervisor',r=>tName(supOf({region:r.x.id}))),col('العملاء','Customers',r=>r.k.m.assigned,{n:1}),col('نشط','Active',r=>r.k.m.activeN,{n:1}),col('غير نشط','Inactive',r=>r.k.m.inactiveN,{n:1}),col('جدد','New',r=>r.k.m.newN,{n:1}),col('العروض المفتوحة','Open quotes',r=>r.k.m.openVal,{m:1}),col('المقبولة','Accepted',r=>r.k.m.accVal,{m:1}),col('التحصيل','Collected',r=>r.k.m.coll,{m:1}),col('المستهدف','Target',r=>Math.round(r.k.collT),{m:1}),col('التحقيق %','Ach. %',r=>pc(r.k.items[0].ach),{p:1}),col('النمو %','Growth %',r=>pc(r.k.m.growth),{p:1}),col('الدرجة','Score',r=>r.score==null?'':+r.score.toFixed(1),{n:1})],
@@ -3189,6 +3221,7 @@ editClient=function(id,preset){
   const cust=s=>cfCustom().filter(f=>(f.section||CF_SECTIONS[4])===s).map(cfField);
   const fields=[hdr(CF_SECTIONS[0]),
    {k:'code',l:L('كود العميل','Customer code'),req:1,hint:L('المفتاح الموحد مع SAP (CardCode). لا يتكرر.','Unique key shared with SAP.')},{k:'name',l:L('اسم العميل','Customer name'),req:1},
+   {k:'kind',l:L('نوع العميل','Customer kind'),t:'sel',empty:L('غير محدد','Not set'),opts:Object.entries(CUST_KIND).map(([k,v])=>[k,L(v[0],v[1])])},
    {k:'type',l:L('النشاط','Business type'),t:'sel',req:R('type'),opts:Object.entries(CLIENT_TYPES).map(([k,v])=>[k,L(v[0],v[1])])},{k:'category',l:L('تصنيف العميل','Category'),req:R('category')},
    {k:'status',l:L('الحالة','Status'),t:'sel',req:R('status'),opts:Object.entries(CLIENT_STATUS).map(([k,v])=>[k,L(v[0],v[1])])},
    {k:'potential',l:L('إمكانية التطوير','Potential'),t:'sel',empty:L('تُحسب تلقائياً','Automatic'),opts:Object.entries(POTENTIAL).map(([k,v])=>[k,L(v[0],v[1])])},
