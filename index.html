@@ -293,6 +293,10 @@ button.brand.appsw:hover{background:rgba(255,255,255,.08)}
 .pp-t td .btn.s{padding:3px 7px;min-height:28px}
 .pp-tw{overflow:visible}
 #view:has(.pp-line){max-width:none}
+.pk-want{display:flex;gap:8px;align-items:center;cursor:pointer;margin:2px 0}.pk-want input{width:18px;height:18px;min-height:0;flex:none;margin:0}
+.pk-or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}.pk-or:before,.pk-or:after{content:"";flex:1;border-top:1px solid var(--line)}
+.pk-btn{justify-content:center;border:1.5px solid var(--brand,#051D48);font-weight:700}
+.pk-offer{align-items:center;gap:8px;flex-wrap:wrap}
 .pp-t tr.pp-chg>td:not([rowspan]){background:#FFF3B0}
 .pp-t tr.pp-chg>td input,.pp-t tr.pp-chg>td textarea{background:#FFFBE0;border-color:#E3C75A}
 .pp-chgnote{background:#FFF8D6;border-color:#E3C75A;color:#5C4500}.pp-sw{display:inline-block;width:16px;height:12px;background:#FFF3B0;border:1px solid #E3C75A;vertical-align:-1px;border-radius:2px}
@@ -930,12 +934,16 @@ function loginView(){
     <div class="fld"><label for="au_pass">كلمة المرور</label><input id="au_pass" type="password" dir="ltr" autocomplete="${first?'new-password':'current-password'}"></div>
     <div id="au_msg" class="flag">${esc(AUTH.msg)}</div>
     <button class="btn p" type="submit" ${AUTH.busy?'disabled':''} style="justify-content:center">${first?'إنشاء حساب مدير النظام':AUTH.pick?'دخول إلى '+esc(appById(AUTH.pick)?.name||''):'تسجيل الدخول'}</button>
+    ${!first&&pkOn()?`<label class="pk-want small"><input type="checkbox" ${AUTH.pkWant?'checked':''} data-act="pkWant"> فعّل الدخول ببصمة الوجه أو الإصبع على هذا الجهاز</label>
+     <div class="pk-or"><span>أو</span></div>
+     <button class="btn pk-btn" type="button" data-act="pkSignIn" ${AUTH.busy?'disabled':''}>${icon('face')} الدخول ببصمة الوجه / الإصبع</button>`:''}
     <p class="small muted" style="margin:0">${first?'':'اسم مستخدم واحد لكل المنصات. الحسابات يُنشئها مدير النظام، ونسيت كلمة المرور؟ تواصل معه لتعيينها.'}</p></form></div></div></div>`;
 }
 function pickerView(){
   const mine=APPS.filter(a=>canApp(a.id));const name=S.emp?.name_ar||S.me.full_name||S.me.email;
   return `<div class="portal"><div class="pwrap wide">
-   <div class="toolbar" style="margin-bottom:6px"><div class="brand grow" style="color:var(--ink)"><span class="mark">و</span><div><b>أهلاً ${esc(name)}</b><small class="muted">${mine.length?`لديك صلاحية على ${mine.length} ${mine.length===1?'تطبيق':'تطبيقات'}`:'لا توجد تطبيقات متاحة لحسابك بعد'}</small></div></div><button class="btn s" data-act="logout">${icon('out')} تسجيل الخروج</button></div>
+   <div class="toolbar" style="margin-bottom:6px"><div class="brand grow" style="color:var(--ink)"><span class="mark">و</span><div><b>أهلاً ${esc(name)}</b><small class="muted">${mine.length?`لديك صلاحية على ${mine.length} ${mine.length===1?'تطبيق':'تطبيقات'}`:'لا توجد تطبيقات متاحة لحسابك بعد'}</small></div></div>${pkOn()?`<button class="btn s" data-act="pkManage" title="الدخول ببصمة الوجه أو الإصبع">${icon('face')} البصمة</button>`:''}<button class="btn s" data-act="logout">${icon('out')} تسجيل الخروج</button></div>
+   ${AUTH.pkOffer&&pkOn()?`<div class="banner info pk-offer"><span class="sp"><b>تفعيل الدخول بالبصمة:</b> اضغط «فعّل الآن» وأكّد ببصمة الوجه أو الإصبع، والمرة الجاية تدخل بدون كلمة مرور.</span><button class="btn p s" data-act="pkReg">فعّل الآن</button><button class="btn s" data-act="pkLater">لاحقاً</button></div>`:''}
    ${AUTH.denied?`<div class="banner bad"><span class="sp">ليس لديك صلاحية على «${esc(appById(AUTH.denied)?.name||'')}». اختر من التطبيقات المتاحة لك، أو تواصل مع مدير النظام.</span></div>`:''}
    ${!mine.length?`<div class="banner"><span class="sp">حسابك مفعّل لكن لم تُحدد له تطبيقات بعد. تواصل مع مدير النظام.</span></div>`:''}
    <div class="apps">${APPS.filter(a=>!a.hidden||!a.hidden()).map(a=>appCard(a,'pick')).join('')}</div>
@@ -1157,7 +1165,7 @@ document.addEventListener('submit',async e=>{
     else{const u=(g('au_user')||'').toLowerCase(),pw=document.getElementById('au_pass').value;AUTH.lastUser=u;if(!u||!pw){AUTH.msg='أدخل اسم المستخدم وكلمة المرور';return}
       const r=await fetch(SUPABASE_URL+'/functions/v1/login',{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,Authorization:'Bearer '+SUPABASE_ANON_KEY},body:JSON.stringify({username:u,password:pw})});
       const j=await r.json().catch(()=>({}));if(!r.ok||!j.access_token){AUTH.msg=j.error||'تعذّر تسجيل الدخول';return}
-      const {error}=await sb.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token});if(error)throw error}
+      if(AUTH.pkWant)AUTH.pkOffer=true;const {error}=await sb.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token});if(error)throw error}
   }catch(err){AUTH.msg=/Invalid login/i.test(err.message)?'اسم المستخدم أو كلمة المرور غير صحيحة':/Failed to fetch/i.test(err.message)?'تعذّر الاتصال بالخادم':/confirm/i.test(err.message)?'البريد غير مؤكد بعد. افتح رسالة التأكيد في بريدك.':errText(err)}
   finally{AUTH.busy=false;if(!S.session)render()}
 });
@@ -1257,6 +1265,70 @@ const ACT={
   }
   const {data:s}=await sb.auth.getSession();if(!s.session)render();
 })();
+
+/* ===== Face ID / fingerprint sign-in (WebAuthn passkeys through Supabase Auth) =====
+   The portal keeps supabase-js 2.45; passkey calls go through a separate, newer client loaded on demand
+   that never stores the session itself: tokens are handed to the main client with setSession. */
+const PK_LIB='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.min.js';
+var PK={client:null,enabled:null,list:null,busy:false};
+const pkKey=()=>'wady.pk.'+(S.session?.user?.id||'');
+const pkLS={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
+function pkOn(){return pkDevice()&&!!(PK&&PK.enabled)}
+function pkDevice(){return !!(window.PublicKeyCredential&&navigator.credentials&&window.isSecureContext)}
+async function pkServer(){if(PK.enabled!=null)return PK.enabled;
+  try{const r=await fetch(SUPABASE_URL+'/auth/v1/settings',{headers:{apikey:SUPABASE_ANON_KEY}});const j=await r.json();PK.enabled=!!j.passkeys_enabled}catch(e){PK.enabled=false}return PK.enabled}
+async function pkClient(){if(PK.client)return PK.client;
+  const old=window.supabase;
+  await new Promise((res,rej)=>{const s=document.createElement('script');s.src=PK_LIB;s.onload=res;s.onerror=()=>rej(new Error('تعذّر تحميل أداة البصمة — تأكد من الاتصال بالإنترنت'));document.head.appendChild(s)});
+  const lib=window.supabase;window.supabase=old;
+  PK.client=lib.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'wady-pk-tmp',experimental:{passkey:true}}});
+  return PK.client}
+function pkErr(e){const m=String(e?.message||e?.code||e||'');
+  if(/NotAllowed|cancel|abort|timed out/i.test(m))return 'تم إلغاء البصمة أو انتهى الوقت';
+  if(/credential_not_found|not registered/i.test(m))return 'البصمة غير مسجلة على هذا الحساب — ادخل بكلمة المرور وفعّلها من جديد';
+  if(/credential_exists|InvalidState/i.test(m))return 'هذا الجهاز مسجّل مسبقاً على حسابك';
+  if(/passkey_disabled|disabled/i.test(m))return 'الدخول بالبصمة غير مفعّل في النظام بعد — تواصل مع مدير النظام';
+  if(/too_many/i.test(m))return 'وصلت للحد الأعلى من الأجهزة المسجلة — احذف جهازاً قديماً أولاً';
+  return m||'تعذّر إكمال العملية'}
+/* sign in */
+async function pkSignIn(){if(PK.busy)return;PK.busy=true;AUTH.msg='';AUTH.busy=true;render();
+  try{if(!(await pkServer()))throw new Error('passkey_disabled');const c=await pkClient();
+    const {data,error}=await c.auth.signInWithPasskey();if(error)throw error;const s=data?.session;if(!s)throw new Error('لم تكتمل عملية الدخول');
+    const r=await sb.auth.setSession({access_token:s.access_token,refresh_token:s.refresh_token});if(r.error)throw r.error;
+    pkLS.set('wady.pk.last','1')}
+  catch(e){AUTH.msg=pkErr(e)}finally{PK.busy=false;AUTH.busy=false;if(!S.session)render()}}
+/* a client signed in as the current user (main client's tokens; the refresh token comes back if it rotated) */
+async function pkAuthed(){const c=await pkClient();const {data:{session}}=await sb.auth.getSession();if(!session)throw new Error('سجّل الدخول أولاً');
+  const {data,error}=await c.auth.setSession({access_token:session.access_token,refresh_token:session.refresh_token});if(error)throw error;
+  const ns=data?.session;if(ns&&ns.refresh_token!==session.refresh_token)await sb.auth.setSession({access_token:ns.access_token,refresh_token:ns.refresh_token});
+  return c}
+function pkDevName(){const u=navigator.userAgent;const d=/iPhone/.test(u)?'iPhone':/iPad/.test(u)?'iPad':/Android/.test(u)?'Android':/Mac/.test(u)?'Mac':/Windows/.test(u)?'Windows':'جهاز';
+  return d+' — '+new Date().toLocaleDateString('ar-SA-u-ca-gregory-nu-latn',{day:'numeric',month:'short',year:'numeric'})}
+async function pkRegister(){if(PK.busy)return;PK.busy=true;
+  try{if(!pkDevice())throw new Error('هذا المتصفح لا يدعم الدخول بالبصمة');if(!(await pkServer()))throw new Error('passkey_disabled');
+    const c=await pkAuthed();const {error}=await c.auth.registerPasskey({friendlyName:pkDevName()});if(error)throw error;
+    pkLS.set(pkKey(),'1');pkLS.set('wady.pk.last','1');AUTH.pkOffer=false;PK.list=null;toast('تم تفعيل الدخول بالبصمة على هذا الجهاز ✓');
+    if(!document.getElementById('modal').hidden)pkManage();else render()}
+  catch(e){toast(pkErr(e))}finally{PK.busy=false}}
+async function pkManage(){
+  openModal('الدخول ببصمة الوجه أو الإصبع',`<div id="pkBox"><div class="small muted">جارٍ التحميل…</div></div>`);
+  const box=()=>document.getElementById('pkBox');
+  try{if(!(await pkServer())){box().innerHTML=`<div class="banner warn"><span class="sp">الدخول بالبصمة غير مفعّل في النظام بعد. ${isAdmin()?'فعّله من لوحة Supabase: Authentication ← Passkeys.':'تواصل مع مدير النظام.'}</span></div>`;return}
+    const c=await pkAuthed();const {data,error}=await c.auth.passkey.list();if(error)throw error;PK.list=data||[];
+    const here=pkLS.get(pkKey())==='1';
+    box().innerHTML=`<p class="small muted" style="margin-top:0">سجّل جهازك مرة وحدة، وبعدها تدخل من صفحة الدخول بزر «الدخول بالبصمة» بدون كلمة مرور. البصمة نفسها تبقى على جهازك وما تنرسل للنظام.</p>
+     ${pkDevice()?`<button class="btn p" data-act="pkReg" style="justify-content:center;width:100%;margin-bottom:12px">${here?'تسجيل هذا الجهاز مرة ثانية':'تفعيل البصمة على هذا الجهاز'}</button>`:`<div class="banner warn"><span class="sp">هذا المتصفح لا يدعم الدخول بالبصمة.</span></div>`}
+     <h3 style="margin:6px 0">الأجهزة المسجلة (${PK.list.length})</h3>
+     ${PK.list.length?`<div class="list">${PK.list.map(p=>`<div class="row"><div class="grow"><b>${esc(p.friendly_name||'جهاز')}</b><div class="small muted">سُجّل ${fdt(p.created_at)}${p.last_used_at?' · آخر استخدام '+fdt(p.last_used_at):''}</div></div><button class="btn s" data-act="pkDel" data-id="${esc(p.id)}" aria-label="حذف ${esc(p.friendly_name||'الجهاز')}">حذف</button></div>`).join('')}</div>`:'<div class="small muted">ما فيه أجهزة مسجلة بعد.</div>'}
+     <div class="formbar"><button class="btn" data-act="closeModal">إغلاق</button></div>`}
+  catch(e){box().innerHTML=`<div class="banner bad"><span class="sp">${esc(pkErr(e))}</span></div><div class="formbar"><button class="btn" data-act="closeModal">إغلاق</button></div>`}}
+async function pkDelete(id){if(!confirm('حذف هذا الجهاز من الدخول بالبصمة؟'))return;
+  try{const c=await pkAuthed();const {error}=await c.auth.passkey.delete({passkeyId:id});if(error)throw error;toast('تم الحذف');pkManage()}catch(e){toast(pkErr(e))}}
+Object.assign(ACT,{pkSignIn:()=>pkSignIn(),pkReg:()=>pkRegister(),pkManage:()=>pkManage(),pkDel:d=>pkDelete(d.id),pkLater:()=>{AUTH.pkOffer=false;pkLS.set(pkKey()+'.skip','1');render()}});
+document.addEventListener('change',e=>{if(e.target.dataset&&e.target.dataset.act==='pkWant')AUTH.pkWant=e.target.checked});
+IC.face='<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9v1M15 9v1M12 9v4h-1M9.5 15.5c1.5 1 3.5 1 5 0"/>';
+/* show the passkey button only where it can work */
+pkServer().then(()=>{if(!S.session)render()});
 
 /* ===== Weekly production plan ===== */
 const DAY_AR=['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
