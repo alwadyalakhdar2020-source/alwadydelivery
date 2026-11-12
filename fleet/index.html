@@ -879,7 +879,7 @@ async function printReport(btn){
   .r-ممتاز{color:#2E8B4A;font-weight:800}.r-ضعيف{color:#C0392B;font-weight:800}.r-جيد{color:#1B87B3;font-weight:800}.r-مقبول{color:#A87800;font-weight:800}.foot{margin-top:8px;color:#5A6A82;font-size:9px}`;
   const k=(l,v)=>`<div><span>${l}</span><b>${v}</b></div>`;
   const scope=S.f.vehicle!=="الكل"?"سيارة "+vehLabel(S.vehicles.find(x=>x.id===S.f.vehicle)):S.f.branch==="الكل"?"المصنع ككل":"فرع "+S.f.branch;
-  const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
+  const html=`<!doctype html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
   <div class="hdr"><div><h1>تقرير أداء أسطول التوريد</h1><div class="sub">${esc(scope)} · الفترة من ${fd(R.from)} إلى ${fd(R.to)} (${R.L} يوم)</div></div><div class="sub">أُعد في ${fmtAt(now.toISOString())}</div></div>
   <div class="k">${k("المستهدف",fmt(T.t))}${k("المحقق",fmt(T.a,1))}${k("نسبة التحقيق",pct(ratio(T.a,T.t)))}${k("التحقيق المعدّل",pct(ratio(T.a,T.t-T.ext)))}${k("عجز غير مبرر",fmt(T.gap,1))}${k("أيام بدون تسجيل",T.missing)}</div>
   <h2>مقارنة الفرعين</h2><table><thead><tr><th>الفرع</th><th>مسؤول الحركة</th><th>المستهدف</th><th>المحقق</th><th>التحقيق</th><th>المعدّل</th><th>التقييم</th><th>غير مبرر</th><th>ناقل خارجي</th><th>حققوا المستهدف</th></tr></thead><tbody>
@@ -2597,6 +2597,7 @@ start();
 window.wadyLogout = async function () {
   if (!confirm('تسجيل الخروج من كل التطبيقات على هذا الجهاز؟')) return;
   try { if (window.wadyPush) await window.wadyPush.forget(); } catch (e) { }  // this device stops getting this user's alerts
+  try { indexedDB.deleteDatabase('wady-cache'); } catch (e) { }  // local copies of data leave with the user
   let c = window.__sb; try { if (!c && typeof SB !== 'undefined') c = SB; } catch (e) { }
   try { if (c) await c.auth.signOut({ scope: 'local' }); } catch (e) { }
   try { Object.keys(localStorage).filter(k => /^sb-.*-auth-token$/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { }

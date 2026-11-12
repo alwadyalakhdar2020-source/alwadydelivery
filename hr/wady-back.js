@@ -17,6 +17,7 @@
 window.wadyLogout = async function () {
   if (!confirm('تسجيل الخروج من كل التطبيقات على هذا الجهاز؟')) return;
   try { if (window.wadyPush) await window.wadyPush.forget(); } catch (e) { }  // this device stops getting this user's alerts
+  try { indexedDB.deleteDatabase('wady-cache'); } catch (e) { }  // local copies of data leave with the user
   let c = window.__sb; try { if (!c && typeof SB !== 'undefined') c = SB; } catch (e) { }
   try { if (c) await c.auth.signOut({ scope: 'local' }); } catch (e) { }
   try { Object.keys(localStorage).filter(k => /^sb-.*-auth-token$/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { }

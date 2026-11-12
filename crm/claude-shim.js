@@ -61,14 +61,56 @@
   const cache = {};        // col -> Map(id -> data)
   const listeners = {};    // col -> Set(fn)
   const loading = {};      // col -> Promise
-  async function fetchCol(col) {
-    const out = new Map(); let from = 0; const step = 1000;
-    for (let g = 0; g < 200; g++) {
-      const { data, error } = await sb.from(TABLE).select('id,data').eq('col', col).range(from, from + step - 1);
-      if (error) throw mapErr(error);
-      (data || []).forEach(r => out.set(r.id, r.data));
-      if (!data || data.length < step) break; from += step;
+  /* pages of 1000 rows fetched several at a time instead of one after another */
+  async function pages(sel, col, extra) {
+    const step = 1000, par = 6; const out = [];
+    const first = await (extra ? extra(sb.from(TABLE).select(sel, { count: 'exact' }).eq('col', col)) : sb.from(TABLE).select(sel, { count: 'exact' }).eq('col', col)).order('id').range(0, step - 1);
+    if (first.error) throw mapErr(first.error); out.push(...(first.data || []));
+    const total = first.count == null ? null : first.count;
+    if (total == null) { let from = step; while ((first.data || []).length === step) { const r = await sb.from(TABLE).select(sel).eq('col', col).order('id').range(from, from + step - 1); if (r.error) throw mapErr(r.error); out.push(...(r.data || [])); if ((r.data || []).length < step) break; from += step; } return out; }
+    const starts = []; for (let f = step; f < total; f += step) starts.push(f);
+    for (let i = 0; i < starts.length; i += par) {
+      const rs = await Promise.all(starts.slice(i, i + par).map(f => sb.from(TABLE).select(sel).eq('col', col).order('id').range(f, f + step - 1)));
+      for (const r of rs) { if (r.error) throw mapErr(r.error); out.push(...(r.data || [])); }
     }
+    return out;
+  }
+  /* large, low-sensitivity collections keep a local copy on this device: the app opens at once from it,
+     then only rows changed since are downloaded. The copy is per user and is wiped on logout. */
+  const CACHE_COLS = new Set(CFG.cacheCols || []);
+  const idb = (() => { let p = null; return () => p || (p = new Promise((ok, no) => { try { const r = indexedDB.open('wady-cache', 1); r.onupgradeneeded = () => r.result.createObjectStore('c'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } })); })();
+  const idbKey = col => (session?.user?.id || 'x') + '|' + TABLE + '|' + col;
+  async function idbGet(k) { try { const db = await idb(); return await new Promise(ok => { const q = db.transaction('c').objectStore('c').get(k); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); } catch (e) { return null; } }
+  async function idbPut(k, v) { try { const db = await idb(); await new Promise(ok => { const t = db.transaction('c', 'readwrite'); t.objectStore('c').put(v, k); t.oncomplete = ok; t.onerror = ok; }); } catch (e) { } }
+  window.wadyCacheClear = () => { try { indexedDB.deleteDatabase('wady-cache'); } catch (e) { } };
+  async function syncCached(col, local) {
+    const stamps = await pages('id,updated_at', col);
+    const seen = new Set(); const need = [];
+    stamps.forEach(r => { seen.add(r.id); const l = local.rows[r.id]; if (!l || l.u !== r.updated_at) need.push(r.id); });
+    const gone = Object.keys(local.rows).filter(id => !seen.has(id));
+    for (let i = 0; i < need.length; i += 200) {
+      const chunk = need.slice(i, i + 200);
+      const { data, error } = await sb.from(TABLE).select('id,data,updated_at').eq('col', col).in('id', chunk); if (error) throw mapErr(error);
+      (data || []).forEach(r => { local.rows[r.id] = { d: r.data, u: r.updated_at }; });
+    }
+    gone.forEach(id => delete local.rows[id]);
+    return { changed: need.length + gone.length };
+  }
+  async function fetchCol(col) {
+    if (CACHE_COLS.has(col) && window.indexedDB) {
+      const key = idbKey(col); const local = await idbGet(key);
+      const toMap = L => { const m = new Map(); Object.entries(L.rows).forEach(([id, r]) => m.set(id, r.d)); return m; };
+      if (local && local.rows) {
+        cache[col] = toMap(local);
+        syncCached(col, local).then(r => { if (r.changed) { cache[col] = toMap(local); emit(col); } idbPut(key, local); }).catch(e => console.warn('sync', col, e));
+        return cache[col];
+      }
+      const rows = await pages('id,data,updated_at', col); const L = { rows: {} };
+      rows.forEach(r => { L.rows[r.id] = { d: r.data, u: r.updated_at }; });
+      idbPut(key, L); cache[col] = toMap(L); return cache[col];
+    }
+    const out = new Map();
+    (await pages('id,data', col)).forEach(r => out.set(r.id, r.data));
     if (CFG.teamView && col === 'team') {
       const { data, error } = await sb.from(CFG.teamView).select('id,data');
       if (error) throw mapErr(error);

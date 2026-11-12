@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-<head>
+<head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>الوادي الأخضر — منصة الأعمال</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="brand/icon-180.png"><link rel="manifest" href="brand/manifest.webmanifest"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!--wady-brand--><script src="brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="brand/icon-180.png"><link rel="manifest" href="brand/manifest.webmanifest"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
 <style>
@@ -1216,7 +1216,7 @@ const ACT={
   pickApp:(d,el)=>{AUTH.pick=d.a;try{localStorage.setItem('wady.app',d.a)}catch(e){}document.querySelectorAll('.appc').forEach(b=>{const on=b===el;b.classList.toggle('sel',on);b.setAttribute('aria-pressed',on)});const sb_=document.querySelector('#authForm button[type=submit]');if(sb_)sb_.textContent='دخول إلى '+(appById(d.a)?.name||'');const em=document.getElementById('au_email');if(em&&!em.value)em.focus()},
   openApp:d=>{AUTH.denied=null;openApp(d.a)},
   toPicker:()=>{closeModal();toPicker()},
-  logout:async()=>{if(PL.dirty&&!document.getElementById('plDirty'))PL.dirty=false;PP.dirty=false;await sb.auth.signOut();},
+  logout:async()=>{if(PL.dirty&&!document.getElementById('plDirty'))PL.dirty=false;PP.dirty=false;try{indexedDB.deleteDatabase('wady-cache')}catch(e){}await sb.auth.signOut();},
   plAdd:d=>{if(!PL.doc)return;if(d.s==='items')PL.items.push({customer_id:null,customer_name:'',cust_type:'',size:'',amount:'',probability:'',actual_amount:'',notes:''});else if(d.s==='risks')PL.risks.push({customer_name:'',reason:''});else PL.backlog.push({customer_name:'',horizon:d.h||'within3',value:''});
     PL.dirty=true;render();const list=d.s==='items'?PL.items:d.s==='risks'?PL.risks:PL.backlog;const el=document.getElementById(`pl_${d.s}_${list.length-1}_customer_name`);if(el)el.focus()},
   plAddAll:()=>{const have=new Set(PL.items.map(i=>i.customer_id).filter(Boolean));const add=S.customers.filter(c=>c.rep_id===PL.rep&&!have.has(c.id)&&c.status!=='inactive'&&c.status!=='lost');
