@@ -226,6 +226,10 @@ td.nw{white-space:nowrap}
 .rk-bar{position:relative;height:16px;background:rgba(127,140,160,.15);border-radius:4px;min-width:90px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;background:#38AC57;border-radius:4px}.rk-bar span{position:absolute;inset-inline-end:6px;top:0;font-size:11px;font-weight:700;line-height:16px}
 .rk-t tr.rk-grp td{background:#051D48;color:#fff;font-weight:800}.rk-t tr.rk-grp td span{font-weight:400;opacity:.85}.rk-t tr.rk-c0 td{border-top:1.5px solid rgba(127,140,160,.5)}
 .rk-t tr.rk-sub td{background:rgba(127,140,160,.1);font-weight:700;font-size:.92em}.rk-t tr.rk-rt td{background:rgba(56,172,87,.14);font-weight:800}
+.lnk{all:unset;cursor:pointer;color:inherit;font-weight:700;text-decoration:underline dotted;text-underline-offset:3px}.lnk:focus-visible{outline:2px solid #38AC57}
+.kx-t tr.kx-grp td{background:rgba(5,29,72,.08);font-weight:800}.kx-t tr.kx-gt td{background:rgba(56,172,87,.1);font-weight:800}.kx-t tfoot td{background:rgba(5,29,72,.12);font-weight:800}.kx-t tr.kx-det>td{background:rgba(127,140,160,.07);padding:8px 12px}
+.tl{display:flex;flex-direction:column;gap:2px;max-height:360px;overflow:auto}.tl-i{display:grid;grid-template-columns:96px 24px 1fr auto;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px solid rgba(127,140,160,.15);font-size:13px}.tl-d{color:var(--muted,#5A6A82);font-size:12px}.tl-v{font-weight:700;white-space:nowrap}
+@media (max-width:600px){.tl-i{grid-template-columns:80px 20px 1fr}.tl-v{grid-column:3}}
 </style>
 
 </head><body><div id="app">
@@ -331,7 +335,7 @@ const stageName=id=>{const s=OPP_STAGES.find(x=>x[0]===id);return s?L(s[1],s[2])
 const projStage=id=>{const s=PROJ_STAGES.find(x=>x[0]===id);return s?L(s[1],PROJ_EN[id]):id};
 
 /* ============ Store ============ */
-const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs'];
+const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets'];
 const S={impUndo:[]};COLS.forEach(c=>S[c]=[]);
 let db=null,downloads=null,mode='init',loaded=new Set(),dataVer=0;
 let viewAs=ls('viewAs')||'';
@@ -3030,7 +3034,7 @@ Object.assign(ACT,{
 V.prodplan=()=>{setTimeout(()=>{location.href='../index.html#sales/prod'},30);return `<div class="card empty">${L('…جاري فتح خطة الإنتاج','Opening the production plan…')}</div>`};
 /* ============ Platform page permissions (N/A · Viewer · Auditor · Editor) ============ */
 NAV.forEach(n=>{if(n[0]==='g')return;const f=n[3]||ALL;n[3]=()=>wadyLvl('crm',n[0]==='prodplan'?'prod':n[0])>=1&&f()});
-const WADY_CRM_COL={clients:'clients',quotes:'quotes',opps:'opps',projects:'projects',samples:'samples',visits:'visits',complaints:'complaints',comms:'comms',pipeline:'pipeline',invoices:'collections',collChunks:'imports',imports:'imports',settings:'kpi',team:'team',actions:'alerts',items:'items',orders:'orders',impUndo:'imports'};
+const WADY_CRM_COL={clients:'clients',quotes:'quotes',opps:'opps',projects:'projects',samples:'samples',visits:'visits',complaints:'complaints',comms:'comms',pipeline:'pipeline',invoices:'collections',collChunks:'imports',imports:'imports',settings:'kpi',team:'team',actions:'alerts',items:'items',orders:'orders',impUndo:'imports',targets:'reps'};
 window.WADY_GUARD=col=>{if(WADY_PERM.admin||col==='audit'||col==='attachments')return null;const pg=WADY_CRM_COL[col];const l=pg?wadyLvl('crm',pg):wadyAppLvl('crm');
   if(col==='visits'&&wadyLvl('crm','plan')>=3)return null;return l>=3?null:L('صلاحيتك على هذه الصفحة ','Your access to this page is ')+(l===2?L('تدقيق','audit'):l===1?L('عرض','view'):L('غير متاحة','none'))+L(' فقط — التعديل يحتاج صلاحية محرر',' only — editing needs Editor')};
 // Excel names and codes linked to a user in the platform resolve to that user
@@ -3388,6 +3392,168 @@ Object.assign(ACT,{
    <dt>${L('الفرصة','Deal')}</dt><dd>${auto?`${esc(byId('opps',auto.oppId)?.title||'')} <span class="small muted">(${L('عن طريق العرض','via the quote')} ${esc(auto.no)})</span>`:`<select id="ordOpp" aria-label="${L('الفرصة','Deal')}">${opt(ops.map(o=>[o.id,o.title]),x.oppId||'',L('— غير مرتبط —','— not linked —'))}</select> <button class="btn s" data-act="orderOpp" data-id="${id}">${L('ربط','Link')}</button>`}</dd></dl></div>`)}}
 /* collections file: optional sales-order number so payments reach the order and its deal */
 IMP_DEF.collections.fields.push(F_('so','رقم أمر البيع','Sales order no.',['رقم أمر البيع','أمر البيع','رقم الطلب','sales order','sales order no','so number','baseref']));
+
+/* ===== CRM: rep KPIs (discount, new paying customers vs target, sales growth, collection target),
+   monthly sales import, declining customers, customer map, unified customer timeline ===== */
+{const a=NAV.findIndex(n=>n[0]==='reps');NAV.splice(a+1,0,
+   ['kpis','gauge',()=>L('مؤشرات أداء المندوبين','Rep KPIs'),()=>wadyLvl('crm','reps')>=1],
+   ['decline','alert',()=>L('العملاء المتراجعون','Declining customers'),()=>wadyLvl('crm','alerts')>=1]);
+ const b=NAV.findIndex(n=>n[0]==='clients');NAV.splice(b+1,0,['custmap','map',()=>L('خريطة العملاء','Customer map'),()=>wadyLvl('crm','clients')>=1]);
+ const h=(location.hash||'').slice(1);if(['kpis','decline','custmap'].includes(h)){route=h;setTimeout(render,0)}}
+const KX={sales:null,key:'',busy:false,open:''};
+const ymOf=d=>String(d).slice(0,7);
+const monthsIn=(a,b)=>{const o=[];let m=a.slice(0,7)+'-01';while(m<=b){o.push(m.slice(0,7));m=addMonths(m,1)}return o};
+async function kxLoad(from,to){const key=from+'|'+to;if(KX.key===key||KX.busy)return;KX.busy=true;
+  try{const {data,error}=await __sb.rpc('crm_sales_get',{p_from:from,p_to:to});if(error)throw error;KX.sales=data||[];KX.key=key}catch(e){toast(e.message||String(e));KX.sales=[];KX.key=key}finally{KX.busy=false;render()}}
+const tgId=(m,r)=>'tg-'+m+'-'+r;
+const tgOf=(m,r)=>byId('targets',tgId(m,r))||{};
+/* KPI rows per rep, then per group (supervisor) and the total */
+function kpiData(P){const ms=monthsIn(P.from,P.to);const span=ms.length;const prevFrom=addMonths(ms[0]+'-01',-span),prevTo=addDays(ms[0]+'-01',-1);
+  const reps=visibleReps();const R=new Map(reps.map(r=>[r.id,{id:r.id,name:r.name,grp:supOf(r)||'',sales:0,lv:0,lvAmt:0,prev:0,nc:0,ncAmt:0,ncT:0,coll:0,collT:0,custs:[]}]));
+  const get=id=>R.get(id);
+  (KX.sales||[]).forEach(s=>{const o=get(s.rep);if(!o)return;const m=s.m;if(m>=ms[0]&&m<=ms[ms.length-1]){o.sales+=+s.a||0;if(+s.lv>0){o.lv+=+s.lv;o.lvAmt+=+s.a||0}}else if(m>=prevFrom.slice(0,7)&&m<=prevTo.slice(0,7))o.prev+=+s.a||0});
+  firstPayData({},P).custs.forEach(c=>{const o=get(c.rep);if(!o)return;o.nc++;o.ncAmt+=c.tot;o.custs.push(c)});
+  I().coll.forEach(r=>{if(r.d<P.from||r.d>P.to)return;const o=get(r.rep);if(o)o.coll+=r.amt});
+  R.forEach(o=>{ms.forEach(m=>{const t=tgOf(m,o.id);o.ncT+=+t.newCust||0;o.collT+=+t.coll||0})});
+  const rows=[...R.values()];const sum=(arr,name,id)=>arr.reduce((a,o)=>{['sales','lv','lvAmt','prev','nc','ncAmt','ncT','coll','collT'].forEach(k=>a[k]+=o[k]);a.custs=a.custs.concat(o.custs);return a},{id,name,sales:0,lv:0,lvAmt:0,prev:0,nc:0,ncAmt:0,ncT:0,coll:0,collT:0,custs:[]});
+  const groups=[...new Set(rows.map(o=>o.grp))].map(g=>({g,name:g?tName(g):L('بدون مشرف','No supervisor'),reps:rows.filter(o=>o.grp===g).sort((a,b)=>b.sales-a.sales||b.coll-a.coll)})).map(x=>({...x,tot:sum(x.reps,x.name,'g:'+x.g)}));
+  return {ms,prevFrom,prevTo,groups,total:sum(rows,L('الإجمالي','Total'),'all'),hasSales:(KX.sales||[]).length>0}}
+const disc=o=>o.lv>0?1-o.lvAmt/o.lv:null;
+const growth=o=>o.prev>0?o.sales/o.prev-1:null;
+const pctS=v=>v==null?'—':(v*100).toFixed(1)+'%';
+const achv=(a,t)=>t>0?a/t:null;
+const ach=(a,t)=>{const r=achv(a,t);if(r==null)return '<span class="muted">—</span>';const tone=r>=1?'ok':r>=.7?'warn':'bad';return `<div class="rk-bar" style="min-width:110px"><i style="width:${Math.min(100,r*100).toFixed(0)}%;background:${tone==='ok'?'#38AC57':tone==='warn'?'#E0A100':'#C0392B'}"></i><span>${Math.round(r*100)}%</span></div>`};
+V.kpis=()=>{const P=period();const lead=isLead();
+  const from=addMonths(P.from.slice(0,8)+'01',-Math.max(1,monthsIn(P.from,P.to).length));if(KX.key!==from+'|'+P.to){setTimeout(()=>kxLoad(from,P.to),0);return fbar()+`<div class="card empty">${L('جارٍ التحميل…','Loading…')}</div>`}
+  const D=kpiData(P);const T=D.total;
+  const g=growth(T),d=disc(T);
+  const row=(o,cls,lvl)=>`<tr class="${cls||''}">
+    <td>${lvl==='rep'?`<button class="lnk" data-act="kxOpen" data-id="${o.id}" aria-expanded="${KX.open===o.id}">${esc(o.name)} ${KX.open===o.id?'▴':'▾'}</button>`:`<b>${esc(o.name)}</b>`}</td>
+    <td class="n">${o.sales?smoney(o.sales):'—'}</td><td class="n">${pctS(growth(o))}</td><td class="n">${pctS(disc(o))}</td>
+    <td class="n">${num(o.nc)}${o.ncT?` / ${num(o.ncT)}`:''}</td><td>${ach(o.nc,o.ncT)}</td><td class="n">${smoney(o.ncAmt)}</td>
+    <td class="n">${smoney(o.coll)}${o.collT?` / ${smoney(o.collT)}`:''}</td><td>${ach(o.coll,o.collT)}</td></tr>`
+    +(lvl==='rep'&&KX.open===o.id?`<tr class="kx-det"><td colspan="9">${o.custs.length?table([{l:L('العميل','Customer'),f:c=>`${c.cid?`<a href="#" data-open="client" data-id="${c.cid}">${esc(c.name)}</a>`:esc(c.name)} <span class="small muted">${esc(c.code)}</span>`},{l:L('أول دفعة','First payment'),c:'nw',f:c=>fdate(c.d)},{l:L('عدد الدفعات','Payments'),c:'n',f:c=>num(c.pays.length)},{l:L('المبلغ في الفترة','Amount in period'),c:'n',f:c=>money(c.tot)}],o.custs.slice().sort((a,b)=>b.tot-a.tot)):`<div class="muted small">${L('ما فيه عملاء جدد مسددين لهذا المندوب في الفترة.','No new paying customers for this rep in the period.')}</div>`}</td></tr>`:'');
+  return fbar()+`<div class="kpis k5">${kpiTile(L('المبيعات','Sales'),D.hasSales?smoney(T.sales):'—',D.hasSales?`${L('الفترة السابقة','Previous')} ${smoney(T.prev)}`:L('ما انرفعت مبيعات','No sales uploaded'))}
+    ${kpiTile(L('معدل النمو','Growth'),pctS(g),L('مقارنة بنفس طول الفترة السابقة','vs previous equal period'))}${kpiTile(L('نسبة الخصم','Discount'),pctS(d),T.lv?`${L('بسعر القائمة','At list price')} ${smoney(T.lv)}`:L('يحتاج أسعار الأصناف','Needs item prices'))}
+    ${kpiTile(L('عملاء جدد مسددين','New paying customers'),num(T.nc)+(T.ncT?` / ${num(T.ncT)}`:''),T.ncT?`${L('تحقيق','Achieved')} ${Math.round(T.nc/T.ncT*100)}%`:L('بدون هدف','No target'))}
+    ${kpiTile(L('التحصيل','Collections'),smoney(T.coll),T.collT?`${L('من هدف','of target')} ${smoney(T.collT)} (${Math.round(T.coll/T.collT*100)}%)`:L('بدون هدف','No target'))}</div>
+   <div class="card"><h2>${L('مؤشرات المندوبين والمجموعات','Reps and groups')}<span class="sub">${esc(filterLabel(P))}</span></h2>
+    <div class="toolbar" style="margin-bottom:8px">${lead?`<button class="btn" data-act="kxTargets">${L('أهداف الشهر','Monthly targets')}</button><button class="btn" data-act="kxSales">${L('رفع مبيعات الشهر','Upload monthly sales')}</button>`:''}<button class="btn" data-act="kxXlsx">${L('تصدير Excel','Export Excel')}</button><button class="btn" data-act="repPrintKpi">${L('طباعة A4','Print A4')}</button></div>
+    <div class="tw"><table class="kx-t"><thead><tr><th>${L('المندوب / المجموعة','Rep / group')}</th><th class="n">${L('المبيعات','Sales')}</th><th class="n">${L('النمو','Growth')}</th><th class="n">${L('الخصم','Discount')}</th><th class="n">${L('عملاء جدد / الهدف','New / target')}</th><th>${L('التحقيق','Achieved')}</th><th class="n">${L('تحصيلهم','Their amount')}</th><th class="n">${L('التحصيل / الهدف','Collected / target')}</th><th>${L('التحقيق','Achieved')}</th></tr></thead><tbody>
+    ${D.groups.map(x=>`<tr class="kx-grp"><td colspan="9">${esc(x.name)}</td></tr>`+x.reps.map(o=>row(o,'','rep')).join('')+row(x.tot,'kx-gt','grp')).join('')}
+    </tbody><tfoot>${row(T,'kx-tot','all')}</tfoot></table></div>
+    <p class="small muted">${L('النمو = مبيعات الفترة ÷ مبيعات الفترة السابقة بنفس الطول − 1. الخصم = 1 − (المبلغ الصافي ÷ قيمة الكمية بسعر القائمة)، ويُحسب فقط على الأصناف اللي لها سعر. العميل الجديد = أول سند قبض له داخل الفترة. اضغط اسم المندوب لعرض عملائه الجدد ومبالغهم.','Growth vs previous equal period; discount on priced items only; click a rep for details.')}</p></div>`};
+function kxTargets(){const P=period();const m=fv('kxM',P.to.slice(0,7));const reps=visibleReps();
+  openModal(L('أهداف المندوبين — ','Rep targets — ')+monthLabel(m),`<div class="toolbar"><label class="fl">${L('الشهر','Month')}<input type="month" id="kx_m" value="${m}"></label></div>
+   <div class="tw"><table><thead><tr><th>${L('المندوب','Rep')}</th><th class="n">${L('هدف التحصيل (ر.س)','Collection target')}</th><th class="n">${L('هدف العملاء الجدد','New customers target')}</th></tr></thead><tbody>
+   ${reps.map(r=>{const t=tgOf(m,r.id);return `<tr><td>${esc(r.name)}</td><td><input data-kxt="${r.id}" data-f="coll" inputmode="decimal" value="${t.coll??''}"></td><td><input data-kxt="${r.id}" data-f="newCust" inputmode="numeric" value="${t.newCust??''}"></td></tr>`}).join('')}</tbody></table></div>
+   <div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="kxTgSave">${L('حفظ','Save')}</button></div>`)}
+async function kxTgSave(){const m=document.getElementById('kx_m').value;if(!m)return;const by={};document.querySelectorAll('[data-kxt]').forEach(i=>{const o=by[i.dataset.kxt]=by[i.dataset.kxt]||{};const v=String(i.value).trim().replace(/,/g,'');o[i.dataset.f]=v===''?null:+v});
+  try{for(const [rid,o] of Object.entries(by)){const cur=tgOf(m,rid);if((cur.coll??null)===o.coll&&(cur.newCust??null)===o.newCust)continue;await save('targets',{id:tgId(m,rid),month:m,repId:rid,coll:o.coll,newCust:o.newCust})}closeModal();toast(L('تم حفظ الأهداف','Targets saved'));render()}catch(e){toast(e.message||String(e))}}
+/* monthly sales upload: rep, item code, qty, net amount (customer optional) */
+const SX_F=[['rep',L('المندوب','Rep'),1,['المندوب','اسم المندوب','مندوب المبيعات','slpname','sales employee','rep','salesman']],['ic',L('كود الصنف','Item code'),1,['كود الصنف','رقم الصنف','itemcode','item code','الكود']],['in',L('اسم الصنف','Item name'),0,['اسم الصنف','الصنف','dscription','itemname','item name','description']],
+  ['q',L('الكمية','Quantity'),1,['الكمية','quantity','qty','الكميه']],['a',L('المبلغ الصافي','Net amount'),1,['المبلغ','المبلغ الصافي','صافي المبيعات','الصافي','الإجمالي','linetotal','net amount','amount','total']],['cc',L('كود العميل','Customer code'),0,['كود العميل','cardcode','customer code']],['cn',L('اسم العميل','Customer name'),0,['اسم العميل','cardname','customer name','العميل']]];
+let SXI=null;
+function kxSales(){SXI={m:fv('kxM',period().to.slice(0,7))};openModal(L('رفع مبيعات الشهر','Upload monthly sales'),`<p class="small muted" style="margin-top:0">${L('ملف Excel فيه سطر لكل مبيعات صنف لمندوب: المندوب، كود الصنف، الكمية، المبلغ الصافي (بعد الخصم)، وكود العميل اختياري. رفع نفس الشهر مرة ثانية يستبدل بياناته بالكامل، فما يصير تكرار. قيمة القائمة تنحسب من «سعر البيع» في الأصناف.','One row per rep and item. Re-uploading a month replaces it.')}</p>
+  <div class="toolbar"><label class="fl">${L('الشهر','Month')}<input type="month" id="sx_m" value="${SXI.m}"></label><label class="btn p">${L('اختيار ملف','Choose file')}<input type="file" id="sx_f" accept=".xlsx,.xls,.csv" hidden></label></div><div id="sx_body"></div>`)}
+const nT=s=>normTxt(String(s??'')).replace(/\*/g,'');
+async function sxFile(f){if(typeof XLSX==='undefined')return toast(L('مكتبة Excel غير محملة','Excel library not loaded'));const wb=XLSX.read(await f.arrayBuffer(),{cellDates:true});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true});
+  if(!rows.length)return toast(L('الملف فاضي','Empty file'));const hs=Object.keys(rows[0]);const map={};SX_F.forEach(([k,,,al])=>{const h=hs.find(h=>al.some(a=>nT(a)===nT(h)));if(h)map[k]=h});
+  SXI={...SXI,file:f.name,rows,hs,map};sxPreview()}
+function sxBuild(){const {rows,map}=SXI;const items=new Map(S.items.map(x=>[normCode(x.code),x]));const team=S.team.filter(t=>t.role==='rep'||t.role==='sup');
+  const repBy=v=>{const n=nT(v);return team.find(t=>nT(t.name)===n||nT(t.code||t.sapName||'')===n)||team.find(t=>n&&nT(t.name).includes(n))};
+  const out=[],bad=[],unRep=new Set();let noPrice=0;
+  rows.forEach((r,i)=>{const g=k=>map[k]?r[map[k]]:'';const miss=SX_F.filter(f=>f[2]&&String(g(f[0])).trim()==='').map(f=>f[1]);if(miss.length){bad.push(`${L('سطر','Row')} ${i+2}: ${miss.join('، ')}`);return}
+    const rv=String(g('rep')).trim();const rep=(SXI.rmap||{})[rv]||repBy(rv)?.id||'';if(!rep)unRep.add(rv);
+    const q=parseNum(g('q')),a=parseNum(g('a'));if(!Number.isFinite(q)||!Number.isFinite(a)){bad.push(`${L('سطر','Row')} ${i+2}: ${L('كمية أو مبلغ غير رقمي','non-numeric qty or amount')}`);return}
+    const it=items.get(normCode(g('ic')));const price=it&&it.price!=null&&it.price!==''?+it.price:null;if(price==null)noPrice++;
+    out.push({rep,rn:rv,ic:String(g('ic')).trim(),in:String(g('in')||it?.name||'').trim(),q,a,lv:price!=null?Math.round(price*q*100)/100:'',cc:String(g('cc')).trim(),cn:String(g('cn')).trim()})});
+  return {out,bad,unRep:[...unRep],noPrice}}
+function sxPreview(){const B=document.getElementById('sx_body');if(!B||!SXI.rows)return;const X=sxBuild();const reps=S.team.filter(t=>t.role==='rep'||t.role==='sup');
+  const tot=X.out.reduce((s,x)=>s+x.a,0),lv=X.out.reduce((s,x)=>s+(+x.lv||0),0),lvA=X.out.filter(x=>x.lv!=='').reduce((s,x)=>s+x.a,0);
+  B.innerHTML=`<p><b>${esc(SXI.file)}</b> — ${X.out.length} ${L('سطر','rows')} · ${L('الإجمالي','Total')} ${money(tot)}${lv?` · ${L('الخصم','Discount')} ${((1-lvA/lv)*100).toFixed(1)}%`:''}</p>
+   <div class="small">${SX_F.map(f=>`${f[1]}${f[2]?' *':''}: <select data-sxmap="${f[0]}">${opt(SXI.hs.map(h=>[h,h]),SXI.map[f[0]]||'',L('— غير موجود —','— missing —'))}</select>`).join(' · ')}</div>
+   ${X.unRep.length?`<div class="banner warn" style="margin-top:8px"><span class="sp">${L('مندوبين ما انعرفوا — اربطهم بحساباتهم:','Unmatched reps — link them:')}</span></div>${X.unRep.map(v=>`<div class="toolbar"><span>${esc(v||'—')}</span><select data-sxrep="${esc(v)}">${opt(reps.map(r=>[r.id,r.name]),(SXI.rmap||{})[v]||'',L('— بدون —','— none —'))}</select></div>`).join('')}`:''}
+   ${X.noPrice?`<p class="small" style="color:var(--warn)">${X.noPrice} ${L('سطر صنفه بدون سعر بيع — ما يدخل في حساب الخصم. أضف الأسعار من «الأصناف».','rows have no item price — excluded from discount.')}</p>`:''}
+   ${X.bad.length?`<p class="small" style="color:var(--bad)">${X.bad.slice(0,8).map(esc).join('<br>')}${X.bad.length>8?`<br>… ${X.bad.length-8}`:''}</p>`:''}
+   <div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="sxRun" ${X.out.length?'':'disabled'}>${L('حفظ مبيعات','Save sales of')} ${esc(document.getElementById('sx_m')?.value||SXI.m)}</button></div>`}
+async function sxRun(){const m=document.getElementById('sx_m').value;if(!m)return toast(L('اختر الشهر','Pick the month'));const X=sxBuild();
+  const {data,error}=await __sb.rpc('crm_sales_import',{p_month:m+'-01',p_rows:X.out});if(error)return toast(error.message);closeModal();toast(L('تم حفظ ','Saved ')+data+L(' سطر مبيعات',' sales rows'));KX.key='';render()}
+document.addEventListener('change',e=>{const t=e.target;if(t.id==='sx_f'&&t.files[0]){const f=t.files[0];t.value='';sxFile(f)}else if(t.dataset&&t.dataset.sxmap){SXI.map[t.dataset.sxmap]=t.value;sxPreview()}else if(t.dataset&&t.dataset.sxrep!=null){(SXI.rmap=SXI.rmap||{})[t.dataset.sxrep]=t.value;sxPreview()}else if(t.id==='kx_m'){F.kxM=t.value;kxTargets()}});
+async function kxXlsx(){if(!xlsxOk())return;const P=period();const D=kpiData(P);const r=o=>[o.name,Math.round(o.sales),growth(o)==null?'':+(growth(o)*100).toFixed(1),disc(o)==null?'':+(disc(o)*100).toFixed(1),o.nc,o.ncT||'',o.ncT?Math.round(o.nc/o.ncT*100):'',Math.round(o.ncAmt),Math.round(o.coll),o.collT||'',o.collT?Math.round(o.coll/o.collT*100):''];
+  const H=[L('المندوب / المجموعة','Rep / group'),L('المبيعات','Sales'),L('النمو %','Growth %'),L('الخصم %','Discount %'),L('عملاء جدد','New'),L('الهدف','Target'),L('التحقيق %','%'),L('تحصيلهم','Their amount'),L('التحصيل','Collected'),L('هدف التحصيل','Target'),L('التحقيق %','%')];
+  const aoa=[H];D.groups.forEach(g=>{g.reps.forEach(o=>aoa.push(r(o)));aoa.push(r(g.tot))});aoa.push(r(D.total));
+  const det=[[L('المندوب','Rep'),L('كود العميل','Code'),L('العميل','Customer'),L('أول دفعة','First payment'),L('المبلغ في الفترة','Amount')]];D.groups.forEach(g=>g.reps.forEach(o=>o.custs.forEach(c=>det.push([o.name,c.code,c.name,c.d,Math.round(c.tot)]))));
+  await saveFile(`${L('مؤشرات المندوبين','Rep KPIs')}-${P.from}_${P.to}.xlsx`,await xlsxBlob(aoa,L('المؤشرات','KPIs'),[[L('العملاء الجدد','New customers'),det]]))}
+
+/* ---------- declining customers + follow-up visits ---------- */
+function declineRows(f){const ix=I();const t=TODAY();const out=[];
+  vis(S.clients).forEach(c=>{if(!rowOK(f,c.repId,c.region))return;const rs=ix.collByCust.get(c.id);if(!rs||rs.length<3)return;
+    const ds=[...new Set(rs.map(r=>r.d))].sort();const gaps=[];for(let i=1;i<ds.length;i++)gaps.push(daysBetween(ds[i-1],ds[i]));gaps.sort((a,b)=>a-b);const med=gaps[Math.floor(gaps.length/2)]||30;
+    const last=ds[ds.length-1];const since=daysBetween(last,t);
+    const v=(a,b)=>rs.filter(r=>r.d>=a&&r.d<=b).reduce((s,r)=>s+r.amt,0);const recent=v(addDays(t,-89),t),base=v(addDays(t,-269),addDays(t,-90))/2;
+    const why=[];if(since>Math.max(30,med*2))why.push(L(`انقطع ${since} يوم (عادته كل ${med} يوم)`,`Silent ${since} days (usually every ${med})`));
+    if(base>0&&recent<base*.5)why.push(L(`تحصيل آخر 90 يوم ${smoney(recent)} مقابل متوسط ${smoney(base)}`,`Last 90 days ${smoney(recent)} vs avg ${smoney(base)}`));
+    if(!why.length||since>365)return;
+    const planned=S.visits.some(x=>x.clientId===c.id&&x.status==='planned'&&x.date>=t);
+    out.push({id:c.id,c,last,since,med,recent,base,why,planned,drop:base>0?1-recent/base:0})});
+  return out.sort((a,b)=>b.base-a.base)}
+V.decline=()=>{const f=fx();const R=declineRows(f);const todo=R.filter(r=>!r.planned);
+  return fbar()+`<div class="kpis k4">${kpiTile(L('عملاء متراجعون','Declining customers'),num(R.length))}${kpiTile(L('لهم زيارة متابعة مجدولة','Follow-up scheduled'),num(R.length-todo.length))}${kpiTile(L('تحصيلهم المعتاد (90 يوم)','Their usual 90-day collections'),smoney(R.reduce((s,r)=>s+r.base,0)))}${kpiTile(L('تحصيلهم آخر 90 يوم','Last 90 days'),smoney(R.reduce((s,r)=>s+r.recent,0)))}</div>
+   <div class="card"><h2>${L('العملاء المتراجعون','Declining customers')}<span class="sub">${L('انقطع عن عادته في السداد أو نزل تحصيله للنص','Broke their payment habit or halved collections')}</span></h2>
+   ${todo.length&&canDo('visits')?`<div class="toolbar" style="margin-bottom:8px"><button class="btn p" data-act="dcAll">${L('جدولة زيارة متابعة للكل','Schedule follow-up for all')} (${todo.length})</button><span class="small muted">${L('تنضاف زيارة لكل عميل في خطة مندوبه بكرة.','A visit is added to each rep\'s plan for tomorrow.')}</span></div>`:''}
+   ${table([{l:L('العميل','Customer'),f:r=>`<a href="#" data-open="client" data-id="${r.id}">${esc(r.c.name)}</a> <span class="small muted">${esc(r.c.code||'')}</span>`},{l:L('المندوب','Rep'),f:r=>esc(tName(r.c.repId))},{l:L('آخر دفعة','Last payment'),c:'nw',f:r=>`${fdate(r.last)} <span class="small muted">(${r.since} ${L('يوم','d')})</span>`},
+     {l:L('السبب','Why'),f:r=>`<span class="small">${r.why.map(esc).join('<br>')}</span>`},{l:L('المتابعة','Follow-up'),f:r=>r.planned?pill(L('زيارة مجدولة','Visit planned'),'ok'):canDo('visits')?`<button class="btn s" data-act="quickPlan" data-c="${r.id}" data-r="${r.c.repId||''}">${L('جدولة زيارة','Schedule')}</button>`:''}],R.slice(0,fv('dcLim',200)),'',{empty:L('ما فيه عملاء متراجعين حالياً 👍','No declining customers 👍')})}
+   ${R.length>fv('dcLim',200)?`<button class="btn" data-act="more" data-k="dcLim" data-n="${fv('dcLim',200)+300}">${L('عرض المزيد','Show more')}</button>`:''}
+   <p class="small muted">${L('يظهر العميل لو له 3 دفعات على الأقل، وانقطع أكثر من ضعف المدة المعتادة بين دفعاته (30 يوم كحد أدنى)، أو نزل تحصيل آخر 90 يوم لأقل من نص متوسطه في الستة شهور اللي قبلها. العميل المنقطع أكثر من سنة يطلع في «متوقف».','Needs 3+ payments; silent over twice their usual gap, or last 90 days under half the prior average.')}</p></div>`};
+const canDo=col=>!(window.WADY_GUARD&&WADY_GUARD(col));
+async function dcAll(){const R=declineRows(fx()).filter(r=>!r.planned&&r.c.repId);if(!R.length)return;if(!confirm(L(`جدولة ${R.length} زيارة متابعة بكرة؟`,`Schedule ${R.length} follow-up visits tomorrow?`)))return;
+  const d=addDays(TODAY(),1);let n=0;for(const r of R){const seq=S.visits.filter(x=>x.repId===r.c.repId&&x.date===d).length+1;try{await save('visits',{date:d,repId:r.c.repId,clientId:r.id,status:'planned',planned:true,seq,photos:[],checkIn:null,checkOut:null,purpose:'collection',notes:L('متابعة تراجع التحصيل','Follow-up: declining collections')});n++}catch(e){}}
+  toast(L(`تمت جدولة ${n} زيارة`,`${n} visits scheduled`));render()}
+
+/* ---------- customer map ---------- */
+let MAPX=null;
+function loadLeaflet(){return new Promise((ok,no)=>{if(window.L&&window.L.map)return ok();const c=document.createElement('link');c.rel='stylesheet';c.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';document.head.appendChild(c);
+  const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';s.onload=ok;s.onerror=()=>no(new Error('map'));document.head.appendChild(s)})}
+const PAY_COL={new:'#38AC57',old:'#1F6FB2',stopped:'#C0392B',none:'#8A94A6'};
+V.custmap=()=>{const f=fx();const pc=fv('mpPay',''),kd=fv('mpKind','');const t=TODAY();
+  const all=vis(S.clients).filter(c=>rowOK(f,c.repId,c.region)&&(!kd||c.kind===kd));const pts=[];let noLoc=0;
+  all.forEach(c=>{const la=+c.lat,ln=+c.lng;if(!(la&&ln)){noLoc++;return}const p=payClass(c.id,t);if(pc&&p!==pc)return;pts.push({c,la,ln,p})});
+  setTimeout(()=>drawMap(pts),0);
+  return fbar()+`<div class="toolbar"><select data-act="filtSel" data-k="mpPay" aria-label="${L('التصنيف','Class')}">${opt(PAY_ORDER.map(p=>[p,lab(PAY_CLS,p)]),pc,L('كل التصنيفات','All classes'))}</select><select data-act="filtSel" data-k="mpKind" aria-label="${L('النوع','Kind')}">${opt(Object.keys(CUST_KIND).map(k=>[k,CUST_KIND[k][1]]),kd,L('كل الأنواع','All kinds'))}</select>
+    <span class="small">${PAY_ORDER.map(p=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-inline-end:10px"><i style="width:10px;height:10px;border-radius:50%;background:${PAY_COL[p]};display:inline-block"></i>${lab(PAY_CLS,p)}</span>`).join('')}</span><span class="per">${num(pts.length)} ${L('عميل على الخريطة','on map')}${noLoc?` · ${num(noLoc)} ${L('بدون موقع','without location')}`:''}</span></div>
+   <div class="card" style="padding:0;overflow:hidden"><div id="cmap" style="height:min(70vh,640px)"></div></div>
+   ${noLoc?`<p class="small muted">${L('العملاء بدون موقع ما يظهرون. الموقع يجي من «رابط الموقع» أو خط الطول والعرض في ملف العملاء (استيراد العملاء في تطبيق حركة السيارات أو في CRM).','Customers without coordinates are hidden.')}</p>`:''}`};
+async function drawMap(pts){const el=document.getElementById('cmap');if(!el)return;try{await loadLeaflet()}catch(e){el.innerHTML=`<div class="empty">${L('تعذّر تحميل الخريطة','Map failed to load')}</div>`;return}
+  if(MAPX){try{MAPX.remove()}catch(e){}}MAPX=window.L.map(el,{preferCanvas:true});window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(MAPX);
+  if(!pts.length){MAPX.setView([21.42,39.83],10);return}const b=[];
+  pts.forEach(x=>{b.push([x.la,x.ln]);window.L.circleMarker([x.la,x.ln],{radius:6,color:'#fff',weight:1,fillColor:PAY_COL[x.p],fillOpacity:.9}).addTo(MAPX)
+    .bindPopup(`<b>${esc(x.c.name)}</b><br>${esc(x.c.code||'')} · ${lab(PAY_CLS,x.p)}<br>${esc(tName(x.c.repId))}<br><a href="#" data-open="client" data-id="${x.c.id}">${L('فتح العميل','Open')}</a>`)});
+  MAPX.fitBounds(b,{padding:[30,30],maxZoom:14})}
+
+/* ---------- customer page: kind, payment class, deliveries and one timeline ---------- */
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb)return;
+  const p=payClass(id);const host=document.createElement('div');host.className='card';host.id='c360';
+  host.innerHTML=`<h2>${L('نظرة شاملة','At a glance')}<span class="sub">${c.kind?pill(CUST_KIND[c.kind][1],CUST_KIND[c.kind][2]):pill(L('النوع غير محدد','Kind not set'),'')} ${pill(lab(PAY_CLS,p),PAY_CLS[p][2])}</span></h2><div id="c360b" class="small muted">${L('جارٍ تحميل التوصيلات…','Loading deliveries…')}</div>`;
+  const tb=mb.querySelector('.toolbar');if(tb)tb.after(host);else mb.prepend(host);c360Fill(c)}}
+async function c360Fill(c){let D={orders:[],open_so:[]};try{if(c.code){const {data}=await __sb.rpc('crm_cust_deliveries',{p_code:c.code});if(data)D={orders:data.orders||[],open_so:data.open_so||[]}}}catch(e){}
+  const el=document.getElementById('c360b');if(!el)return;const ix=I();const ev=[];
+  (ix.collByCust.get(c.id)||[]).forEach(r=>ev.push({d:r.d,ic:'💰',t:L('سند قبض','Payment')+' '+esc(r.v),v:money(r.amt)}));
+  ix.quotes.filter(q=>q.cid===c.id).forEach(q=>ev.push({d:q.date,ic:'📄',t:L('عرض سعر','Quote')+' '+esc(q.no),v:money(q.value)}));
+  S.visits.filter(v=>v.clientId===c.id).forEach(v=>ev.push({d:v.date,ic:'📍',t:L('زيارة','Visit')+' · '+esc(tName(v.repId)),v:esc(v.status==='done'?L('تمت','done'):v.status==='planned'?L('مجدولة','planned'):v.status||'')}));
+  S.complaints.filter(x=>x.clientId===c.id).forEach(x=>ev.push({d:String(x.openedAt||'').slice(0,10),ic:'⚠️',t:L('شكوى','Complaint'),v:esc(x.desc||'')}));
+  S.comms.filter(x=>x.clientId===c.id).forEach(x=>ev.push({d:String(x.at||'').slice(0,10),ic:'💬',t:L('تواصل','Contact'),v:esc(x.summary||'')}));
+  S.opps.filter(o=>o.clientId===c.id).forEach(o=>ev.push({d:String(o.createdAt||'').slice(0,10),ic:'🎯',t:L('فرصة','Deal')+' '+esc(o.title),v:money(o.value)}));
+  D.orders.forEach(o=>ev.push({d:String(o.delivered||o.requested||'').slice(0,10),ic:'🚚',t:L('توصيل','Delivery')+' '+esc(o.so||''),v:esc(o.status==='delivered'?L('تم التسليم','delivered'):o.status||'')}));
+  ev.sort((a,b)=>(b.d||'').localeCompare(a.d||''));const del=D.orders.filter(o=>o.status==='delivered');
+  el.className='';el.innerHTML=`<div class="kpis k4">${kpiTile(L('التوصيلات','Deliveries'),num(del.length),del[0]?L('آخر تسليم ','Last ')+fdate(String(del[0].delivered||'').slice(0,10)):'')}${kpiTile(L('أوامر بيع مفتوحة','Open sales orders'),num(D.open_so.length),D.open_so[0]?.due?L('أقرب تسليم ','Next due ')+fdate(D.open_so[0].due):'')}
+    ${kpiTile(L('الزيارات','Visits'),num(S.visits.filter(v=>v.clientId===c.id).length))}${kpiTile(L('الشكاوى المفتوحة','Open complaints'),num(S.complaints.filter(x=>x.clientId===c.id&&x.status!=='closed').length))}</div>
+   <h4 style="margin:8px 0 4px">${L('الخط الزمني','Timeline')}</h4>${ev.length?`<div class="tl">${ev.slice(0,40).map(e=>`<div class="tl-i"><span class="tl-d">${fdate(e.d)}</span><span class="tl-ic">${e.ic}</span><span class="tl-t">${e.t}</span><span class="tl-v">${e.v}</span></div>`).join('')}</div>${ev.length>40?`<div class="small muted">${L('أحدث 40 حدث','Latest 40 events')}</div>`:''}`:`<div class="muted small">${L('ما فيه أحداث','No events')}</div>`}`}
+
+Object.assign(ACT,{kxOpen:d=>{KX.open=KX.open===d.id?'':d.id;render()},kxTargets:()=>kxTargets(),kxTgSave:()=>kxTgSave(),kxSales:()=>kxSales(),sxRun:()=>sxRun(),kxXlsx:()=>kxXlsx(),dcAll:()=>dcAll(),
+  repPrintKpi:()=>{const el=document.querySelector('.kx-t');if(!el)return;printHtmlDoc(L('مؤشرات أداء المندوبين','Rep KPIs'),filterLabel(period()),el.outerHTML)}});
+function printHtmlDoc(title,sub,body){const logo=window.WADY_LOGO_DATA||'';const w=window.open('','_blank');if(!w)return;
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}header{display:flex;align-items:center;gap:12px;border-bottom:3px solid #051D48;padding-bottom:6px;margin-bottom:8px}header img{height:40px}h1{font-size:18px;margin:0;color:#051D48}.sub{color:#5A6A82;font-size:10px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #D3DBE6;padding:4px 6px;text-align:start}th{background:#051D48;color:#fff}td.n,th.n{text-align:end}tr.kx-grp td{background:#E8EEF6;font-weight:800}tr.kx-gt td,tfoot td{background:#E3F3E7;font-weight:800}.rk-bar{position:relative;height:12px;background:#EEF2F7;border-radius:3px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;border-radius:3px}.rk-bar span{position:absolute;inset-inline-end:4px;top:-2px;font-size:9px;font-weight:700}button.lnk{all:unset}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><header>${logo?`<img src="${logo}">`:''}<div><h1>${esc(title)}</h1><div class="sub">${esc(sub)}</div></div></header>${body}<script>setTimeout(()=>print(),400)<\/script></body></html>`);w.document.close()}
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
