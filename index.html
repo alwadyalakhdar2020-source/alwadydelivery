@@ -293,6 +293,8 @@ button.brand.appsw:hover{background:rgba(255,255,255,.08)}
 .pp-t td .btn.s{padding:3px 7px;min-height:28px}
 .pp-tw{overflow:visible}
 #view:has(.pp-line){max-width:none}
+.pa-t td{vertical-align:middle}.pa-t input,.pa-t select{min-height:32px;padding:4px 6px;font-size:13px;width:100%;min-width:0}.pa-t tr.pa-stop td{background:rgba(192,57,43,.05)}
+.rk-bar{position:relative;height:16px;background:rgba(127,140,160,.15);border-radius:4px;min-width:90px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;background:#38AC57;border-radius:4px}.rk-bar span{position:absolute;inset-inline-end:6px;top:0;font-size:11px;font-weight:700;line-height:16px}
 .pk-want{display:flex;gap:8px;align-items:center;cursor:pointer;margin:2px 0}.pk-want input{width:18px;height:18px;min-height:0;flex:none;margin:0}
 .pk-or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}.pk-or:before,.pk-or:after{content:"";flex:1;border-top:1px solid var(--line)}
 .pk-btn{justify-content:center;border:1.5px solid var(--brand,#051D48);font-weight:700}
@@ -1426,14 +1428,19 @@ async function ppReview(st,note){const {error}=await sb.rpc('review_prod_week',{
 
 /* ---------- views ---------- */
 V.prod=()=>{
-  const tabs=[['plan','الخطة الأسبوعية'],['summary','ملخص الأسبوع'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
+  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
   if(!tabs.some(t=>t[0]===PP.tab))PP.tab='plan';
   let h=`<div class="tabs noprint">${tabs.map(([k,l])=>`<button class="tab ${PP.tab===k?'on':''}" data-act="ppTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   if(PP.tab==='weeks')return h+ppWeeksView();
   if(PP.tab==='import')return h+ppImportView();
+  if(PP.tab==='stops')return h+ppStopsView();
+  if(PP.tab==='stock')return h+ppStockView();
   if(PP.key!==PP.ws){if(!PP.loading){PP.loading=true;PP.key='…';setTimeout(ppLoad,0)}return h+`<div class="card empty">جارٍ التحميل…</div>`}
   if(!PP.doc)return h+`<div class="card empty">تعذّر تحميل الخطة. <button class="btn s" data-act="ppReload">إعادة المحاولة</button></div>`;
-  return h+(PP.tab==='summary'?ppSummaryView():ppPlanView());
+  if(PP.tab==='actual')return h+ppActualView();
+  if(PK2.key!=='ok'&&!PK2.busy){PK2.busy=true;setTimeout(pkLoad,0)}
+  const low=pkLowCount();
+  return h+(low?`<div class="banner warn noprint"><span class="sp"><b>${low}</b> منتج رصيده تحت الحد الأدنى.</span><button class="btn s" data-act="pkLow">عرض المنتجات</button></div>`:'')+(PP.tab==='summary'?ppSummaryView():ppPlanView());
 };
 function ppWeekBar(){const d=PP.doc,st=d.status;const ws=PP.ws,we=addDays(ws,6);
   return `<div class="toolbar"><span class="noprint" style="display:contents"><button class="btn s" data-act="ppShift" data-n="-7">‹ السابق</button><input type="date" id="pp_week" data-act="ppWeek" value="${ws}" aria-label="اختر أي يوم في الأسبوع"><button class="btn s" data-act="ppShift" data-n="7">التالي ›</button></span>${isProdEditor()?`<button class="btn s p noprint" data-act="ppNewWeek">+ خطة أسبوع جديد</button>`:''}
@@ -1711,7 +1718,7 @@ function ppLinesForm(){
 }
 Object.assign(OPEN,{ppweek:id=>{const w=(PP.weeks||[]).find(x=>x.id===id);if(w)ppGoWeek(w.week_start)}});
 const PP_ACT={
-  ppTab:d=>{if(d.v!=='plan'&&d.v!=='summary'&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
+  ppTab:d=>{if(!['plan','summary','actual','stops','stock'].includes(d.v)&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
   ppReload:()=>{PP.key='';render()},
   ppShift:d=>ppGoWeek(addDays(PP.ws,+d.n)),
   ppNewWeek:async()=>{const cur=satOf(TODAY());const {data,error}=await sb.from('prod_weeks').select('week_start').gte('week_start',cur).order('week_start',{ascending:false}).limit(1);if(error)return toast(errText(error));
@@ -1806,6 +1813,138 @@ function ppPrint(){
    <script>${fit};fit();window.addEventListener("beforeprint",fit);window.addEventListener("load",function(){fit();var go=function(){fit();setTimeout(function(){window.print()},250)};if(document.fonts&&document.fonts.ready)document.fonts.ready.then(go);else setTimeout(go,600)});<\/script></body></html>`;
   const w=window.open('','_blank');if(!w){downloadBlob(`خطة_الإنتاج_أسبوع_${wk}.html`,new Blob([html],{type:'text/html'}));return toast('افتح الملف المنزّل واطبعه')}w.document.open();w.document.write(html);w.document.close();
 }
+
+/* ===== Production: actual output vs plan, line stoppage analysis, stock & open orders coverage ===== */
+const PA={key:'',rows:{},busy:false,dirty:false};
+const PA_REASONS=['عطل ميكانيكي','عطل كهربائي','نقص مواد خام','نقص عمالة','تغيير قالب','صيانة مجدولة','انقطاع كهرباء','لا يوجد طلب','أخرى'];
+const paKey=(l,d,s,c)=>l+'|'+d+'|'+s+'|'+(normCode(c)||'');
+async function paLoad(){const ws=PP.ws;PA.busy=true;
+  try{const rows=await fetchAll(()=>sb.from('prod_actuals').select('*').gte('day',addDays(ws,-3)).lte('day',addDays(ws,10)));
+    PA.rows={};rows.forEach(r=>{PA.rows[paKey(r.line_id,r.day,r.shift,r.code)]=r});PA.key=ws;PA.dirty=false}
+  catch(e){toast(errText(e))}finally{PA.busy=false;render()}}
+/* planned production slots of a line: one entry per day × shift × product */
+function paSlots(l){const out=[];const seen=new Set();
+  l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!slotHas(x))return;const stop=isStop(x.item),mould=isMould(x.item);
+    if(stop||mould){const k=r.day+'|'+s+'|~';if(!seen.has(k)){seen.add(k);out.push({day:r.day,s,stop,mould,item:sv(x.item),code:''})}return}
+    if(!sv(x.code)&&!sv(x.item))return;const k=r.day+'|'+s+'|'+(normCode(x.code)||sv(x.item));if(seen.has(k))return;seen.add(k);
+    out.push({day:r.day,s,code:sv(x.code),item:sv(x.item),plan:qSplit(x.q).qty,planTxt:qSplit(x.q).qty_text})}));
+  return out.sort((a,b)=>a.day<b.day?-1:a.day>b.day?1:a.s<b.s?-1:a.s>b.s?1:0)}
+function paStats(lines){let ps=0,ex=0,pq=0,aq=0,pqN=0,lost=0;const by=[];
+  lines.forEach(l=>{const sl=paSlots(l);if(!sl.length)return;const sh=new Map();let lp=0,la=0;
+    sl.forEach(x=>{if(x.stop||x.mould)return;const k=x.day+'|'+x.s;const a=PA.rows[paKey(l.line_id,x.day,x.s,x.code)];const q=a&&a.qty!=null?+a.qty:null;
+      const o=sh.get(k)||{done:false,reason:''};if(q>0)o.done=true;if(a&&a.stop_reason)o.reason=a.stop_reason;sh.set(k,o);
+      if(x.plan!=null&&q!=null){pq+=x.plan;aq+=q;lp+=x.plan;la+=q;pqN++}});
+    const lps=sh.size,lex=[...sh.values()].filter(o=>o.done).length;ps+=lps;ex+=lex;
+    const pastLost=[...sh.entries()].filter(([k,o])=>!o.done&&k.split('|')[0]<=TODAY()).length;lost+=pastLost;
+    by.push({name:lineName(l.line_id),ps:lps,ex:lex,lost:pastLost,pq:lp,aq:la})});
+  return {ps,ex,pq,aq,pqN,lost,by}}
+const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
+function ppActualView(){
+  if(PA.key!==PP.ws){if(!PA.busy){PA.busy=true;setTimeout(paLoad,0)}return ppWeekBar()+`<div class="card empty">جارٍ التحميل…</div>`}
+  const ed=isProdEditor();const lines=PP.lines.filter(l=>paSlots(l).length);const st=paStats(PP.lines);
+  let h=ppWeekBar();
+  if(!lines.length)return h+`<div class="card empty">ما فيه خطة لهذا الأسبوع. سجّل الخطة أولاً، وبعدها تسجّل الإنتاج الفعلي لكل وردية.</div>`;
+  h+=`<div class="kpis k5">${kpiTile('ورديات إنتاج مخططة',num(st.ps))}${kpiTile('ورديات نُفّذت',num(st.ex),'سُجّل لها إنتاج فعلي')}${kpiTile('تحقيق الورديات',pct(st.ex,st.ps))}${kpiTile('ورديات ضائعة',num(st.lost),'مرّ موعدها بدون إنتاج')}${kpiTile('تحقيق الكمية',pct(st.aq,st.pq),st.pqN?`${num(st.aq)} من ${num(st.pq)}`:'الخطة بدون كميات رقمية')}</div>
+   <p class="small muted noprint" style="margin:0 0 8px">سجّل الكمية المنتجة فعلياً لكل منتج في كل وردية. لو ما تنفّذت الوردية أو نقصت، اختر السبب عشان يدخل في «تحليل التوقفات». الأرقام تنحفظ لما تضغط «حفظ الإنتاج الفعلي».</p>`;
+  lines.forEach(l=>{const sl=paSlots(l);
+    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">${sl.filter(x=>!x.stop&&!x.mould).length} منتج × وردية</span></h2><div class="tw"><table class="pa-t"><thead><tr><th>اليوم</th><th>الوردية</th><th>المنتج</th><th class="n">المخطط</th><th class="n">الفعلي</th><th class="n">التحقيق</th><th>سبب النقص / التوقف</th><th>ملاحظة</th></tr></thead><tbody>
+    ${sl.map(x=>{const k=paKey(l.line_id,x.day,x.s,x.code);const a=PA.rows[k]||{};const id=`pa_${btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,'')}`;
+      const q=a.qty!=null?+a.qty:null;const r=x.plan!=null&&q!=null?q/x.plan:null;const tone=r==null?'':r>=.95?'ok':r>=.7?'warn':'bad';
+      const dd=`<td class="nw"><b>${DAY_AR[dow(x.day)]}</b> <span class="small muted">${fdate(x.day)}</span></td><td>${x.s==='m'?'صباحي':'مسائي'}</td>`;
+      if(x.stop||x.mould)return `<tr class="pa-stop">${dd}<td colspan="3">${pill(x.item,x.stop?'bad':'warn')}</td><td></td><td>${ed?`<select data-pa="${esc(k)}" data-f="stop_reason" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}"><option value="">— السبب —</option>${PA_REASONS.map(o=>`<option ${a.stop_reason===o?'selected':''}>${o}</option>`).join('')}</select>`:esc(a.stop_reason||'')}</td><td>${ed?`<input data-pa="${esc(k)}" data-f="note" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}" value="${esc(a.note||'')}">`:esc(a.note||'')}</td></tr>`;
+      const at=`data-pa="${esc(k)}" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="${esc(x.code)}" data-item="${esc(x.item)}"`;
+      return `<tr>${dd}<td>${esc(x.item)} <span class="small muted" dir="ltr">${esc(x.code)}</span></td><td class="n">${x.plan!=null?num(x.plan):`<span class="muted">${esc(x.planTxt||'—')}</span>`}</td>
+       <td class="n">${ed?`<input id="${id}" ${at} data-f="qty" inputmode="decimal" value="${q!=null?q:''}" style="width:90px;text-align:center" aria-label="الإنتاج الفعلي">`:(q!=null?num(q):'—')}</td>
+       <td class="n">${r!=null?pill(Math.round(r*100)+'%',tone):''}</td>
+       <td>${ed?`<select ${at} data-f="stop_reason"><option value="">—</option>${PA_REASONS.map(o=>`<option ${a.stop_reason===o?'selected':''}>${o}</option>`).join('')}</select>`:esc(a.stop_reason||'')}</td>
+       <td>${ed?`<input ${at} data-f="note" value="${esc(a.note||'')}">`:esc(a.note||'')}</td></tr>`}).join('')}</tbody></table></div></div>`});
+  if(ed)h+=`<div class="formbar sticky noprint">${PA.dirty?'<span class="small" style="color:var(--warn)">تعديلات غير محفوظة</span>':''}<span style="flex:1"></span><button class="btn p" data-act="paSave" ${PA.dirty?'':'disabled'}>حفظ الإنتاج الفعلي</button></div>`;
+  return h}
+document.addEventListener('input',e=>{const t=e.target;if(!t.dataset||t.dataset.pa==null)return;
+  const k=t.dataset.pa;const r=PA.rows[k]||(PA.rows[k]={line_id:t.dataset.line,day:t.dataset.day,shift:t.dataset.s,code:t.dataset.code,item:t.dataset.item});
+  const f=t.dataset.f;r[f]=f==='qty'?(t.value.trim()===''?null:parseNum(t.value)):t.value;r._dirty=true;
+  if(!PA.dirty){PA.dirty=true;const b=document.querySelector('[data-act="paSave"]');if(b)b.disabled=false}});
+document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.pa!=null&&t.tagName==='SELECT')t.dispatchEvent(new Event('input',{bubbles:true}))});
+async function paSave(){const rows=Object.values(PA.rows).filter(r=>r._dirty);if(!rows.length)return;
+  if(rows.some(r=>r.qty!=null&&!(Number.isFinite(r.qty)&&r.qty>=0)))return toast('فيه كمية غير صحيحة — اكتب رقم');
+  const {error}=await sb.rpc('prod_actuals_save',{p_rows:rows.map(r=>({line_id:r.line_id,day:r.day,shift:r.shift,code:r.code||'',item:r.item||'',qty:r.qty==null?'':String(r.qty),stop_reason:r.stop_reason||'',note:r.note||''}))});
+  if(error)return toast(errText(error));toast('تم حفظ الإنتاج الفعلي');PA.key='';render()}
+
+/* ---------- stoppage analysis over a period ---------- */
+const PS={from:'',to:'',key:'',data:null,busy:false};
+async function psLoad(){const {from,to}=PS;PS.busy=true;
+  try{await ppRefs();const [it,ac]=await Promise.all([fetchAll(()=>sb.from('prod_items_current').select('line_id,day,shift,code,item,qty,qty_text').gte('day',from).lte('day',to)),fetchAll(()=>sb.from('prod_actuals').select('*').gte('day',from).lte('day',to))]);
+    PS.data={it,ac};PS.key=from+'|'+to}catch(e){toast(errText(e))}finally{PS.busy=false;render()}}
+function psCalc(){const {it,ac}=PS.data;const L=new Map();const R=new Map();
+  const line=id=>{if(!L.has(id))L.set(id,{id,name:lineName(id),sh:new Map()});return L.get(id)};
+  it.forEach(x=>{if(!sv(x.code)&&!sv(x.item)&&x.qty==null&&!sv(x.qty_text))return;const o=line(x.line_id);const k=x.day+'|'+x.shift;const s=o.sh.get(k)||{prod:false,stop:false,mould:false,stopTxt:'',done:false,reason:''};o.sh.set(k,s);
+    if(isStop(x.item)){s.stop=true;s.stopTxt=sv(x.item)}else if(isMould(x.item))s.mould=true;else if(sv(x.code)||sv(x.item))s.prod=true});
+  ac.forEach(a=>{const o=line(a.line_id);const k=a.day+'|'+a.shift;const s=o.sh.get(k)||{prod:false,stop:false,mould:false,stopTxt:'',done:false,reason:'',unplanned:true};o.sh.set(k,s);if(+a.qty>0)s.done=true;if(a.stop_reason)s.reason=a.stop_reason});
+  const rows=[...L.values()].map(o=>{let plan=0,prod=0,stop=0,mould=0,done=0,lost=0;o.sh.forEach((s,k)=>{if(s.unplanned&&!s.prod&&!s.stop&&!s.mould){if(s.done)done++;return}plan++;
+      if(s.prod){prod++;if(s.done)done++;else if(k.split('|')[0]<=TODAY()){lost++;const rs=s.reason||'بدون سبب مسجّل';const r=R.get(rs)||{n:0,lines:new Set()};r.n++;r.lines.add(o.name);R.set(rs,r)}}
+      else if(s.mould){mould++;const rs=s.reason||'تغيير قالب';const r=R.get(rs)||{n:0,lines:new Set()};r.n++;r.lines.add(o.name);R.set(rs,r)}
+      else if(s.stop){stop++;const rs=s.reason||s.stopTxt||'توقف';const r=R.get(rs)||{n:0,lines:new Set()};r.n++;r.lines.add(o.name);R.set(rs,r)}});
+    return {name:o.name,plan,prod,stop,mould,done,lost,down:stop+mould+lost}}).filter(r=>r.plan).sort((a,b)=>b.down-a.down);
+  const reasons=[...R.entries()].map(([k,v])=>({k,n:v.n,lines:[...v.lines].join('، ')})).sort((a,b)=>b.n-a.n);
+  return {rows,reasons}}
+function ppStopsView(){if(!PS.from){PS.to=TODAY();PS.from=addDays(satOf(TODAY()),-21)}
+  const bar=`<div class="toolbar noprint"><span class="small">من</span><input type="date" data-ps="from" value="${PS.from}"><span class="small">إلى</span><input type="date" data-ps="to" value="${PS.to}"><button class="btn s" data-act="psRun">عرض</button>${PS.data?`<button class="btn s" data-act="psXlsx">تصدير Excel</button>`:''}</div>`;
+  if(PS.key!==PS.from+'|'+PS.to){if(!PS.busy){PS.busy=true;setTimeout(psLoad,0)}return bar+`<div class="card empty">جارٍ التحميل…</div>`}
+  const {rows,reasons}=psCalc();const T=rows.reduce((a,r)=>{Object.keys(a).forEach(k=>a[k]+=r[k]);return a},{plan:0,prod:0,stop:0,mould:0,done:0,lost:0,down:0});
+  if(!rows.length)return bar+`<div class="card empty">ما فيه خطط في هذه الفترة.</div>`;
+  const mx=Math.max(...reasons.map(r=>r.n),1);
+  return bar+`<div class="kpis k5">${kpiTile('ورديات مخططة',num(T.plan))}${kpiTile('ورديات إنتاج',num(T.prod),pct(T.prod,T.plan)+' من المخطط')}${kpiTile('توقف وتغيير قالب',num(T.stop+T.mould))}${kpiTile('ورديات إنتاج ضائعة',num(T.lost),'مخطط لها إنتاج وما سُجّل لها إنتاج فعلي')}${kpiTile('جاهزية الخطوط',pct(T.plan-T.down,T.plan),'ورديات عاملة ÷ المخططة')}</div>
+   <div class="card"><h2>حسب خط الإنتاج</h2>${table([{l:'الخط',f:r=>`<b>${esc(r.name)}</b>`},{l:'ورديات مخططة',c:'n',f:r=>num(r.plan)},{l:'إنتاج',c:'n',f:r=>num(r.prod)},{l:'نُفّذت فعلياً',c:'n',f:r=>num(r.done)},{l:'توقف',c:'n',f:r=>r.stop||''},{l:'تغيير قالب',c:'n',f:r=>r.mould||''},{l:'ضائعة',c:'n',f:r=>r.lost?pill(num(r.lost),'bad'):''},{l:'الجاهزية',f:r=>{const p=r.plan?(r.plan-r.down)/r.plan:0;return `<div class="rk-bar" style="min-width:120px"><i style="width:${(p*100).toFixed(0)}%;background:${p>=.85?'#38AC57':p>=.65?'#E0A100':'#C0392B'}"></i><span>${Math.round(p*100)}%</span></div>`}}],rows)}</div>
+   <div class="card"><h2>أسباب التوقف</h2>${reasons.length?table([{l:'السبب',f:r=>`<b>${esc(r.k)}</b>`},{l:'عدد الورديات',c:'n',f:r=>num(r.n)},{l:'',f:r=>`<div class="rk-bar" style="min-width:140px"><i style="width:${(r.n/mx*100).toFixed(0)}%"></i></div>`},{l:'الخطوط',f:r=>`<span class="small">${esc(r.lines)}</span>`}],reasons):'<div class="empty small">ما فيه توقفات مسجلة في الفترة.</div>'}
+   <p class="small muted">الأسباب تجي من الخطة («متوقف» و«تغيير القالب») ومن «سبب النقص / التوقف» في شاشة الإنتاج الفعلي. الوردية الضائعة = مخطط لها إنتاج وفات موعدها بدون إنتاج فعلي مسجّل.</p></div>`}
+function psXlsx(){if(!window.XLSX||!PS.data)return;const {rows,reasons}=psCalc();const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};
+  wbAdd(wb,[['الخط','ورديات مخططة','إنتاج','نُفّذت فعلياً','توقف','تغيير قالب','ضائعة','الجاهزية %'],...rows.map(r=>[r.name,r.plan,r.prod,r.done,r.stop,r.mould,r.lost,r.plan?Math.round((r.plan-r.down)/r.plan*100):0])],'حسب الخط',[22,14,10,14,10,12,10,12]);
+  wbAdd(wb,[['السبب','عدد الورديات','الخطوط'],...reasons.map(r=>[r.k,r.n,r.lines])],'أسباب التوقف',[26,14,40]);
+  downloadBlob(`تحليل_التوقفات_${PS.from}_${PS.to}.xlsx`,new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})]))}
+
+/* ---------- stock, minimum levels and open orders coverage ---------- */
+const PK2={key:'',busy:false,min:{},dem:[],plan:{},whs:'',flt:'',q:''};
+async function pkLoad(){PK2.busy=true;
+  try{PP.products=null;await ppRefs();const ws=satOf(TODAY());
+    const [mn,dm,pl]=await Promise.all([fetchAll(()=>sb.from('prod_min_stock').select('*')),sb.rpc('prod_demand'),fetchAll(()=>sb.from('prod_items_current').select('line_id,day,code,qty').gte('day',ws).lte('day',addDays(ws,13)))]);
+    PK2.min={};mn.forEach(r=>{PK2.min[normCode(r.code)+'|'+r.whs]=+r.min_qty});PK2.dem=dm.data||[];
+    PK2.plan={};pl.forEach(r=>{if(!sv(r.code)||r.qty==null)return;const w=lineWhs(r.line_id);if(!w)return;const k=normCode(r.code)+'|'+w;PK2.plan[k]=(PK2.plan[k]||0)+(+r.qty)});
+    PK2.key='ok'}catch(e){toast(errText(e))}finally{PK2.busy=false;render()}}
+function pkRows(){const M=new Map();const add=(code,w,name)=>{const k=normCode(code)+'|'+w;if(!M.has(k))M.set(k,{code,name:name||'',whs:w,stock:null,min:null,dem:0,orders:0,due:null,plan:0});return M.get(k)};
+  (PP.stock?[...PP.stock.values()]:[]).forEach(p=>Object.entries(p.s||{}).forEach(([w,q])=>{const r=add(p.code,w,p.name);r.stock=+q}));
+  Object.entries(PK2.min).forEach(([k,v])=>{const [c,w]=k.split('|');const p=PP.stock&&PP.stock.get(c);add(p?p.code:c,w,p?p.name:'').min=v});
+  PK2.dem.forEach(d=>{if(!d.whs)return;const p=PP.stock&&PP.stock.get(normCode(d.code));const r=add(p?p.code:d.code,d.whs,p?p.name:d.name);r.dem+=+d.qty||0;r.orders+=d.orders;if(d.due&&(!r.due||d.due<r.due))r.due=d.due});
+  Object.entries(PK2.plan).forEach(([k,v])=>{const [c,w]=k.split('|');const p=PP.stock&&PP.stock.get(c);add(p?p.code:c,w,p?p.name:'').plan+=v});
+  return [...M.values()].map(r=>{r.net=(r.stock||0)+r.plan-r.dem;r.low=r.min!=null&&(r.stock||0)<r.min;r.short=r.dem>0&&r.net<0;return r})}
+function pkLowCount(){if(PK2.key!=='ok')return null;return pkRows().filter(r=>r.low).length}
+function ppStockView(){
+  if(PK2.key!=='ok'){if(!PK2.busy){PK2.busy=true;setTimeout(pkLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const ed=isProdEditor()||isAdmin();let rows=pkRows();const all=rows;
+  if(PK2.whs)rows=rows.filter(r=>r.whs===PK2.whs);
+  const n={short:rows.filter(r=>r.short).length,low:rows.filter(r=>r.low).length};
+  if(PK2.flt==='short')rows=rows.filter(r=>r.short);else if(PK2.flt==='low')rows=rows.filter(r=>r.low);else if(PK2.flt==='dem')rows=rows.filter(r=>r.dem>0);
+  const q=normTxt(PK2.q);if(q)rows=rows.filter(r=>normTxt(r.code+' '+r.name).includes(q));
+  rows.sort((a,b)=>(b.short-a.short)||(b.low-a.low)||(a.net-b.net));const lim=PK2.lim||200;
+  return `<div class="kpis k4">${kpiTile('منتجات عليها طلبات مفتوحة',num(all.filter(r=>r.dem>0).length),PK2.dem.length?'':'ما فيه طلبات بيع مفتوحة مستوردة')}${kpiTile('عجز في تغطية الطلبات',num(all.filter(r=>r.short).length),'الرصيد + المخطط أقل من الطلبات')}${kpiTile('تحت الحد الأدنى',num(all.filter(r=>r.low).length))}${kpiTile('آخر تحديث للأرصدة',PP.stockAt?fdt(PP.stockAt):'—')}</div>
+   <div class="toolbar noprint"><select data-pk="whs" aria-label="المستودع">${opt([['005','005 — مكة'],['1005','1005 — عسفان']],PK2.whs,'كل المستودعات')}</select>
+    <div class="chips"><button class="chip ${!PK2.flt?'on':''}" data-act="pkFlt" data-v="">الكل</button><button class="chip ${PK2.flt==='short'?'on':''}" data-act="pkFlt" data-v="short">عجز ${n.short}</button><button class="chip ${PK2.flt==='low'?'on':''}" data-act="pkFlt" data-v="low">تحت الحد ${n.low}</button><button class="chip ${PK2.flt==='dem'?'on':''}" data-act="pkFlt" data-v="dem">عليها طلبات</button></div>
+    <input type="search" data-pk="q" value="${esc(PK2.q)}" placeholder="بحث بالكود أو الاسم" style="max-width:220px"><button class="btn s" data-act="pkReload">تحديث</button></div>
+   <div class="card"><h2>المخزون مقابل الطلبات المفتوحة والخطة<span class="sub">${rows.length} سطر</span></h2>
+   ${table([{l:'المنتج',f:r=>`${esc(r.name||'—')} <span class="small muted" dir="ltr">${esc(r.code)}</span>`},{l:'المستودع',f:r=>esc(r.whs)+(WHS_NAME[r.whs]?' '+WHS_NAME[r.whs]:'')},
+     {l:'الرصيد',c:'n',f:r=>r.stock==null?'<span class="muted">—</span>':num(r.stock)},
+     {l:'الحد الأدنى',c:'n',f:r=>ed?`<input data-pkmin="${esc(r.code)}|${r.whs}" value="${r.min??''}" inputmode="decimal" style="width:80px;text-align:center" aria-label="الحد الأدنى">`:(r.min==null?'—':num(r.min))},
+     {l:'طلبات مفتوحة',c:'n',f:r=>r.dem?`${num(r.dem)} <span class="small muted">(${r.orders} أمر${r.due?' · أقرب تسليم '+fdate(r.due):''})</span>`:''},
+     {l:'مخطط إنتاجه (أسبوعين)',c:'n',f:r=>r.plan?num(r.plan):''},
+     {l:'الصافي',c:'n',f:r=>r.dem||r.plan?`<b style="color:${r.net<0?'var(--bad)':'inherit'}">${num(r.net)}</b>`:''},
+     {l:'الحالة',f:r=>r.short?pill('عجز','bad'):r.low?pill('تحت الحد','warn'):r.dem?pill('مغطى','ok'):''}],rows.slice(0,lim),{empty:'ما فيه بيانات. ارفع الأصناف بأرصدتها وطلبات البيع المفتوحة من تطبيق حركة السيارات.'})}
+   ${rows.length>lim?`<button class="btn" data-act="pkMore" data-n="${lim+300}">عرض المزيد (${rows.length-lim})</button>`:''}
+   <p class="small muted">الصافي = الرصيد + المخطط إنتاجه في هذا الأسبوع والأسبوع الجاي − الطلبات المفتوحة. الكميات المخططة تنحسب من الخانات اللي فيها رقم بس (مو «وردية»). الأرصدة وطلبات البيع تتحدث من الاستيراد في تطبيق حركة السيارات.</p></div>`}
+document.addEventListener('change',async e=>{const t=e.target;if(!t.dataset)return;
+  if(t.dataset.pk){PK2[t.dataset.pk]=t.value;PK2.lim=200;render();return}
+  if(t.dataset.ps){PS[t.dataset.ps]=t.value;return}
+  if(t.dataset.pkmin!=null){const [c,w]=t.dataset.pkmin.split('|');const v=t.value.trim()===''?null:parseNum(t.value);if(v!=null&&!(v>=0))return toast('اكتب رقم صحيح');
+    const {error}=await sb.rpc('prod_min_save',{p_code:c,p_whs:w,p_min:v});if(error)return toast(errText(error));const k=normCode(c)+'|'+w;if(v==null)delete PK2.min[k];else PK2.min[k]=v;toast('تم حفظ الحد الأدنى');render()}});
+Object.assign(ACT,{paSave:()=>paSave(),psRun:()=>{PS.key='';render()},psXlsx:()=>psXlsx(),pkFlt:d=>{PK2.flt=d.v;render()},pkReload:()=>{PK2.key='';render()},pkMore:d=>{PK2.lim=+d.n;render()},pkLow:()=>{PK2.flt='low';PP.tab='stock';render()}});
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
