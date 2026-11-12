@@ -717,7 +717,7 @@ const IMP_FIELDS={
  customers:[['code','كود العميل',1,['كود العميل','رمز العميل','رقم العميل','الكود','customer code','cardcode','code']],['name','اسم العميل',1,['اسم العميل','العميل','الاسم','customer name','cardname','name']],['region','المنطقة',0,['المنطقة','الفرع','region','branch']],['rep','المندوب',0,['المندوب','مندوب المبيعات','sales rep','slpname','sales employee','كود المندوب']],['type','نوع العميل (جديد/قديم)',0,['نوع العميل','حاله العميل','حالة العميل','النوع','customer type']],['size','حجم العميل',0,['حجم العميل','الحجم','size']],['category','التصنيف',0,['التصنيف','الفئة','category','groupname']],['phone','الجوال',0,['الجوال','الهاتف','phone','mobile']],['hist','قيمة المبيعات التاريخية',0,['قيمة المبيعات التاريخية','قيمة المبيعات','sales value']],['lastTx','تاريخ آخر عملية',0,['تاريخ آخر عملية','آخر عملية','last transaction date']]],
  collections:[['voucher','رقم سند القبض',1,['رقم سند القبض','رقم السند','سند القبض','voucher','voucher no','docnum']],['date','تاريخ التحصيل',1,['تاريخ التحصيل','تاريخ السند','التاريخ','collection date','docdate','date']],['code','كود العميل',1,['كود العميل','رمز العميل','customer code','cardcode']],['name','اسم العميل',0,['اسم العميل','العميل','customer name','cardname']],['amount','المبلغ',1,['مبلغ التحصيل','المبلغ','amount','doctotal']],['rep','المندوب',0,['المندوب','sales rep','slpname']],['inv','مرجع الفاتورة',0,['مرجع الفاتورة','رقم الفاتورة','invoice']],['pm','طريقة الدفع',0,['طريقة الدفع','payment method']]]};
 let IMP={step:'pick'};
-function autoMap(headers,fields){const map={},used=new Set();const nh=headers.map(h=>[h,normTxt(h)]);
+function autoMap(headers,fields){const map={},used=new Set();const nh=headers.map(h=>[h,normTxt(h).replace(/\*/g,'')]);
   fields.forEach(f=>{const syn=f[3].map(normTxt);const hit=nh.find(([h,n])=>!used.has(h)&&syn.includes(n));if(hit){map[f[0]]=hit[0];used.add(hit[0])}});
   fields.forEach(f=>{if(map[f[0]])return;const syn=f[3].map(normTxt).filter(s=>s.length>=4);const hit=nh.find(([h,n])=>!used.has(h)&&syn.some(s=>n.includes(s)));if(hit){map[f[0]]=hit[0];used.add(hit[0])}});return map}
 const repByTxt=v=>{const n=normTxt(v);if(!n)return null;return S.profiles.find(p=>p.role==='rep'&&(normTxt(p.rep_code)===n||normTxt(p.full_name)===n))||null};
@@ -2356,6 +2356,27 @@ ACT.rptPrev=async el=>{const c=document.getElementById('rpt_prev_card');c.hidden
 ACT.rptOne=async el=>{try{const j=await rptCall({action:'send',id:+el.dataset.id});toast(j.sent?'تم الإرسال':'ما وصل: '+((j.failed[0]||{}).detail||''));rptLoad()}catch(e){toast(e.message)}};
 ACT.rptAll=async()=>{if(!confirm('إرسال تقرير الأسبوع الماضي الآن لكل المستلمين المفعّلين؟'))return;try{const j=await rptCall({action:'send'});toast(`تم: ${j.sent} من ${j.recipients}`);rptLoad()}catch(e){toast(e.message)}};
 
+/* ===== Import columns: which columns are required and which go into the template, per import screen =====
+   Stored in public.import_cols (screen → {field:{req,tpl}}). Fields the system needs (match keys, dates…) stay required. */
+var IC_CFG=null,IC_EDIT=null;
+async function icLoad(){const {data,error}=await sb.from('import_cols').select('screen,cfg');const m={};if(!error)(data||[]).forEach(r=>m[r.screen]=r.cfg||{});IC_CFG=m;return m}
+function icEnsure(){if(IC_CFG===null){IC_CFG={};icLoad().then(()=>render()).catch(()=>{})}}
+/* fields as [key,label,req,aliases]; returns copies with the screen's settings applied (._lock = required by the system, ._tpl = in template) */
+function icApply(screen,fields){const c=(IC_CFG||{})[screen]||{};return fields.map(f=>{const o=c[f[0]]||{};const g=f.slice();g._lock=!!f[2];g[2]=f[2]||o.req?1:0;g._tpl=g[2]?true:o.tpl!==false;return g})}
+function icAppOf(screen){const p=screen.split(':')[0];return p==='fleetapp'?'fleet':p==='sales'?'crm':p}
+function icCan(screen){return isAdmin()||(S.appAdmin||[]).includes(icAppOf(screen))}
+function icButton(screen){return icCan(screen)?`<button class="btn s" data-act="icEdit" data-k="${esc(screen)}">إعداد الأعمدة (إلزامي / اختياري)</button>`:''}
+function icEdit(screen,title,base){IC_EDIT={screen,base};const F=icApply(screen,base);
+  openModal('أعمدة الاستيراد — '+title,`<p class="small muted" style="margin-top:0">حدّد الأعمدة الإلزامية: السطر اللي تكون فيه فاضية يُرفض في الاستيراد. «في القالب» يحدد الأعمدة اللي تطلع في قالب Excel الفاضي. الحقول المقفلة 🔒 يحتاجها النظام عشان يطابق ويحدّث السجلات، فتبقى إلزامية دايماً.</p>
+   <div class="tw"><table><thead><tr><th>العمود</th><th style="text-align:center">إلزامي</th><th style="text-align:center">في القالب</th></tr></thead><tbody>
+   ${F.map(f=>`<tr><td><b>${esc(f[1])}</b>${f._lock?' 🔒':''}</td><td style="text-align:center"><input type="checkbox" class="ic-chk" data-icreq="${esc(f[0])}" ${f[2]?'checked':''} ${f._lock?'disabled':''} aria-label="${esc(f[1])} إلزامي"></td><td style="text-align:center"><input type="checkbox" class="ic-chk" data-ictpl="${esc(f[0])}" ${f._tpl?'checked':''} ${f[2]?'disabled':''} aria-label="${esc(f[1])} في القالب"></td></tr>`).join('')}</tbody></table></div>
+   <div class="formbar"><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="icSave">حفظ</button></div>`)}
+async function icSave(){if(!IC_EDIT)return;const b=document.getElementById('mbody');const cfg={};
+  IC_EDIT.base.forEach(f=>{if(f[2])return;const r=b.querySelector(`[data-icreq="${f[0]}"]`)?.checked,t=b.querySelector(`[data-ictpl="${f[0]}"]`)?.checked;if(r||t===false)cfg[f[0]]={req:!!r,tpl:r?true:!!t}});
+  const {error}=await sb.rpc('import_cols_save',{p_screen:IC_EDIT.screen,p_cfg:cfg});if(error)return toast(errText(error));
+  IC_CFG=IC_CFG||{};IC_CFG[IC_EDIT.screen]=cfg;IC_EDIT=null;closeModal();toast('تم حفظ إعداد الأعمدة');render()}
+document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.icreq!=null){const tp=document.querySelector(`[data-ictpl="${t.dataset.icreq}"]`);if(tp){if(t.checked)tp.checked=true;tp.disabled=t.checked}}});
+
 /* ===== Generic Excel import: any column names, mapped by the user, remembered per file layout ===== */
 const empByTxt=v=>{const n=normTxt(v);if(!n)return null;return S.empDir.find(e=>normTxt(e.emp_no)===n)||S.empDir.find(e=>normTxt(e.name_ar)===n||normTxt(e.name_en)===n)||null};
 const vehByTxt=v=>{const n=normTxt(v);if(!n)return null;return FL.vehicles.find(x=>normTxt(x.plate)===n||normTxt(x.code)===n||normTxt(x.plate).endsWith(n)&&n.length>=4)||null};
@@ -2381,9 +2402,10 @@ const GDEF={
   async run(items){const {error}=await sb.from('fleet_carrier').upsert(items.map(i=>i.data),{onConflict:'day,region_id'});if(error)throw error;FL.range='';return {saved:items.length}}},
 };
 let GI={step:'pick'};
-const gFields=k=>{const f=GDEF[k].fields;return typeof f==='function'?f():f};
+const gFieldsBase=k=>{const f=GDEF[k].fields;return typeof f==='function'?f():f};
+const gFields=k=>icApply(k,gFieldsBase(k));
 const gMapKey=(k,headers)=>'wady.map.'+k+'.'+fnv(headers.join('|'));
-function gimpView(app){
+function gimpView(app){icEnsure();
   const keys=Object.keys(GDEF).filter(k=>k.startsWith(app+':')&&GDEF[k].can());if(!keys.length)return `<div class="card empty">الاستيراد غير متاح لصلاحيتك.</div>`;
   if(!GI.key||!keys.includes(GI.key)){GI={step:'pick',key:keys[0]}}
   const D=GDEF[GI.key],fields=gFields(GI.key);
@@ -2400,7 +2422,7 @@ function gimpView(app){
      <div class="formbar"><button class="btn" data-act="giBack">رجوع للربط</button><button class="btn p" data-act="giRun" ${ok.length?'':'disabled'}>تأكيد الاستيراد (${ok.length})</button></div>`}
   if(GI.step==='done')return h+`<div class="banner ok"><span class="sp"><b>اكتمل الاستيراد</b> — ${esc(GI.file)} · حُفظ ${GI.result?.saved||0} سطر</span></div><button class="btn" data-act="giReset">استيراد ملف آخر</button>`;
   return h+`<div class="card"><h2>${esc(D.label)}</h2><p class="small muted" style="margin-top:0">ارفع ملف Excel بأي ترتيب أو أسماء أعمدة (الورقة الأولى، والسطر الأول عناوين). بعدها تربط كل عمود بحقله، ويتحقق النظام من البيانات قبل الحفظ.</p>
-   <div class="small"><b>الحقول:</b> ${fields.map(f=>esc(f[1])+(f[2]?' <span class="req">*</span>':'')).join(' · ')}</div><div class="toolbar" style="margin-top:10px"><button class="btn s" data-act="giTemplate">تنزيل قالب فاضي</button></div></div>
+   <div class="small"><b>الحقول:</b> ${fields.map(f=>esc(f[1])+(f[2]?' <span class="req">*</span>':'')).join(' · ')}</div><div class="toolbar" style="margin-top:10px"><button class="btn s" data-act="giTemplate">تنزيل قالب فاضي</button>${icButton(GI.key)}</div></div>
    <label class="dz" for="giFile"><b>اختر ملف Excel</b><span class="btn p">اختيار ملف</span></label><input id="giFile" type="file" accept=".xlsx,.xls,.csv" hidden data-act="giFile">`;
 }
 async function giFile(file){try{const wb=await readSheetRows(file);const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true}).filter(r=>Object.values(r).some(v=>String(v??'').trim()!==''));
@@ -2418,10 +2440,11 @@ async function giValidate(){const D=GDEF[GI.key];try{localStorage.setItem(gMapKe
   GI.step='review';render()}
 async function giRun(){const ok=GI.items.filter(i=>['new','update','ok'].includes(i.status));const btn=document.querySelector('[data-act="giRun"]');if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ…'}
   try{const res=await GDEF[GI.key].run(ok);GI={...GI,step:'done',result:res};toast('اكتمل الاستيراد');render()}catch(e){toast(e.message||errText(e));if(btn){btn.disabled=false;btn.textContent='تأكيد الاستيراد'}}}
-function giTemplate(){if(!window.XLSX)return toast('مكتبة Excel غير محملة');const f=gFields(GI.key);const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};wbAdd(wb,[f.map(x=>x[1].replace(/ \(.*\)$/,''))],'البيانات',f.map(()=>18));downloadBlob(`قالب-${GDEF[GI.key].label}.xlsx`,new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})]))}
+function giTemplate(){if(!window.XLSX)return toast('مكتبة Excel غير محملة');const f=gFields(GI.key).filter(x=>x._tpl);const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};wbAdd(wb,[f.map(x=>x[1].replace(/ \(.*\)$/,'')+(x[2]?' *':''))],'البيانات',f.map(()=>18));
+  wbAdd(wb,[['العمود','إلزامي'],...f.map(x=>[x[1],x[2]?'نعم — السطر بدونه يُرفض':'اختياري'])],'التعليمات',[34,30]);downloadBlob(`قالب-${GDEF[GI.key].label}.xlsx`,new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})]))}
 V.fleet_import=()=>{if(!FL.loaded){const w=flEnsure();if(w)return w}return gimpView('fleet')};
 
-Object.assign(ACT,{giTab:d=>{GI={step:'pick',key:d.k};render()},giReset:()=>{GI={step:'pick',key:GI.key};render()},giBack:()=>{GI.step='map';render()},giValidate:()=>giValidate(),giRun:()=>giRun(),giTemplate:()=>giTemplate()});
+Object.assign(ACT,{icEdit:d=>icEdit(d.k,GDEF[d.k]?.label||d.k,gFieldsBase(d.k)),icSave:()=>icSave(),giTab:d=>{GI={step:'pick',key:d.k};render()},giReset:()=>{GI={step:'pick',key:GI.key};render()},giBack:()=>{GI.step='map';render()},giValidate:()=>giValidate(),giRun:()=>giRun(),giTemplate:()=>giTemplate()});
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset.act==='giFile'){const f=t.files[0];t.value='';if(f)giFile(f);return}if(t.dataset.gimap){GI.map[t.dataset.gimap]=t.value;render()}});
 
 

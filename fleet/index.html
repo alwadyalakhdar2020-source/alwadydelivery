@@ -2195,7 +2195,7 @@ function driverListHtml(){ const can=drvCanEdit(); const q=(DRV.q||"").trim().to
   const rows=(DRV.list||[]).filter(d=>(!DRV.br||d.branch===DRV.br)&&(!q||[d.name,d.code,d.phone,d.id_no,laneName(d.vehicle_id)].join(" ").toLowerCase().includes(q)));
   const soon=iso=>iso&&iso<=addDays(localToday(),30);
   return `<div class="panel"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:6px"><h2 style="margin:0">السائقين <span class="muted small">(${(DRV.list||[]).filter(d=>d.active).length} نشط)</span></h2>
-    <div class="row" style="gap:6px">${can?`<button class="btn primary" id="dr-new">+ سائق</button><label class="btn">استيراد من Excel<input type="file" id="dr-file" accept=".xlsx,.xls,.csv" hidden></label><button class="btn" id="dr-tpl">تنزيل نموذج</button>`:""}<button class="btn" id="dr-xls">تصدير Excel</button></div></div>
+    <div class="row" style="gap:6px">${can?`<button class="btn primary" id="dr-new">+ سائق</button><label class="btn">استيراد من Excel<input type="file" id="dr-file" accept=".xlsx,.xls,.csv" hidden></label><button class="btn" id="dr-tpl">تنزيل نموذج</button>${ficCan()?`<button class="btn" data-fic="drivers">إعداد الأعمدة</button>`:""}`:""}<button class="btn" id="dr-xls">تصدير Excel</button></div></div>
     <p class="small muted" style="margin:6px 0 10px">السائق المربوط بسيارة يظهر تلقائياً في سجل السيارة كسائقها الأساسي، ويمكن تغيير سائق أي يوم من سجل السيارة. إعادة استيراد الملف تحدّث بيانات السائق (بالرقم الوظيفي/الإقامة، أو بالاسم إذا ما فيه رقم) ولا تكرره.</p>
     <div class="filters"><label class="f">بحث<input id="dr-q" value="${esc(DRV.q||"")}" placeholder="اسم، رقم، جوال، سيارة"></label><label class="f">الفرع<select id="dr-br"><option value="">الكل</option>${BRANCHES.map(b=>`<option ${DRV.br===b?"selected":""}>${b}</option>`).join("")}</select></label></div>
     <div class="tbl-wrap"><table><thead><tr><th class="txt">الاسم</th><th>الرقم</th><th>الفرع</th><th class="txt">السيارة الأساسية</th><th>الجوال</th><th>رقم الإقامة</th><th>الرخصة</th><th>انتهاء الرخصة</th><th>الحالة</th>${can?"<th></th>":""}</tr></thead>
@@ -2219,8 +2219,10 @@ function drFindVeh(x){ if(!x) return null; const n=String(x).replace(/\s+/g,"").
 async function driverImport(file){ const sh=await readSheet(file); if(!sh) return; const H=sh.headers; const map={};
   DR_COLS.forEach(([k,,syn])=>{ const h=H.find(h=>syn.some(s=>drN(s)===drN(h))); if(h) map[k]=h; });
   if(!map.name) return toast("ما لقيت عمود «اسم السائق» في الملف — نزّل النموذج وطابق العناوين","err");
+  const missCol=ficReq("drivers").filter(k=>!map[k]);if(missCol.length) return toast("أعمدة إلزامية مو موجودة في الملف: "+missCol.map(k=>DR_COLS.find(c=>c[0]===k)[1]).join("، "),"err");
   const seen=new Set(), out=[], errs=[];
   sh.rows.forEach((r,i)=>{ const g=k=>map[k]?r[map[k]]:null; const name=cellTxt(g("name")); if(!name) return; const code=cellTxt(g("code"));
+    const need=ficReq("drivers").filter(k=>k!=="name"&&cellTxt(g(k))==="");if(need.length){ errs.push(`سطر ${i+2}: ${need.map(k=>DR_COLS.find(c=>c[0]===k)[1]).join("، ")} فاضي (إلزامي) — ${name}`); return; }
     const vt=cellTxt(g("vehicle")), veh=drFindVeh(vt); const key=code?"c:"+code.toLowerCase():"n:"+drN(name);
     if(seen.has(key)){ errs.push(`سطر ${i+2}: مكرر في الملف (${name})`); return; } seen.add(key);
     if(vt&&!veh){ errs.push(`سطر ${i+2}: السيارة غير موجودة «${vt}» — ${name}`); return; }
@@ -2240,9 +2242,11 @@ async function driverImport(file){ const sh=await readSheet(file); if(!sh) retur
   catch(e){ toast(errMsg(e),"err"); } }
 async function driverTemplate(){ if(!await loadXLSXsafe()) return; const wb=XLSX.utils.book_new();
   const ex=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp).slice(0,2);
-  const rows=[DR_COLS.map(c=>c[1]+(c[0]==="name"?" *":"")),["D-1001","اسم السائق كما في الإقامة",ex[0]?(ex[0].code||ex[0].plate):"","مكة","05xxxxxxxx","2xxxxxxxxx","","2027-06-30","نشط",""]];
+  const req=ficReq("drivers"),EX=["D-1001","اسم السائق كما في الإقامة",ex[0]?(ex[0].code||ex[0].plate):"","مكة","05xxxxxxxx","2xxxxxxxxx","","2027-06-30","نشط",""];
+  const CI=DR_COLS.map((c,i)=>i).filter(i=>ficTpl("drivers",DR_COLS[i][0]));
+  const rows=[CI.map(i=>DR_COLS[i][1]+(req.includes(DR_COLS[i][0])?" *":"")),CI.map(i=>EX[i]??"")];
   const ws=XLSX.utils.aoa_to_sheet(rows); ws["!views"]=[{RTL:true}]; ws["!cols"]=rows[0].map(h=>({wch:Math.max(14,h.length+4)}));
-  const g=XLSX.utils.aoa_to_sheet([["العمود","إلزامي","ملاحظة"],...DR_COLS.map(c=>[c[1],c[0]==="name"?"نعم":"لا",{code:"يمنع التكرار — السائق الموجود بنفس الرقم يتحدّث",name:"إذا ما فيه رقم، الاسم هو اللي يمنع التكرار",vehicle:"كود السيارة أو رقم اللوحة كما في النظام: "+ex.map(v=>v.code||v.plate).join(" / "),branch:BRANCHES.join(" أو ")+" — إذا فاضي ياخذ فرع السيارة",license_exp:"تاريخ — مثل 2027-06-30",active:"نشط أو موقوف"}[c[0]]||""]),[],["احذف سطر المثال قبل الرفع. إعادة رفع الملف تحدّث البيانات ولا تكرر السائقين."]]); g["!views"]=[{RTL:true}];
+  const g=XLSX.utils.aoa_to_sheet([["العمود","إلزامي","ملاحظة"],...DR_COLS.filter(c=>ficTpl("drivers",c[0])).map(c=>[c[1],req.includes(c[0])?"نعم":"لا",{code:"يمنع التكرار — السائق الموجود بنفس الرقم يتحدّث",name:"إذا ما فيه رقم، الاسم هو اللي يمنع التكرار",vehicle:"كود السيارة أو رقم اللوحة كما في النظام: "+ex.map(v=>v.code||v.plate).join(" / "),branch:BRANCHES.join(" أو ")+" — إذا فاضي ياخذ فرع السيارة",license_exp:"تاريخ — مثل 2027-06-30",active:"نشط أو موقوف"}[c[0]]||""]),[],["احذف سطر المثال قبل الرفع. إعادة رفع الملف تحدّث البيانات ولا تكرر السائقين."]]); g["!views"]=[{RTL:true}];
   XLSX.utils.book_append_sheet(wb,ws,"السائقين"); XLSX.utils.book_append_sheet(wb,g,"التعليمات"); wb.Workbook={Views:[{RTL:true}]}; XLSX.writeFile(wb,"نموذج-السائقين.xlsx"); }
 
 /* ---------- driver report: trips by driver whatever the vehicle ---------- */
@@ -2402,6 +2406,70 @@ function dashMgmt(){ const el=$("#v-dashboard"); if(!el||!S.vehLoaded) return;
   const anchor=el.querySelector(".kpis")?.nextElementSibling; if(anchor) anchor.insertAdjacentHTML("afterend",html); else el.insertAdjacentHTML("beforeend",html);
   DRV._cust=M.cust; }
 document.addEventListener("click",e=>{ if(e.target.closest("#dash-late-xls")) exportXLSX(`العملاء_المتسببين_في_التأخير_${S.f.from}_${S.f.to}.xlsx`,{"العملاء":(DRV._cust||[]).map(x=>({"العميل":x.name,"الكود":x.code,"عدد المرات":x.times,"ردود متأثرة":+x.n.toFixed(2),"الفروع":[...x.branches].join("، "),"السيارات":[...x.veh].join("، "),"آخر مرة":x.last}))}); });
+
+/* ===== Import columns (fleet app): required / optional / in template, per import screen (public.import_cols) ===== */
+const FIC_LBL={code:"الكود",name:"الاسم",unit:"الوحدة",phone:"الجوال",city:"المدينة",address:"العنوان",location:"رابط الموقع",lat:"خط العرض",lng:"خط الطول",rep_name:"المندوب",whs:"المستودع",onhand:"الرصيد",
+  so_number:"رقم أمر البيع",customer_code:"كود العميل",customer_name:"اسم العميل",so_date:"تاريخ الطلب",due_date:"تاريخ التسليم",branch:"الفرع",item_code:"كود الصنف",product:"اسم الصنف",qty:"الكمية المفتوحة"};
+const FIC_LBL_K={products:{code:"كود الصنف",name:"اسم الصنف"},customers:{code:"كود العميل",name:"اسم العميل"}};
+const ficLbl=(kind,f)=>(FIC_LBL_K[kind]||{})[f]||FIC_LBL[f]||f;
+let FIC={};const FIC_BASE={};Object.keys(IMP).forEach(k=>{FIC_BASE[k]=IMP[k].req.slice()});FIC_BASE.drivers=["name"];
+const ficCan=()=>!!(WADY_PERM.admin||(WADY_PERM.app_admin||[]).includes("fleet"));
+const ficCfg=k=>FIC["fleetapp:"+k]||{};
+const ficReq=k=>{const c=ficCfg(k);return [...new Set([...FIC_BASE[k],...Object.keys(c).filter(f=>c[f]&&c[f].req)])]};
+const ficTpl=(k,f)=>ficReq(k).includes(f)||(ficCfg(k)[f]||{}).tpl!==false;
+function ficApply(){Object.keys(IMP).forEach(k=>{IMP[k].req=ficReq(k).filter(f=>IMP[k].fields[f])})}
+async function ficLoad(){try{const {data}=await SB.from("import_cols").select("screen,cfg").like("screen","fleetapp:%");FIC={};(data||[]).forEach(r=>{FIC[r.screen]=r.cfg||{}});ficApply()}catch(e){}}
+setTimeout(ficLoad,800);
+const ficFields=k=>k==="drivers"?DR_COLS.map(c=>[c[0],c[1]]):Object.keys(IMP[k].fields).map(f=>[f,ficLbl(k,f)]);
+const ficTitle=k=>k==="drivers"?"السائقين":IMP[k].title;
+/* rows with an empty value in a column the admin made required are left out, with the reason */
+const _ficBuild=buildImport;
+buildImport=function(kind,rows,map){const extra=ficReq(kind).filter(f=>!FIC_BASE[kind].includes(f));const bad=[];
+  if(extra.length)rows=rows.filter((r,i)=>{const m=extra.filter(f=>{const v=map[f]?r[map[f]]:null;return v==null||String(v).trim()===""});if(m.length){bad.push(`سطر ${i+2}: ${m.map(f=>ficLbl(kind,f)).join("، ")} فاضي (إلزامي)`);return false}return true});
+  const res=_ficBuild(kind,rows,map);res.errs=bad.concat(res.errs||[]);return res};
+/* template: chosen columns only, required ones marked with *, plus an instructions sheet */
+downloadTemplate=async function(kind){if(!await loadXLSXsafe())return;const K=IMP[kind],req=ficReq(kind);const ex=(K.tpl||[])[0]||{};
+  const exOf=f=>{const al=K.fields[f]||[];const h=Object.keys(ex).find(h=>al.includes(normH(h)));return h!=null?ex[h]:""};
+  const fs=Object.keys(K.fields).filter(f=>ficTpl(kind,f));const extraCols=Object.keys(ex).filter(h=>!Object.keys(K.fields).some(f=>(K.fields[f]||[]).includes(normH(h))));
+  const head=[...fs.map(f=>ficLbl(kind,f)+(req.includes(f)?" *":"")),...extraCols];
+  const ws=XLSX.utils.aoa_to_sheet([head,[...fs.map(exOf),...extraCols.map(h=>ex[h])]]);ws["!views"]=[{RTL:true}];ws["!cols"]=head.map(h=>({wch:Math.max(14,String(h).length+4)}));
+  const g=XLSX.utils.aoa_to_sheet([["العمود","إلزامي"],...fs.map(f=>[ficLbl(kind,f),req.includes(f)?"نعم — السطر بدونه يُرفض":"اختياري"]),...extraCols.map(h=>[h,"اختياري"])]);g["!views"]=[{RTL:true}];g["!cols"]=[{wch:28},{wch:28}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,K.title.slice(0,31));XLSX.utils.book_append_sheet(wb,g,"التعليمات");wb.Workbook={Views:[{RTL:true}]};XLSX.writeFile(wb,`نموذج-${K.title}.xlsx`)};
+async function ficEdit(kind){if(!ficCan())return;const req=ficReq(kind),base=FIC_BASE[kind];
+  const v=await modal(`أعمدة استيراد ${ficTitle(kind)}`,`<p class="small muted" style="margin-top:0">حدّد الأعمدة الإلزامية: السطر اللي تكون فيه فاضية ما يُستورد. «في القالب» يحدد الأعمدة اللي تطلع في النموذج الفاضي. الحقول المقفلة 🔒 يحتاجها النظام عشان يطابق السجلات، فتبقى إلزامية دايماً.</p>
+   <div class="tbl-wrap"><table><thead><tr><th class="txt">العمود</th><th>إلزامي</th><th>في القالب</th></tr></thead><tbody>${ficFields(kind).map(([f,l])=>{const lk=base.includes(f),r=req.includes(f);
+     return `<tr><td class="txt"><b>${esc(l)}</b>${lk?" 🔒":""}</td><td><input type="checkbox" name="r_${f}" ${r?"checked":""} ${lk?"disabled":""} data-fic-r="${f}"></td><td><input type="checkbox" name="t_${f}" ${ficTpl(kind,f)?"checked":""} ${r?"disabled":""} data-fic-t="${f}"></td></tr>`}).join("")}</tbody></table></div>`,{ok:"حفظ",wide:true,
+   onOpen:root=>{(root||document).addEventListener("change",e=>{const f=e.target.dataset&&e.target.dataset.ficR;if(f==null)return;const t=(root||document).querySelector(`[data-fic-t="${f}"]`);if(t){if(e.target.checked)t.checked=true;t.disabled=e.target.checked}})}});
+  if(!v)return;const cfg={};ficFields(kind).forEach(([f])=>{if(base.includes(f))return;const r=!!v["r_"+f],t=!!v["t_"+f];if(r||!t)cfg[f]={req:r,tpl:r?true:t}});
+  try{await api("import_cols_save",{p_screen:"fleetapp:"+kind,p_cfg:cfg});FIC["fleetapp:"+kind]=cfg;ficApply();toast("تم حفظ إعداد الأعمدة");if(kind==="drivers")paintDrivers();else paintImportPanel()}catch(e){toast(errMsg(e),"err")}}
+/* settings button next to each import */
+const _ficPanel=importPanelHtml;importPanelHtml=function(){let h=_ficPanel();if(!ficCan())return h;
+  return h.replace(/<button class="btn sm" data-tpl="([a-z]+)">تنزيل نموذج<\/button>/g,(m,k)=>m+`<button class="btn sm" data-fic="${k}">إعداد الأعمدة</button>`)};
+document.addEventListener("click",e=>{const t=e.target.closest&&e.target.closest("[data-fic]");if(t)ficEdit(t.dataset.fic)});
+
+/* ===== Top menu in groups: each group is one button that opens its pages ===== */
+const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
+(function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
+ .fg{position:relative;flex:none}.fg>.fg-h{display:inline-flex;align-items:center;gap:6px}.fg>.fg-h:after{content:"▾";font-size:11px;opacity:.8}
+ .fg.cur>.fg-h{background:#fff;color:var(--navy);font-weight:700}.fg-m{position:absolute;top:calc(100% + 6px);inset-inline-start:0;min-width:200px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(5,29,72,.25);padding:6px;z-index:60;display:none;flex-direction:column;gap:2px}
+ .fg.open>.fg-m{display:flex}nav.tabs .fg-m button{color:var(--navy);text-align:start;border-radius:8px;width:100%}nav.tabs .fg-m button:hover{background:#EEF2F7}nav.tabs .fg-m button[aria-current="page"]{background:#E6F4EA;color:var(--navy);box-shadow:inset -3px 0 0 #38AC57}
+ @media (max-width:700px){.fg-m{position:fixed;top:auto;inset-inline:12px;min-width:0}}`;document.head.appendChild(st)})();
+function fnavGroup(){const nav=$("nav.tabs");if(!nav)return;
+  nav.querySelectorAll(".fg").forEach(g=>{g.querySelectorAll("button[data-v]").forEach(b=>nav.appendChild(b));g.remove()});
+  const btn=v=>nav.querySelector(`:scope > button[data-v="${v}"]`);
+  FNAV_G.forEach(([label,vs])=>{const bs=vs.map(btn).filter(b=>b&&!b.hidden);if(!bs.length)return;
+    if(bs.length===1){nav.appendChild(bs[0]);return}
+    const g=document.createElement("div");g.className="fg";g.innerHTML=`<button type="button" class="fg-h" aria-haspopup="true" aria-expanded="false"></button><div class="fg-m" role="menu"></div>`;
+    g.querySelector(".fg-h").textContent=label;const m=g.querySelector(".fg-m");bs.forEach(b=>{b.setAttribute("role","menuitem");m.appendChild(b)});nav.appendChild(g)});
+  [...nav.querySelectorAll(":scope > button[data-v]")].forEach(b=>{if(b.hidden)nav.appendChild(b)});
+  nav.classList.add("grouped");fnavMark()}
+function fnavMark(){document.querySelectorAll("nav.tabs .fg").forEach(g=>{const cur=g.querySelector('button[aria-current="page"]');g.classList.toggle("cur",!!cur);const h=g.querySelector(".fg-h");const base=FNAV_G.find(x=>x[1].includes((g.querySelector("button[data-v]")||{}).dataset?.v))?.[0]||h.textContent;h.textContent=cur?base+" · "+cur.textContent:base})}
+const fnavClose=()=>document.querySelectorAll("nav.tabs .fg.open").forEach(g=>{g.classList.remove("open");g.querySelector(".fg-h").setAttribute("aria-expanded","false")});
+document.addEventListener("click",e=>{const h=e.target.closest&&e.target.closest(".fg-h");if(h){e.preventDefault();e.stopPropagation();const g=h.parentElement,o=!g.classList.contains("open");fnavClose();if(o){g.classList.add("open");h.setAttribute("aria-expanded","true")}return}
+  if(!e.target.closest||!e.target.closest(".fg-m"))fnavClose();else setTimeout(()=>{fnavClose();fnavMark()},0)},true);
+document.addEventListener("keydown",e=>{if(e.key==="Escape")fnavClose()});
+const _fnavSetup=setupNav;setupNav=function(){_fnavSetup.apply(this,arguments);fnavGroup()};
+new MutationObserver(()=>fnavMark()).observe(document.querySelector("nav.tabs")||document.body,{attributes:true,subtree:true,attributeFilter:["aria-current"]});
 
 start();
 

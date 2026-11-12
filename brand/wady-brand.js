@@ -64,3 +64,42 @@
   var start=function(){ setTimeout(paint,1500); setInterval(function(){ if(!btn) paint(); },60000); };
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
 })();
+
+/* ===== Collapsible side-menu groups (CRM: .navgrp headings, HR: .grp headings) =====
+   Each heading becomes a toggle; the items under it fold into its group. The group holding the open page stays open;
+   the rest remember the user's choice on this device. Works on every re-render of the menu. */
+(function () {
+  const SEL = [['#side nav', '.navgrp', 'crm'], ['#nav', '.grp', 'hr']];
+  const KEY = 'wady.navg.';
+  const st = k => { try { return localStorage.getItem(KEY + k); } catch (e) { return null; } };
+  const put = (k, v) => { try { localStorage.setItem(KEY + k, v); } catch (e) { } };
+  const css = `.wg{display:flex;flex-direction:column}.wg-b{display:flex;flex-direction:column;gap:inherit;overflow:hidden}.wg.closed .wg-b{display:none}
+  .wg-h{all:unset;box-sizing:border-box;cursor:pointer;display:flex!important;align-items:center;gap:8px;width:100%;padding:9px 10px;margin-top:4px;border-radius:8px;font-size:12.5px;font-weight:700;letter-spacing:.02em;opacity:.85;color:inherit}
+  .wg-h:hover{background:rgba(127,140,160,.14);opacity:1}.wg-h:focus-visible{outline:2px solid #38AC57;outline-offset:1px}
+  .wg-h .wg-t{flex:1}.wg-h .wg-c{transition:transform .15s;font-size:11px;opacity:.7}.wg.closed .wg-h .wg-c{transform:rotate(90deg)}html[dir=ltr] .wg.closed .wg-h .wg-c{transform:rotate(-90deg)}
+  .wg-h .wg-n{font-size:11px;font-weight:700;background:#38AC57;color:#fff;border-radius:999px;padding:0 7px;line-height:18px}.wg:not(.closed) .wg-h .wg-n{display:none}
+  .wg.has-cur>.wg-h{opacity:1}.wg-b>*{padding-inline-start:18px!important}`;
+  function addCss() { if (document.getElementById('wg-css')) return; const s = document.createElement('style'); s.id = 'wg-css'; s.textContent = css; document.head.appendChild(s); }
+  const isCur = el => el.matches('.on,[aria-current="page"]');
+  function group(nav, hsel, app) {
+    const heads = [...nav.children].filter(c => c.matches(hsel)); if (!heads.length) return;
+    addCss();
+    heads.forEach(hd => {
+      const label = hd.textContent.trim(); const items = []; let n = hd.nextElementSibling;
+      while (n && !n.matches(hsel) && !n.classList.contains('wg')) { items.push(n); n = n.nextElementSibling; }
+      const box = document.createElement('div'); box.className = 'wg'; box.setAttribute('role', 'group');
+      const id = app + '.' + label; const cur = items.some(isCur);
+      const cnt = items.reduce((s, it) => s + (+((it.querySelector('.cnt') || {}).textContent || 0) || 0), 0);
+      const open = cur || st(id) === '1';
+      box.innerHTML = `<button type="button" class="wg-h" aria-expanded="${open}"><span class="wg-c" aria-hidden="true">▾</span><span class="wg-t"></span>${cnt ? `<span class="wg-n">${cnt}</span>` : ''}</button><div class="wg-b"></div>`;
+      box.querySelector('.wg-t').textContent = label; if (!open) box.classList.add('closed'); if (cur) box.classList.add('has-cur');
+      const body = box.querySelector('.wg-b'); items.forEach(it => body.appendChild(it));
+      box.querySelector('.wg-h').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const c = box.classList.toggle('closed'); e.currentTarget.setAttribute('aria-expanded', String(!c)); put(id, c ? '0' : '1'); });
+      hd.replaceWith(box);
+    });
+  }
+  function scan() { SEL.forEach(([s, h, app]) => { document.querySelectorAll(s).forEach(nav => { if ([...nav.children].some(c => c.matches(h))) group(nav, h, app); }); }); }
+  let t = 0; const mo = new MutationObserver(() => { if (t) return; t = requestAnimationFrame(() => { t = 0; scan(); }); });
+  const startObs = () => { scan(); mo.observe(document.body, { childList: true, subtree: true }); };
+  if (document.body) startObs(); else document.addEventListener('DOMContentLoaded', startObs);
+})();
