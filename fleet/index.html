@@ -248,6 +248,8 @@ td.acts{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}
     <button type="button" data-v="entry">الإدخال اليومي</button>
     <button type="button" data-v="vehicle">سجل السيارة</button>
     <button type="button" data-v="drivers">السائقين</button>
+    <button type="button" data-v="costs">تكاليف التشغيل</button>
+    <button type="button" data-v="docs">الوثائق والتنبيهات</button>
     <button type="button" data-v="carrier">الناقل الخارجي</button>
     <button type="button" data-v="report">التقرير</button>
     <button type="button" data-v="places">الأحياء والمسافات</button>
@@ -262,6 +264,8 @@ td.acts{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}
   <section id="v-entry" hidden></section>
   <section id="v-vehicle" hidden></section>
   <section id="v-drivers" hidden></section>
+  <section id="v-costs" hidden></section>
+  <section id="v-docs" hidden></section>
   <section id="v-carrier" hidden></section>
   <section id="v-report" hidden></section>
   <section id="v-places" hidden></section>
@@ -395,7 +399,7 @@ function onEntriesChanged(){
 }
 
 /* ---------- routing ---------- */
-const VIEWS=["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","carrier","report","places","log","admin","setup"];
+const VIEWS=["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","costs","docs","carrier","report","places","log","admin","setup"];
 function go(v){ if(!VIEWS.includes(v)) return; S.view=v; try{ if(location.hash!=="#"+v) history.replaceState(null,"","#"+v); }catch(e){} applyView(); window.scrollTo(0,0); }
 document.addEventListener("click",e=>{ const b=e.target.closest("nav.tabs [data-v],[data-goto]"); if(!b) return; e.preventDefault(); go(b.dataset.v||b.dataset.goto); });
 function route(){
@@ -411,7 +415,7 @@ function doRender(){
   try{
     ensureEntrySub(); renderBanner(); updateSyncBadge();
     const v=S.view;
-    if(v==="dashboard") renderDashboard(); else if(v==="entry") renderEntry(); else if(v==="vehicle") renderVehicle(); else if(v==="drivers") renderDrivers();
+    if(v==="dashboard") renderDashboard(); else if(v==="entry") renderEntry(); else if(v==="vehicle") renderVehicle(); else if(v==="drivers") renderDrivers(); else if(v==="costs") renderCosts(); else if(v==="docs") renderDocs();
     else if(v==="carrier") renderCarrier(); else if(v==="report") renderReport(); else if(v==="log") renderLog(); else if(v==="places") renderPlaces(); else renderSetup();
   }catch(err){ console.error(err); showBanner("bad","صار خطأ في عرض الصفحة: "+esc(err&&err.message||err)+" — <button class='btn sm' data-act='reload-view'>إعادة المحاولة</button>"); diag("render",err); }
 }
@@ -1346,9 +1350,9 @@ async function afterLogin(){
   if(!booted){ booted=true; boot(); setInterval(()=>FDB.refresh(),60000); document.addEventListener("visibilitychange",()=>{ if(!document.hidden) FDB.refresh(); }); }
 }
 const TABS_BY_ROLE={
-  sysadmin:["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","carrier","report","places","log","admin","setup"],
-  ops_mgr:["ops","orders","plan","reserve","maint","dreports","dashboard","vehicle","drivers","carrier","report","places","log"],
-  dispatcher:["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","carrier","report","places","log"],
+  sysadmin:["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","costs","docs","carrier","report","places","log","admin","setup"],
+  ops_mgr:["ops","orders","plan","reserve","maint","dreports","dashboard","vehicle","drivers","costs","docs","carrier","report","places","log"],
+  dispatcher:["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","costs","docs","carrier","report","places","log"],
   sales_sup:["orders","reserve","dreports","log"],
   rep:["orders","log"]};
 function setupNav(){ const allow=TABS_BY_ROLE[ME.role]||["orders"];
@@ -2069,7 +2073,7 @@ renderBanner=function(){ _renderBanner0(); const b=$("#banner"); if(!b) return;
   };
   /* Viewer / Auditor: block changes on that page */
   const W={fleet_order_save:'orders',fleet_order_action:'orders',fleet_lane_set:'plan',fleet_plan_auto:'plan',fleet_plan_approve:'plan',fleet_vehicle_shift_set:'plan',
-    fleet_trip_start:'ops',fleet_trip_close:'ops',fleet_trip_reopen:'ops',fleet_maint_save:'maint',fleet_maint_action:'maint',fleet_entry_set:'entry',fleet_drivers_save:'drivers',fleet_carrier_set:'carrier',
+    fleet_trip_start:'ops',fleet_trip_close:'ops',fleet_trip_reopen:'ops',fleet_maint_save:'maint',fleet_maint_action:'maint',fleet_entry_set:'entry',fleet_drivers_save:'drivers',fleet_cost_save:'costs',fleet_docs_save:'docs',fleet_carrier_set:'carrier',
     fleet_vehicle_save:'setup',fleet_settings_set:'setup',fleet_product_save:'admin',fleet_products_import:'admin',fleet_customers_import:'admin',fleet_sap_orders_import:'admin',fleet_profile_save:'admin'};
   const _api=api;
   api=async function(fn,args){const pg=W[fn];if(pg&&!WADY_PERM.admin&&wadyLvl(pg)<3){const e=new Error('صلاحيتك على هذه الصفحة عرض فقط — التعديل يحتاج صلاحية محرر');throw e}return _api(fn,args)};
@@ -2447,8 +2451,108 @@ const _ficPanel=importPanelHtml;importPanelHtml=function(){let h=_ficPanel();if(
   return h.replace(/<button class="btn sm" data-tpl="([a-z]+)">تنزيل نموذج<\/button>/g,(m,k)=>m+`<button class="btn sm" data-fic="${k}">إعداد الأعمدة</button>`)};
 document.addEventListener("click",e=>{const t=e.target.closest&&e.target.closest("[data-fic]");if(t)ficEdit(t.dataset.fic)});
 
+/* ===== Fleet: operating costs, document expiry alerts, driver scorecard, on-time delivery ===== */
+const COST_KINDS=[["fuel","وقود"],["maint","صيانة وقطع غيار"],["tires","إطارات"],["oil","زيوت وفلاتر"],["wash","غسيل"],["other","أخرى"]];
+const DOC_KINDS=[["istimara","الاستمارة"],["insurance","التأمين"],["inspection","الفحص الدوري"],["opcard","كرت التشغيل"]];
+const kindL=(L,k)=>(L.find(x=>x[0]===k)||[k,k])[1];
+const FX={costs:null,cFrom:"",cTo:"",cBr:"",cVeh:"",docs:null,docDays:30,sla:null,slaKey:""};
+const addD=(iso,n)=>{const d=new Date(iso+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
+const daysTo=iso=>Math.round((new Date(iso+"T00:00:00Z")-new Date(localToday()+"T00:00:00Z"))/864e5);
+const canW=p=>typeof wadyLvl!=="function"||wadyLvl(p)>=2;
+
+/* ---------- operating costs ---------- */
+function renderCosts(){newView("costs",()=>{if(!FX.cFrom){const t=localToday();FX.cTo=t;FX.cFrom=t.slice(0,8)+"01"}paintCosts();loadCosts()})}
+async function loadCosts(){try{const [c,e]=await Promise.all([api("fleet_costs",{p_from:FX.cFrom,p_to:FX.cTo}),api("fleet_entries",{p_from:FX.cFrom,p_to:FX.cTo})]);FX.costs=c||[];FX.cEnt=e||[]}catch(e){toast(errMsg(e),"err");FX.costs=[]}paintCosts()}
+function costCalc(){const c=cfg(),today=localToday();const V={};
+  const vOk=v=>v&&(!FX.cBr||v.branch===FX.cBr)&&(!FX.cVeh||v.id===FX.cVeh);
+  S.vehicles.filter(v=>v.active!==false&&vOk(v)).forEach(v=>{V[v.id]={v,tot:0,by:{},liters:0,odo:[],a:0,n:0}});
+  (FX.costs||[]).forEach(x=>{const v=vehById(x.vehicle_id);if(!vOk(v))return;const o=V[v.id]=V[v.id]||{v,tot:0,by:{},liters:0,odo:[],a:0,n:0};o.tot+=+x.amount;o.by[x.kind]=(o.by[x.kind]||0)+(+x.amount);o.n++;if(x.kind==="fuel"&&x.liters)o.liters+=+x.liters;if(x.odometer)o.odo.push(+x.odometer)});
+  (FX.cEnt||[]).forEach(e=>{const o=V[e.vehicle_id];if(!o)return;const x=calcDay(c,o.v,String(e.day).slice(0,10),e.data||{},today);if(x.has)o.a+=x.a});
+  return Object.values(V).map(o=>{o.km=o.odo.length>1?Math.max(...o.odo)-Math.min(...o.odo):null;o.perTrip=o.a>0?o.tot/o.a:null;o.perKm=o.km?o.tot/o.km:null;return o}).sort((a,b)=>b.tot-a.tot)}
+function paintCosts(){const el=$("#v-costs");if(!el||S.view!=="costs")return;const ed=canW("costs");
+  const vs=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp);
+  const head=`<div class="panel"><div class="filters"><label class="f">من<input type="date" id="cs-from" value="${FX.cFrom}"></label><label class="f">إلى<input type="date" id="cs-to" value="${FX.cTo}"></label>
+    <label class="f">الفرع<select id="cs-br"><option value="">الكل</option>${BRANCHES.map(b=>`<option ${FX.cBr===b?"selected":""}>${b}</option>`).join("")}</select></label>
+    <label class="f">السيارة<select id="cs-veh"><option value="">كل السيارات</option>${vs.map(v=>`<option value="${v.id}" ${FX.cVeh===v.id?"selected":""}>${esc(vehLabel(v))}</option>`).join("")}</select></label>
+    <div class="quick">${ed?`<button class="btn primary sm" id="cs-new">+ تسجيل تكلفة</button>`:""}<button class="btn sm" id="cs-run">تحديث</button><button class="btn sm" id="cs-xls">تصدير Excel</button></div></div>
+    <p class="small muted" style="margin:8px 0 0">سجّل كل فاتورة وقود أو صيانة أو إطارات على السيارة. تكلفة الرد = إجمالي التكاليف ÷ الردود المحققة في نفس الفترة، وتكلفة الكيلو تنحسب لو سجّلت قراءة العداد مع التعبئة.</p></div>`;
+  if(!FX.costs){el.innerHTML=head+`<div class="panel empty">…جاري التحميل</div>`;return}
+  const R=costCalc();const T=R.reduce((s,o)=>(s.tot+=o.tot,s.a+=o.a,s.l+=o.liters,s),{tot:0,a:0,l:0});const withCost=R.filter(o=>o.tot>0);
+  const kp=(l,v,s)=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${s?`<div class="s">${s}</div>`:""}</div>`;
+  el.innerHTML=head+`<div class="kpis">${kp("إجمالي التكاليف",fmt(T.tot)+" ر.س")}${kp("الردود المحققة",fmt(T.a,1))}${kp("متوسط تكلفة الرد",T.a?fmt(T.tot/T.a,1)+" ر.س":"—")}${kp("لترات الوقود",fmt(T.l))}</div>
+   <div class="panel"><h2 style="margin-top:0">حسب السيارة</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th>${COST_KINDS.map(k=>`<th>${k[1]}</th>`).join("")}<th>الإجمالي</th><th>الردود</th><th>تكلفة الرد</th><th>الكيلومترات</th><th>تكلفة الكيلو</th></tr></thead><tbody>
+   ${R.filter(o=>o.tot>0||o.a>0).map(o=>`<tr><td class="txt"><b>${esc(vehLabel(o.v))}</b></td><td>${esc(o.v.branch||"")}</td>${COST_KINDS.map(k=>`<td>${o.by[k[0]]?fmt(o.by[k[0]]):""}</td>`).join("")}<td><b>${fmt(o.tot)}</b></td><td>${fmt(o.a,1)}</td><td>${o.perTrip!=null?fmt(o.perTrip,1):"—"}</td><td>${o.km!=null?fmt(o.km):"—"}</td><td>${o.perKm!=null?fmt(o.perKm,2):"—"}</td></tr>`).join("")||`<tr><td colspan="${COST_KINDS.length+7}" class="muted">ما فيه تكاليف أو ردود في الفترة.</td></tr>`}
+   ${withCost.length?`<tr class="tot"><td colspan="2">الإجمالي</td>${COST_KINDS.map(k=>`<td>${fmt(R.reduce((s,o)=>s+(o.by[k[0]]||0),0))}</td>`).join("")}<td>${fmt(T.tot)}</td><td>${fmt(T.a,1)}</td><td>${T.a?fmt(T.tot/T.a,1):"—"}</td><td></td><td></td></tr>`:""}</tbody></table></div></div>
+   <div class="panel"><h2 style="margin-top:0">الفواتير المسجلة (${FX.costs.length})</h2><div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th class="txt">السيارة</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>العداد</th><th class="txt">ملاحظة</th>${ed?"<th></th>":""}</tr></thead><tbody>
+   ${FX.costs.filter(x=>{const v=vehById(x.vehicle_id);return v&&(!FX.cBr||v.branch===FX.cBr)&&(!FX.cVeh||v.id===FX.cVeh)}).slice(0,500).map(x=>`<tr><td>${fd(x.day)}</td><td class="txt">${esc(vehLabel(vehById(x.vehicle_id)))}</td><td>${kindL(COST_KINDS,x.kind)}</td><td><b>${fmt(+x.amount,2)}</b></td><td>${x.liters!=null?fmt(+x.liters,1):""}</td><td>${x.odometer!=null?fmt(+x.odometer):""}</td><td class="txt small">${esc(x.notes||"")}</td>${ed?`<td><button class="btn sm" data-cs-edit="${x.id}">تعديل</button></td>`:""}</tr>`).join("")||`<tr><td colspan="8" class="muted">لا توجد فواتير.</td></tr>`}</tbody></table></div></div>`}
+async function costForm(x){x=x||{day:localToday(),kind:"fuel",vehicle_id:FX.cVeh||""};const vs=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp);
+  const v=await modal(x.id?"تعديل تكلفة":"تسجيل تكلفة تشغيل",`<div class="grid2"><label class="f">السيارة<select name="vehicle_id" required>${vs.map(v=>`<option value="${v.id}" ${x.vehicle_id===v.id?"selected":""}>${esc(vehLabel(v))}</option>`).join("")}</select></label>
+   <label class="f">التاريخ<input type="date" name="day" value="${x.day}" required></label><label class="f">النوع<select name="kind">${COST_KINDS.map(k=>`<option value="${k[0]}" ${x.kind===k[0]?"selected":""}>${k[1]}</option>`).join("")}</select></label>
+   <label class="f">المبلغ (ر.س)<input name="amount" inputmode="decimal" value="${x.amount??""}" required></label><label class="f">اللترات (للوقود)<input name="liters" inputmode="decimal" value="${x.liters??""}"></label><label class="f">قراءة العداد<input name="odometer" inputmode="numeric" value="${x.odometer??""}"></label></div>
+   <label class="f">ملاحظة<input name="notes" value="${esc(x.notes||"")}"></label>${x.id?`<label class="row small"><input type="checkbox" name="del"> حذف هذه التكلفة</label>`:""}`,
+   {ok:"حفظ",validate:v=>v.del?null:!(parseFloat(String(v.amount).replace(/,/g,""))>=0)?"اكتب المبلغ":null});
+  if(!v)return;try{await api("fleet_cost_save",{p_row:{id:x.id||"",vehicle_id:v.vehicle_id,day:v.day,kind:v.kind,amount:String(v.amount).replace(/,/g,""),liters:String(v.liters||"").replace(/,/g,""),odometer:String(v.odometer||"").replace(/,/g,""),notes:v.notes,del:!!v.del}});toast(v.del?"تم الحذف":"تم الحفظ");loadCosts()}catch(e){toast(errMsg(e),"err")}}
+async function exportCosts(){if(!FX.costs)return;const R=costCalc();
+  await exportXLSX(`تكاليف_التشغيل_${FX.cFrom}_${FX.cTo}.xlsx`,{"حسب السيارة":R.filter(o=>o.tot>0||o.a>0).map(o=>Object.assign({"السيارة":vehLabel(o.v),"الفرع":o.v.branch||""},Object.fromEntries(COST_KINDS.map(k=>[k[1],+(o.by[k[0]]||0).toFixed(2)])),{"الإجمالي":+o.tot.toFixed(2),"الردود":+o.a.toFixed(1),"تكلفة الرد":o.perTrip!=null?+o.perTrip.toFixed(2):"","الكيلومترات":o.km??"","تكلفة الكيلو":o.perKm!=null?+o.perKm.toFixed(2):""})),
+    "الفواتير":FX.costs.map(x=>({"التاريخ":x.day,"السيارة":vehLabel(vehById(x.vehicle_id)),"النوع":kindL(COST_KINDS,x.kind),"المبلغ":+x.amount,"لترات":x.liters??"","العداد":x.odometer??"","ملاحظة":x.notes||""}))})}
+
+/* ---------- documents & expiry alerts ---------- */
+function renderDocs(){newView("docs",()=>{paintDocs();loadDocs()})}
+async function loadDocs(){try{FX.docs=await api("fleet_docs")}catch(e){toast(errMsg(e),"err");FX.docs={docs:[],licenses:[]}}paintDocs();docBadge()}
+function docAlerts(){if(!FX.docs)return [];const out=[];const lim=FX.docDays;
+  (FX.docs.docs||[]).forEach(d=>{if(!d.expires_on)return;const n=daysTo(d.expires_on);if(n<=lim){const v=vehById(d.vehicle_id);out.push({who:v?vehLabel(v):d.vehicle_id,branch:v&&v.branch||"",what:kindL(DOC_KINDS,d.kind),date:d.expires_on,n})}});
+  (FX.docs.licenses||[]).forEach(l=>{if(!l.license_exp)return;const n=daysTo(l.license_exp);if(n<=lim)out.push({who:l.name,branch:l.branch||"",what:"رخصة القيادة",date:l.license_exp,n})});
+  return out.sort((a,b)=>a.n-b.n)}
+const docTone=n=>n<0?"neg":n<=7?"warn":"";
+function paintDocs(){const el=$("#v-docs");if(!el||S.view!=="docs")return;if(!FX.docs){el.innerHTML=`<div class="panel empty">…جاري التحميل</div>`;return}const ed=canW("docs");
+  const A=docAlerts();const vs=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp);const D={};(FX.docs.docs||[]).forEach(d=>{D[d.vehicle_id+"|"+d.kind]=d});
+  const cell=(v,k)=>{const d=D[v.id+"|"+k]||{};const n=d.expires_on?daysTo(d.expires_on):null;return `<td>${ed?`<input type="date" data-doc="${v.id}|${k}" value="${d.expires_on||""}" style="min-width:130px">`:(d.expires_on?fd(d.expires_on):"—")}${n!=null&&n<=FX.docDays?`<div class="small ${docTone(n)}">${n<0?`منتهية منذ ${-n} يوم`:n===0?"تنتهي اليوم":`باقي ${n} يوم`}</div>`:""}</td>`};
+  el.innerHTML=`<div class="panel"><div class="filters"><label class="f">نبّهني قبل الانتهاء بـ<select id="dc-days">${[15,30,45,60,90].map(n=>`<option value="${n}" ${FX.docDays===n?"selected":""}>${n} يوم</option>`).join("")}</select></label><div class="quick"><button class="btn sm" id="dc-run">تحديث</button></div></div></div>
+   <div class="panel" style="border-inline-start:4px solid ${A.some(a=>a.n<0)?"#B42318":"#E0A100"}"><h2 style="margin-top:0">وثائق تنتهي خلال ${FX.docDays} يوم أو منتهية (${A.length})</h2>
+   ${A.length?`<div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة / السائق</th><th>الفرع</th><th class="txt">الوثيقة</th><th>تاريخ الانتهاء</th><th>المتبقي</th></tr></thead><tbody>${A.map(a=>`<tr><td class="txt"><b>${esc(a.who)}</b></td><td>${esc(a.branch)}</td><td class="txt">${a.what}</td><td>${fd(a.date)}</td><td class="${docTone(a.n)}"><b>${a.n<0?`منتهية منذ ${-a.n} يوم`:a.n===0?"اليوم":`${a.n} يوم`}</b></td></tr>`).join("")}</tbody></table></div>`:`<p class="muted" style="margin:0">كل الوثائق سارية ✓</p>`}</div>
+   <div class="panel"><h2 style="margin-top:0">تواريخ وثائق السيارات</h2><p class="small muted" style="margin:0 0 8px">${ed?"اكتب تاريخ الانتهاء ويتحفظ مباشرة. ":""}رخص السائقين تتحدث من صفحة «السائقين».</p><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th>${DOC_KINDS.map(k=>`<th>${k[1]}</th>`).join("")}</tr></thead><tbody>
+   ${vs.map(v=>`<tr><td class="txt"><b>${esc(vehLabel(v))}</b></td><td>${esc(v.branch||"")}</td>${DOC_KINDS.map(k=>cell(v,k[0])).join("")}</tr>`).join("")}</tbody></table></div></div>`}
+function docBadge(){const n=docAlerts().length;const b=document.querySelector('nav.tabs button[data-v="docs"]');if(b)b.textContent="الوثائق والتنبيهات"+(n?` (${n})`:"");if(typeof fnavMark==="function")fnavMark()}
+setTimeout(async()=>{try{if(typeof ME!=="undefined"&&ME&&["sysadmin","ops_mgr","dispatcher"].includes(ME.role)){FX.docs=await api("fleet_docs");docBadge()}}catch(e){}},2500);
+
+/* ---------- driver scorecard (inside the drivers report) ---------- */
+function driverScores(R){const r=drRepState(),c=cfg();const li=lateIdx();let wd=0;for(let d=r.from;d<=r.to&&d<=localToday();d=addD(d,1)){if(new Date(d+"T00:00:00Z").getUTCDay()!==5)wd++}
+  return R.list.filter(x=>x.d).map(x=>{const lateD=new Set();x.rows.forEach(rw=>{const e=(r.data||[]).find(e=>e.vehicle_id===rw.v.id&&String(e.day).slice(0,10)===rw.iso);const rr=e&&e.data&&e.data.r;if(li!=null&&rr&&+rr[li]>0)lateD.add(rw.iso)});const late=lateD.size;
+    const ach=x.t?x.a/x.t:0,att=wd?Math.min(1,x.days.size/wd):0,lr=x.days.size?late/x.days.size:0;
+    const score=Math.round(70*Math.min(ach,1)+20*att+10*(1-Math.min(lr,1)));const g=score>=85?"ممتاز":score>=70?"جيد":score>=55?"مقبول":"ضعيف";
+    return {x,ach,att,late,score,g,wd}}).sort((a,b)=>b.score-a.score)}
+const _drHtml=driverReportHtml;driverReportHtml=function(){const h=_drHtml();const r=drRepState();if(!r.data)return h;const R=computeDriverReport();const S_=driverScores(R);if(!S_.length)return h;
+  const tone=g=>g==="ممتاز"?"#1E7B3C":g==="جيد"?"#1F4E8C":g==="مقبول"?"#9A6400":"#B42318";
+  return h+`<div class="panel" style="border-inline-start:4px solid #38AC57"><h2 style="margin-top:0">بطاقة أداء السائقين ${fd(r.from)} ← ${fd(r.to)}</h2>
+   <p class="small muted" style="margin:0 0 8px">الدرجة من 100: تحقيق الردود (70) + الحضور = أيام العمل ÷ أيام العمل في الفترة بدون الجمعة (20) + الالتزام = أيام بدون تأخير في الموقع (10).</p>
+   <div class="tbl-wrap"><table><thead><tr><th>#</th><th class="txt">السائق</th><th>الفرع</th><th>المحقق / المستهدف</th><th>التحقيق</th><th>أيام العمل</th><th>الحضور</th><th>أيام تأخير</th><th>بديل أثناء عطل</th><th>الدرجة</th><th>التقييم</th></tr></thead><tbody>
+   ${S_.map((s,i)=>`<tr><td>${i+1}</td><td class="txt"><b>${esc(s.x.name)}</b></td><td>${esc(s.x.branch||"")}</td><td>${fmt(s.x.a,1)} / ${fmt(s.x.t)}</td><td>${pct(s.ach)}</td><td>${s.x.days.size} من ${s.wd}</td><td>${pct(s.att)}</td><td>${s.late||""}</td><td>${s.x.sub?fmt(s.x.sub,1):""}</td><td><b style="font-size:16px">${s.score}</b></td><td><span class="pill" style="background:${tone(s.g)};color:#fff">${s.g}</span></td></tr>`).join("")}</tbody></table></div></div>`};
+
+/* ---------- on-time delivery (inside delivery reports) ---------- */
+async function loadSla(){const r=repState();const key=(r.from||"")+"|"+(r.to||"");if(FX.slaKey===key)return;FX.slaKey=key;
+  try{FX.sla=await api("fleet_delivery_sla",{p_from:r.from||addD(localToday(),-30),p_to:r.to||localToday()})}catch(e){FX.sla=[];FX.slaErr=errMsg(e)}paintSla()}
+function paintSla(){const host=$("#v-dreports");if(!host||S.view!=="dreports")return;let el=$("#sla-panel");if(!el){el=document.createElement("div");el.id="sla-panel";host.appendChild(el)}
+  if(!FX.sla){el.innerHTML=`<div class="panel empty">…جاري حساب الالتزام بالمواعيد</div>`;return}
+  const L=FX.sla.slice().sort((a,b)=>(b.late+b.overdue)-(a.late+a.overdue)||b.total-a.total);const T=L.reduce((s,x)=>(s.d+=x.delivered,s.o+=x.on_time,s.l+=x.late,s.ov+=x.overdue,s),{d:0,o:0,l:0,ov:0});
+  const br={};L.forEach(x=>{const b=br[x.branch||"—"]=br[x.branch||"—"]||{d:0,o:0,ov:0};b.d+=x.delivered;b.o+=x.on_time;b.ov+=x.overdue});
+  el.innerHTML=`<div class="panel" style="border-inline-start:4px solid #1F4E8C"><h2 style="margin-top:0">الالتزام بموعد التسليم</h2>
+   <p class="small muted" style="margin:0 0 8px">في الموعد = تسلّم في التاريخ المطلوب أو قبله. متأخر حالياً = تاريخه فات وما تسلّم. محسوب على طلبات التوصيل اللي تاريخها المطلوب داخل فترة التقرير.</p>
+   <div class="kpis"><div class="kpi"><div class="l">نسبة التسليم في الموعد</div><div class="v">${T.d?pct(T.o/T.d):"—"}</div><div class="s">${T.o} من ${T.d} طلب مسلّم</div></div><div class="kpi"><div class="l">تسليم متأخر</div><div class="v">${T.l}</div></div><div class="kpi"><div class="l">متأخر حالياً ولم يُسلَّم</div><div class="v ${T.ov?"neg":""}">${T.ov}</div></div>
+   ${Object.entries(br).map(([b,x])=>`<div class="kpi"><div class="l">فرع ${esc(b)}</div><div class="v">${x.d?pct(x.o/x.d):"—"}</div><div class="s">${x.ov?x.ov+" متأخر حالياً":""}</div></div>`).join("")}</div>
+   ${L.length?`<div class="tbl-wrap"><table><thead><tr><th class="txt">العميل</th><th>الفرع</th><th>الطلبات</th><th>مسلّمة</th><th>في الموعد</th><th>متأخرة</th><th>متوسط التأخير</th><th>متأخر حالياً</th><th>النسبة</th></tr></thead><tbody>
+   ${L.slice(0,200).map(x=>`<tr><td class="txt"><b>${esc(x.customer||"—")}</b> <span class="small muted">${esc(x.code||"")}</span></td><td>${esc(x.branch||"")}</td><td>${x.total}</td><td>${x.delivered}</td><td>${x.on_time}</td><td class="${x.late?"neg":""}">${x.late||""}</td><td>${x.avg_late_days!=null?fmt(+x.avg_late_days,1)+" يوم":""}</td><td class="${x.overdue?"neg":""}">${x.overdue||""}</td><td>${x.delivered?pct(x.on_time/x.delivered):"—"}</td></tr>`).join("")}</tbody></table></div>`:`<p class="muted" style="margin:0">${FX.slaErr?esc(FX.slaErr):"ما فيه طلبات توصيل في الفترة."}</p>`}</div>`}
+const _paintRep2=paintRep;paintRep=function(){_paintRep2.apply(this,arguments);if(S.view!=="dreports")return;FX.slaKey="";FX.sla=null;paintSla();loadSla()};
+
+document.addEventListener("click",e=>{const t=e.target;if(!t.closest)return;
+  if(t.closest("#cs-new"))return costForm();const ce=t.closest("[data-cs-edit]");if(ce)return costForm((FX.costs||[]).find(x=>String(x.id)===ce.dataset.csEdit));
+  if(t.closest("#cs-run")){FX.cFrom=$("#cs-from").value;FX.cTo=$("#cs-to").value;FX.costs=null;paintCosts();return loadCosts()}
+  if(t.closest("#cs-xls"))return exportCosts();if(t.closest("#dc-run")){FX.docs=null;paintDocs();return loadDocs()}});
+document.addEventListener("change",async e=>{const t=e.target;
+  if(t.id==="cs-br"){FX.cBr=t.value;paintCosts()}else if(t.id==="cs-veh"){FX.cVeh=t.value;paintCosts()}else if(t.id==="dc-days"){FX.docDays=+t.value;paintDocs();docBadge()}
+  else if(t.dataset&&t.dataset.doc){const [vid,k]=t.dataset.doc.split("|");try{await api("fleet_docs_save",{p_rows:[{vehicle_id:vid,kind:k,expires_on:t.value}]});const L=FX.docs.docs;const i=L.findIndex(d=>d.vehicle_id===vid&&d.kind===k);if(t.value){if(i>=0)L[i].expires_on=t.value;else L.push({vehicle_id:vid,kind:k,expires_on:t.value})}else if(i>=0)L.splice(i,1);toast("تم الحفظ");paintDocs();docBadge()}catch(err){toast(errMsg(err),"err")}}});
+
 /* ===== Top menu in groups: each group is one button that opens its pages ===== */
-const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
+const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","costs","docs","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
 (function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
  .fg{position:relative;flex:none}.fg>.fg-h{display:inline-flex;align-items:center;gap:6px}.fg>.fg-h:after{content:"▾";font-size:11px;opacity:.8}
  .fg.cur>.fg-h{background:#fff;color:var(--navy);font-weight:700}.fg-m{position:absolute;top:calc(100% + 6px);inset-inline-start:0;min-width:200px;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(5,29,72,.25);padding:6px;z-index:60;display:none;flex-direction:column;gap:2px}
