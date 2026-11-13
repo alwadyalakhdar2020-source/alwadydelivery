@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>طلبات السائق — الوادي الأخضر</title>
+<style>
+:root{--navy:#051D48;--green:#38AC57;--line:#E3E8EF;--muted:#667085}
+*{box-sizing:border-box}body{margin:0;font-family:Tajawal,"Segoe UI",Tahoma,sans-serif;background:#F3F5F9;color:#0B1B33;font-size:15px}
+header{background:var(--navy);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:2}header b{font-size:17px;display:block}header span{opacity:.8;font-size:13px}
+main{padding:12px;max-width:640px;margin:0 auto}.trip{margin:14px 0 6px;font-weight:800;color:var(--navy)}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}.card.done{border-color:var(--green);background:#F2FBF4}
+.so{font-family:monospace;color:var(--muted);font-size:13px}.cn{font-weight:800;font-size:16px;margin:2px 0}.it{font-size:13px;color:#333;margin:4px 0}.nt{font-size:13px;color:#8a4b00}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}a.b,button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;color:var(--navy);text-decoration:none;cursor:pointer}
+button.p{background:var(--green);border-color:var(--green);color:#fff;font-weight:700;flex:1}.ok{color:var(--green);font-weight:700;font-size:14px}
+form{margin-top:10px;display:grid;gap:8px}input{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit}label{font-size:13px;color:var(--muted)}
+.err{color:#B42318;font-size:14px}.empty{text-align:center;color:var(--muted);padding:40px 10px}img.pv{max-width:100%;border-radius:8px}
+</style></head><body>
+<header><b id="h1">طلبات اليوم</b><span id="h2">…</span></header><main id="m"><div class="empty">جاري التحميل…</div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SB=supabase.createClient("https://kpdvgmioltltshzersyc.supabase.co","eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU",{auth:{persistSession:false}});
+const tok=new URLSearchParams(location.search).get("t")||"";const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fdt=s=>new Date(s).toLocaleTimeString("ar-SA",{hour:"2-digit",minute:"2-digit"});
+let D=null,open=null;
+async function load(){const {data,error}=await SB.rpc("fleet_driver_view",{p_token:tok});if(error){$("#m").innerHTML=`<div class="empty">${esc(error.message.includes("غير صالح")?"الرابط غير صالح أو انتهت صلاحيته. اطلب رابط جديد من مسؤول الحركة.":error.message)}</div>`;return}D=data;paint()}
+function paint(){$("#h1").textContent=D.vehicle||"طلبات اليوم";$("#h2").textContent=`${D.driver?D.driver+" · ":""}${new Date(D.date+"T12:00:00").toLocaleDateString("ar-SA",{weekday:"long",day:"numeric",month:"long"})}`;
+  if(!D.orders.length){$("#m").innerHTML=`<div class="empty">ما فيه طلبات على سيارتك لهذا اليوم.</div>`;return}
+  let h="",tr=null;const done=D.orders.filter(o=>o.pod).length;h+=`<div class="card"><b>${done} / ${D.orders.length}</b> طلب تم تسليمه</div>`;
+  D.orders.forEach(o=>{if(o.trip!==tr){tr=o.trip;h+=`<div class="trip">الرد ${tr||""}</div>`}
+    const it=(o.items||[]).map(i=>`${esc(i.product)} × ${esc(i.qty)}${i.unit?" "+esc(i.unit):""}`).join("، ");const ph=String(o.phone||"").replace(/[^\d+]/g,"");
+    h+=`<div class="card ${o.pod?"done":""}"><div class="so">SO ${esc(o.so)}</div><div class="cn">${esc(o.customer||"")}</div>${it?`<div class="it">${it}</div>`:""}${o.notes?`<div class="nt">${esc(o.notes)}</div>`:""}
+     <div class="row">${o.loc?`<a class="b" href="${esc(o.loc)}" target="_blank" rel="noopener">📍 الموقع</a>`:""}${ph?`<a class="b" href="tel:${esc(ph)}">📞 اتصال</a>`:""}
+     ${o.pod?`<span class="ok">✓ تم التسليم ${fdt(o.pod.at)}${o.pod.receiver?" — "+esc(o.pod.receiver):""}</span><button data-o="${o.id}">تعديل</button>`:`<button class="p" data-o="${o.id}">تم التسليم — صوّر السند</button>`}</div>
+     ${open===o.id?`<form data-f="${o.id}"><label>صورة سند التسليم الموقّع<input type="file" accept="image/*" capture="environment" name="f" required></label><img class="pv" hidden><label>اسم المستلم<input name="r" autocomplete="off"></label><label>ملاحظة (اختياري)<input name="n"></label><button class="p" type="submit">إرسال</button><div class="err"></div></form>`:""}</div>`});
+  $("#m").innerHTML=h}
+function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file);const im=new Image();im.onload=()=>{const s=Math.min(1,1280/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL("image/jpeg",.6))};im.onerror=()=>rej(new Error("الصورة ما انقرت"));im.src=u})}
+function gps(){return new Promise(r=>{if(!navigator.geolocation)return r(null);navigator.geolocation.getCurrentPosition(p=>r({lat:p.coords.latitude,lng:p.coords.longitude,acc:Math.round(p.coords.accuracy)}),()=>r(null),{enableHighAccuracy:true,timeout:8000,maximumAge:60000})})}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-o]");if(!b)return;open=open===+b.dataset.o?null:+b.dataset.o;paint();const f=document.querySelector(`[data-f="${open}"]`);if(f)f.scrollIntoView({behavior:"smooth",block:"center"})});
+document.addEventListener("change",e=>{if(e.target.name==="f"&&e.target.files[0]){const im=e.target.closest("form").querySelector(".pv");im.src=URL.createObjectURL(e.target.files[0]);im.hidden=false}});
+document.addEventListener("submit",async e=>{const f=e.target.closest("[data-f]");if(!f)return;e.preventDefault();const er=f.querySelector(".err"),bt=f.querySelector("button");er.textContent="";
+  const file=f.f.files[0];if(!file){er.textContent="صوّر السند أول";return}bt.disabled=true;bt.textContent="جاري الإرسال…";
+  try{const [photo,g]=await Promise.all([shrink(file),gps()]);const {error}=await SB.rpc("fleet_driver_pod",{p_token:tok,p_order:+f.dataset.f,p:{photo,receiver:f.r.value,note:f.n.value,lat:g?g.lat:"",lng:g?g.lng:"",acc:g?g.acc:""}});if(error)throw error;open=null;await load()}
+  catch(x){er.textContent=x.message||"تعذّر الإرسال، جرّب مرة ثانية";bt.disabled=false;bt.textContent="إرسال"}});
+load();
+</script></body></html>

@@ -2551,6 +2551,102 @@ document.addEventListener("change",async e=>{const t=e.target;
   if(t.id==="cs-br"){FX.cBr=t.value;paintCosts()}else if(t.id==="cs-veh"){FX.cVeh=t.value;paintCosts()}else if(t.id==="dc-days"){FX.docDays=+t.value;paintDocs();docBadge()}
   else if(t.dataset&&t.dataset.doc){const [vid,k]=t.dataset.doc.split("|");try{await api("fleet_docs_save",{p_rows:[{vehicle_id:vid,kind:k,expires_on:t.value}]});const L=FX.docs.docs;const i=L.findIndex(d=>d.vehicle_id===vid&&d.kind===k);if(t.value){if(i>=0)L[i].expires_on=t.value;else L.push({vehicle_id:vid,kind:k,expires_on:t.value})}else if(i>=0)L.splice(i,1);toast("تم الحفظ");paintDocs();docBadge()}catch(err){toast(errMsg(err),"err")}}});
 
+/* ===== Fleet: proof of delivery, driver link, customer dispatch notice, area grouping, fuel efficiency ===== */
+S2.pod=S2.pod||new Set();
+const f3km=(a,b)=>{if(a.lat==null||b.lat==null)return null;const R=6371,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lng-a.lng)*r;const h=Math.sin(dl/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))};
+const f3wa=p=>{let d=normDigits(p||"").replace(/[^\d]/g,"");if(!d)return "";if(d.startsWith("00"))d=d.slice(2);if(d.startsWith("05")&&d.length===10)d="966"+d.slice(1);else if(d.startsWith("5")&&d.length===9)d="966"+d;return d.length>=11?d:""};
+const f3has=o=>o.lat!=null&&o.lng!=null&&!isNaN(+o.lat);
+function f3copy(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("تم النسخ")).catch(()=>{const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();document.execCommand("copy");a.remove();toast("تم النسخ")})}
+
+/* --- POD flags on the board --- */
+const _f3load=loadBoard;loadBoard=async function(){await _f3load.apply(this,arguments);const p=planState();try{const ids=await api("fleet_pod_flags",{p_branch:p.branch,p_date:p.date});S2.pod=new Set((ids||[]).map(Number));paintBoard()}catch(e){console.warn("pod",e)}};
+const _f3chip=chip;chip=function(o,locked){const h=_f3chip(o,locked);return S2.pod.has(Number(o.id))?h.replace('<span class="so"',`<span class="podi" data-pod="${o.id}" title="إثبات التسليم">📷</span><span class="so"`):h};
+
+/* --- lane: driver link · trip: customers & delivery --- */
+const _f3lane=laneHtml;laneHtml=function(l){let h=_f3lane(l);if(!canPlan()||l.ext||!l.trips.length)return h;
+  return h.replace('<div class="lh">',`<div class="lh"><button type="button" class="btn sm ghost f3-lk" data-f3="link" data-veh="${esc(l.vehicle_id||l.key)}" title="رابط للسائق يسجّل منه التسليم بالصورة">🔗 رابط السائق</button>`)};
+const _f3trip=tripHtml;tripHtml=function(l,t){const h=_f3trip(l,t);if(!canPlan()||!t.items.length)return h;
+  return h.replace('<span class="ta">',`<span class="ta"><button type="button" class="btn sm" data-f3="trip" data-lane="${esc(l.key)}" data-no="${t.no}" title="إشعار العملاء وإثبات التسليم">العملاء والتسليم</button>`)};
+const _f3board=paintBoard;paintBoard=function(){_f3board.apply(this,arguments);const b=document.getElementById("pl-ext");if(b&&!document.getElementById("pl-area"))b.insertAdjacentHTML("afterend",`<button class="btn" id="pl-area" data-f3="area">تجميع حسب المنطقة</button>`)};
+
+async function f3Link(veh){const p=planState();try{const tok=await api("fleet_driver_link",{p_vehicle:veh,p_date:p.date});const url=location.href.replace(/[#?].*$/,"").replace(/[^/]*$/,"")+"driver.html?t="+tok;
+  const v=S.vehicles.find(x=>x.id===veh)||{};const d=(DRV.list||[]).find(x=>String(x.vehicle_id)===String(veh)&&x.active!==false);const ph=f3wa(d&&d.phone);
+  const msg=`السلام عليكم ${d?d.name:(v.driver||"")}\nهذا رابط طلبات سيارتك ليوم ${fd(p.date)}. بعد كل تسليم افتح الطلب وصوّر سند التسليم الموقّع واكتب اسم المستلم.\n${url}`;
+  await modal("رابط السائق — "+esc(vehLabel(v)),`<p class="small">الرابط يعرض طلبات هذه السيارة ليوم <b>${fd(p.date)}</b> فقط، ويشتغل بدون تسجيل دخول لين نهاية اليوم التالي. السائق يصوّر سند التسليم من جواله ويطلع لك 📷 على الطلب.</p>
+   <input readonly value="${esc(url)}" dir="ltr" style="width:100%" onclick="this.select()"><div class="row" style="margin-top:8px"><button type="button" class="btn" data-f3="copy" data-t="${esc(url)}">نسخ الرابط</button><a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${ph}?text=${encodeURIComponent(msg)}">إرسال للسائق بالواتساب</a></div>${ph?"":`<p class="small muted">ما لقيت جوال السائق في «السائقين» — واتساب بيطلب منك تختار المستلم.</p>`}`,{ok:"تم",cancel:null})}catch(e){toast(errMsg(e),"err")}}
+
+async function f3Trip(lane,no){const p=planState();let rows;try{rows=await api("fleet_trip_contacts",{p_branch:p.branch,p_date:p.date,p_lane:lane,p_trip:no})}catch(e){return toast(errMsg(e),"err")}
+  const msg=r=>`السلام عليكم ${r.customer||""}\nنفيدكم بأن طلبكم رقم ${r.so} خرج من مصنع الوادي الأخضر المميز اليوم مع السيارة ${r.vehicle||""}${r.driver?`، السائق ${r.driver}`:""}${r.driver_phone?` (جوال ${r.driver_phone})`:""}.\nنأمل تجهيز موقع التنزيل ووجود مستلم. شاكرين لكم.`;
+  const body=()=>`<p class="small muted">الإشعار يفتح واتساب برسالة جاهزة لكل عميل (الإرسال الآلي يحتاج حساب واتساب أعمال). 📷 = تم تسجيل إثبات التسليم.</p><div class="tbl-wrap"><table><thead><tr><th>SO</th><th class="txt">العميل</th><th>الجوال</th><th>إشعار الخروج</th><th>إثبات التسليم</th></tr></thead><tbody>
+   ${rows.map(r=>{const w=f3wa(r.phone);return `<tr><td dir="ltr">${esc(r.so)}</td><td class="txt">${esc(r.customer||"")}</td><td dir="ltr">${esc(r.phone||"—")}</td><td>${w?`<a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/${w}?text=${encodeURIComponent(msg(r))}">واتساب</a>`:`<button type="button" class="btn sm" data-f3="copy" data-t="${esc(msg(r))}">نسخ الرسالة</button>`}</td>
+     <td><button type="button" class="btn sm ${S2.pod.has(Number(r.id))?"primary":""}" data-f3="pod" data-id="${r.id}">${S2.pod.has(Number(r.id))?"📷 عرض":"+ إضافة"}</button></td></tr>`}).join("")}</tbody></table></div>`;
+  await modal(`الرد ${no} — العملاء والتسليم`,body(),{ok:"إغلاق",cancel:null,wide:true})}
+
+async function f3Pod(id){let d=null;try{d=await api("fleet_pod_get",{p_order:Number(id)})}catch(e){return toast(errMsg(e),"err")}
+  const ed=canPlan();const box=document.createElement("div");
+  const v=await modal("إثبات التسليم",`${d&&d.photo?`<img src="${d.photo}" alt="سند التسليم" style="max-width:100%;max-height:60vh;display:block;margin:0 auto 8px;border-radius:8px">`:`<p class="small muted">ما فيه صورة مسجلة.</p>`}
+    ${d?`<p class="small">${d.receiver?`المستلم: <b>${esc(d.receiver)}</b> · `:""}${fmtDT(d.at)} · ${d.by_link?"من رابط السائق":"سجّلها الموظف"}${d.lat!=null?` · <a target="_blank" rel="noopener" href="https://maps.google.com/?q=${d.lat},${d.lng}">موقع التصوير</a>`:""}${d.note?`<br>${esc(d.note)}`:""}</p>`:""}
+    ${ed?`<hr><label class="f">${d?"استبدال الصورة":"صورة سند التسليم"}<input type="file" accept="image/*" capture="environment" name="file"></label><label class="f">اسم المستلم<input name="receiver" value="${esc(d&&d.receiver||"")}"></label><label class="f">ملاحظة<input name="note" value="${esc(d&&d.note||"")}"></label>`:""}`,
+    {ok:ed?"حفظ":"إغلاق",cancel:ed?"إلغاء":null,onOpen:f=>{const i=f.querySelector('[name=file]');if(i)i.addEventListener("change",()=>{f._file=i.files[0]})},validate:(x,f)=>{f3Pod._file=f._file||null;return null}});
+  if(!v||!ed)return;const ph=f3Pod._file?await f3img(f3Pod._file):null;if(!ph&&!d)return toast("اختر صورة السند","err");
+  try{await api("fleet_pod_save",{p_order:Number(id),p:{receiver:v.receiver,note:v.note,photo:ph||""}});S2.pod.add(Number(id));toast("حُفظ إثبات التسليم");paintBoard()}catch(e){toast(errMsg(e),"err")}}
+function f3img(file,max=1280,q=.62){return new Promise((res,rej)=>{const u=URL.createObjectURL(file);const im=new Image();im.onload=()=>{const s=Math.min(1,max/Math.max(im.width,im.height));const c=document.createElement("canvas");c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL("image/jpeg",q))};im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error("صورة غير صالحة"))};im.src=u})}
+
+/* --- group waiting orders by area --- */
+function f3Groups(orders,rad,max){const left=orders.filter(f3has).map(o=>({...o,lat:+o.lat,lng:+o.lng}));const out=[];
+  const cen=left.length?{lat:left.reduce((s,o)=>s+o.lat,0)/left.length,lng:left.reduce((s,o)=>s+o.lng,0)/left.length}:null;
+  while(left.length){left.sort((a,b)=>f3km(cen,b)-f3km(cen,a));const seed=left.shift();const g=[seed];
+    while(g.length<max){let bi=-1,bd=1e9;left.forEach((o,i)=>{const d=Math.min(...g.map(x=>f3km(x,o)));if(d<bd){bd=d;bi=i}});if(bi<0||bd>rad)break;g.push(left.splice(bi,1)[0])}
+    let sp=0;g.forEach(a=>g.forEach(b=>{sp=Math.max(sp,f3km(a,b))}));out.push({orders:g,spread:sp,far:Math.round(f3km(cen,seed))})}
+  const nog=orders.filter(o=>!f3has(o));const by={};nog.forEach(o=>{(by[o.cls_eff||"—"]=by[o.cls_eff||"—"]||[]).push(o)});
+  return {groups:out,nog:Object.entries(by).map(([k,os])=>({cls:k,orders:os}))}}
+async function f3Area(){const M=boardModel();const pool=M.pool;if(!pool.length)return toast("ما فيه طلبات بانتظار التخصيص");
+  const lanes=M.lanes.filter(l=>!l.ext&&!l.lent_out&&l.cap>0);const st={rad:+(localStorage.getItem("f3rad")||8),max:+(localStorage.getItem("f3max")||3)};
+  const paint=f=>{const G=f3Groups(boardModel().pool,st.rad,st.max);const box=f.querySelector("#f3g");
+    box.innerHTML=G.groups.map((g,i)=>{const pts=g.orders.map(o=>o.lat+","+o.lng);const url=`https://www.google.com/maps/dir/?api=1&destination=${pts[pts.length-1]}${pts.length>1?`&waypoints=${encodeURIComponent(pts.slice(0,-1).join("|"))}`:""}`;
+      return `<div class="panel f3g"><div class="row" style="justify-content:space-between"><b>مجموعة ${i+1} · ${g.orders.length} طلب</b><span class="small muted">أبعد مسافة بينها ${fmt(g.spread,1)} كم</span></div>
+       <div class="small">${g.orders.map(o=>`<span dir="ltr">${esc(o.so_number)}</span> ${esc(o.customer||"")} ${clsTag(o.cls_eff,!o.cls)}`).join("<br>")}</div>
+       <div class="row" style="margin-top:6px"><a class="btn sm" target="_blank" rel="noopener" href="${url}">المسار في الخرائط</a>${canPlan()&&lanes.length?`<select data-f3lane="${i}" style="width:auto">${lanes.map(l=>`<option value="${esc(l.key)}">${esc((l.code?l.code+" · ":"")+l.plate)} (${fmt(l.used,1)}/${fmt(l.cap,1)})</option>`).join("")}</select><button type="button" class="btn sm primary" data-f3="assign" data-g="${i}">تخصيص كرد جديد</button>`:""}</div></div>`}).join("")||`<p class="small muted">ما فيه طلبات لها إحداثيات.</p>`;
+    box.innerHTML+=G.nog.length?`<div class="panel"><b>بدون إحداثيات (${G.nog.reduce((s,x)=>s+x.orders.length,0)})</b> <span class="small muted">— مقسمة حسب تصنيف المسافة، وزّعها يدوياً أو أضف موقع العميل</span>${G.nog.map(x=>`<div class="small" style="margin-top:4px">${clsTag(x.cls,false)} ${x.orders.map(o=>`<span dir="ltr">${esc(o.so_number)}</span> ${esc(o.customer||"")}`).join("، ")}</div>`).join("")}</div>`:"";f._G=G};
+  await modal("تجميع الطلبات حسب المنطقة",`<p class="small">يقترح النظام مجموعات من الطلبات القريبة من بعض (حسب إحداثيات موقع العميل) عشان كل رد يروح منطقة وحدة. راجع المجموعة واختر السيارة وخصصها كرد جديد.</p>
+   <div class="filters"><label class="f">أقصى مسافة بين طلبات الرد (كم)<input type="number" id="f3rad" value="${st.rad}" min="1"></label><label class="f">أقصى عدد طلبات في الرد<input type="number" id="f3max" value="${st.max}" min="1"></label></div><div id="f3g"></div>`,
+   {ok:"إغلاق",cancel:null,wide:true,onOpen:f=>{paint(f);f.addEventListener("change",e=>{if(e.target.id==="f3rad"||e.target.id==="f3max"){st.rad=Math.max(1,+f.querySelector("#f3rad").value||8);st.max=Math.max(1,+f.querySelector("#f3max").value||3);localStorage.setItem("f3rad",st.rad);localStorage.setItem("f3max",st.max);paint(f)}});
+     f.addEventListener("click",async e=>{const b=e.target.closest('[data-f3="assign"]');if(!b)return;e.preventDefault();e.stopPropagation();const g=f._G.groups[+b.dataset.g];const lane=f.querySelector(`[data-f3lane="${b.dataset.g}"]`).value;
+       const M2=boardModel();const L=laneLayout(M2,lane);L.trips.push(g.orders.map(o=>o.id));b.disabled=true;try{await laneSet([trimLayout(L)],{});await loadBoard();toast(`تم تخصيص ${g.orders.length} طلب`);paint(f)}catch(err){toast(errMsg(err),"err");b.disabled=false}})}})}
+
+/* --- fuel efficiency (costs page) --- */
+function f3Fuel(){const fu=(FX.costs||[]).filter(x=>x.kind==="fuel");const by={};
+  fu.forEach(x=>{(by[x.vehicle_id]=by[x.vehicle_id]||[]).push(x)});
+  const R=Object.entries(by).map(([id,xs])=>{const v=S.vehicles.find(z=>z.id===id)||{id};xs.sort((a,b)=>a.day<b.day?-1:a.day>b.day?1:(+a.odometer||0)-(+b.odometer||0));
+    const L=xs.reduce((s,x)=>s+(+x.liters||0),0),A=xs.reduce((s,x)=>s+(+x.amount||0),0);const od=xs.filter(x=>x.odometer!=null&&x.odometer!=="").map(x=>({o:+x.odometer,l:+x.liters||0}));
+    let bad=0;for(let i=1;i<od.length;i++)if(od[i].o<od[i-1].o)bad++;
+    const km=od.length>1?od[od.length-1].o-od[0].o:null;const lUsed=od.length>1?od.slice(1).reduce((s,x)=>s+x.l,0):null;
+    return {v,n:xs.length,L,A,ppl:L?A/L:null,km:km>0?km:null,l100:km>0&&lUsed?lUsed/km*100:null,bad}}).filter(r=>r.n);
+  const types={};R.forEach(r=>{if(r.l100==null)return;const t=r.v.type||"—";(types[t]=types[t]||[]).push(r.l100)});const avg=t=>{const a=types[t||"—"];return a&&a.length>1?a.reduce((s,x)=>s+x,0)/a.length:null};
+  R.forEach(r=>{const a=avg(r.v.type);r.avg=a;r.hi=a&&r.l100!=null&&r.l100>a*1.2});return R.sort((a,b)=>(b.hi-a.hi)||((b.l100||0)-(a.l100||0)))}
+function f3FuelPanel(){const R=f3Fuel();const tl=R.reduce((s,r)=>s+r.L,0);
+  return `<div class="panel" id="f3fuel"><h2 style="margin-top:0">كفاءة الوقود <span class="small muted">${fmt(tl)} لتر في الفترة</span></h2>
+   ${R.length?`<div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>النوع</th><th>التعبئات</th><th>اللترات</th><th>المبلغ</th><th>ر.س / لتر</th><th>الكيلومترات</th><th>لتر / 100 كم</th><th>متوسط نفس النوع</th><th class="txt">ملاحظة</th></tr></thead><tbody>
+   ${R.map(r=>`<tr${r.hi?' class="neg"':""}><td class="txt"><b>${esc(vehLabel(r.v))}</b></td><td>${esc(r.v.type||"")}</td><td>${r.n}</td><td>${fmt(r.L)}</td><td>${fmt(r.A)}</td><td>${r.ppl!=null?fmt(r.ppl,2):"—"}</td><td>${r.km!=null?fmt(r.km):"—"}</td><td><b>${r.l100!=null?fmt(r.l100,1):"—"}</b></td><td>${r.avg!=null?fmt(r.avg,1):"—"}</td>
+     <td class="txt small">${[r.hi?"استهلاك أعلى من متوسط نوعها بأكثر من 20%":"",r.bad?`قراءة عداد أقل من السابقة (${r.bad})`:"",r.km==null?"سجّل قراءة العداد مع كل تعبئة":""].filter(Boolean).join(" · ")}</td></tr>`).join("")}</tbody></table></div>`:`<p class="small muted">ما فيه تعبئات وقود في الفترة.</p>`}
+   <p class="small muted" style="margin:6px 0 0">لتر/100 كم = لترات التعبئات بعد أول قراءة عداد ÷ المسافة بين أول وآخر قراءة × 100. ${canW("costs")?`<button type="button" class="btn sm" data-f3="fuelimp">استيراد تعبئات من Excel (كشف بطاقات الوقود)</button>`:""}</p></div>`}
+const _f3pc=paintCosts;paintCosts=function(){_f3pc.apply(this,arguments);const el=$("#v-costs");if(!el||!FX.costs)return;const ps=el.querySelectorAll(".panel");const last=ps[ps.length-1];if(last&&!el.querySelector("#f3fuel"))last.insertAdjacentHTML("beforebegin",f3FuelPanel())};
+async function f3FuelImport(){const inp=document.createElement("input");inp.type="file";inp.accept=".xlsx,.xls,.csv";inp.onchange=async()=>{const f=inp.files[0];if(!f)return;const sh=await readSheet(f);if(!sh||!sh.rows.length)return toast("الملف فاضي","err");
+  const nk=s=>normDigits(String(s||"")).toLowerCase().replace(/[^a-z0-9ء-ي]/g,"");const H=sh.headers;const pick=al=>H.find(h=>al.some(a=>nk(h)===nk(a)||nk(h).includes(nk(a))));
+  const col={veh:pick(["رقم اللوحة","اللوحة","plate","كود السيارة","رقم السيارة","vehicle"]),day:pick(["التاريخ","تاريخ التعبئة","date"]),lit:pick(["اللترات","الكمية","لتر","liters","litres","quantity"]),amt:pick(["المبلغ","القيمة","الإجمالي","amount","total"]),odo:pick(["العداد","قراءة العداد","odometer","km"])};
+  if(!col.veh||!col.day||!col.amt)return toast("لازم أعمدة: اللوحة أو كود السيارة، التاريخ، المبلغ","err");
+  const vk=v=>nk(v);const idx=new Map();S.vehicles.forEach(v=>{if(v.plate)idx.set(vk(v.plate),v);if(v.code)idx.set(vk(v.code),v)});
+  const dt=x=>{if(x instanceof Date)return x.toISOString().slice(0,10);const s=normDigits(String(x||"")).trim();let m=s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);if(m)return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;m=s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);if(m)return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;return null};
+  const ok=[],bad=[];sh.rows.forEach((r,i)=>{const v=idx.get(vk(r[col.veh]));const d=dt(r[col.day]);const a=+normDigits(String(r[col.amt]??"")).replace(/[^\d.]/g,"");if(!v||!d||!(a>0))return bad.push(`سطر ${i+2}: ${!v?"سيارة غير معروفة "+(r[col.veh]??""):!d?"تاريخ غير صالح":"مبلغ غير صالح"}`);
+    ok.push({vehicle_id:v.id,day:d,kind:"fuel",amount:String(a),liters:col.lit?String(normDigits(String(r[col.lit]??"")).replace(/[^\d.]/g,"")):"",odometer:col.odo?String(normDigits(String(r[col.odo]??"")).replace(/[^\d.]/g,"")):"",notes:"استيراد "+f.name})});
+  const go=await modal("استيراد تعبئات الوقود",`<p>جاهز للحفظ: <b>${ok.length}</b> تعبئة · مرفوض: <b>${bad.length}</b></p>${bad.length?`<div class="small reason" style="max-height:160px;overflow:auto">${bad.slice(0,50).map(esc).join("<br>")}</div>`:""}`,{ok:"حفظ "+ok.length});if(!go||!ok.length)return;
+  let n=0;for(const row of ok){try{await api("fleet_cost_save",{p_row:{id:"",...row}});n++}catch(e){bad.push(errMsg(e))}}toast(`حُفظت ${n} تعبئة`);FX.costs=null;loadCosts()};inp.click()}
+
+document.addEventListener("click",e=>{const pi=e.target.closest("[data-pod]");if(pi){e.preventDefault();e.stopPropagation();f3Pod(pi.dataset.pod);return}
+  const b=e.target.closest("[data-f3]");if(!b)return;const a=b.dataset.f3;if(a==="assign")return;e.preventDefault();e.stopPropagation();
+  if(a==="link")f3Link(b.dataset.veh);else if(a==="trip")f3Trip(b.dataset.lane,+b.dataset.no);else if(a==="pod")f3Pod(b.dataset.id);else if(a==="area")f3Area();else if(a==="copy")f3copy(b.dataset.t);else if(a==="fuelimp")f3FuelImport()},true);
+(function(){const s=document.createElement("style");s.textContent=".podi{cursor:pointer;margin-inline-end:4px}.f3-lk{margin-inline-start:auto}.f3g{margin:8px 0;padding:10px}tr.neg td{background:#FDECEA}";document.head.appendChild(s)})();
+
 /* ===== Top menu in groups: each group is one button that opens its pages ===== */
 const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","costs","docs","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
 (function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
