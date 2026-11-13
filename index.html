@@ -183,6 +183,7 @@ td.nw{white-space:nowrap}
 #modal header h3{margin:0;font-size:17px;flex:1;min-width:0}
 #modal .body{overflow:auto;padding:16px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px}
 .fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.fl{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);min-width:0}.fl input,.fl select,.fl textarea{color:var(--ink,#0B1B33)}.fl.ck{flex-direction:row;align-items:center;gap:8px;color:inherit}
 .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
 .fld.full{grid-column:1/-1}
 .fld label{font-size:13px;font-weight:700;color:var(--muted)}
@@ -1432,13 +1433,16 @@ async function ppReview(st,note){const {error}=await sb.rpc('review_prod_week',{
 
 /* ---------- views ---------- */
 V.prod=()=>{
-  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
+  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
   if(!tabs.some(t=>t[0]===PP.tab))PP.tab='plan';
   let h=`<div class="tabs noprint">${tabs.map(([k,l])=>`<button class="tab ${PP.tab===k?'on':''}" data-act="ppTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   if(PP.tab==='weeks')return h+ppWeeksView();
   if(PP.tab==='import')return h+ppImportView();
   if(PP.tab==='stops')return h+ppStopsView();
   if(PP.tab==='stock')return h+ppStockView();
+  if(PP.tab==='qc')return h+ppQcView();
+  if(PP.tab==='maint')return h+ppMaintView();
+  if(PP.tab==='pr')return h+ppPrView();
   if(PP.key!==PP.ws){if(!PP.loading){PP.loading=true;PP.key='…';setTimeout(ppLoad,0)}return h+`<div class="card empty">جارٍ التحميل…</div>`}
   if(!PP.doc)return h+`<div class="card empty">تعذّر تحميل الخطة. <button class="btn s" data-act="ppReload">إعادة المحاولة</button></div>`;
   if(PP.tab==='actual')return h+ppActualView();
@@ -1722,7 +1726,7 @@ function ppLinesForm(){
 }
 Object.assign(OPEN,{ppweek:id=>{const w=(PP.weeks||[]).find(x=>x.id===id);if(w)ppGoWeek(w.week_start)}});
 const PP_ACT={
-  ppTab:d=>{if(!['plan','summary','actual','stops','stock'].includes(d.v)&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
+  ppTab:d=>{if(!['plan','summary','actual','stops','stock','qc','maint','pr'].includes(d.v)&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
   ppReload:()=>{PP.key='';render()},
   ppShift:d=>ppGoWeek(addDays(PP.ws,+d.n)),
   ppNewWeek:async()=>{const cur=satOf(TODAY());const {data,error}=await sb.from('prod_weeks').select('week_start').gte('week_start',cur).order('week_start',{ascending:false}).limit(1);if(error)return toast(errText(error));
@@ -1949,6 +1953,119 @@ document.addEventListener('change',async e=>{const t=e.target;if(!t.dataset)retu
   if(t.dataset.pkmin!=null){const [c,w]=t.dataset.pkmin.split('|');const v=t.value.trim()===''?null:parseNum(t.value);if(v!=null&&!(v>=0))return toast('اكتب رقم صحيح');
     const {error}=await sb.rpc('prod_min_save',{p_code:c,p_whs:w,p_min:v});if(error)return toast(errText(error));const k=normCode(c)+'|'+w;if(v==null)delete PK2.min[k];else PK2.min[k]=v;toast('تم حفظ الحد الأدنى');render()}});
 Object.assign(ACT,{paSave:()=>paSave(),psRun:()=>{PS.key='';render()},psXlsx:()=>psXlsx(),pkFlt:d=>{PK2.flt=d.v;render()},pkReload:()=>{PK2.key='';render()},pkMore:d=>{PK2.lim=+d.n;render()},pkLow:()=>{PK2.flt='low';PP.tab='stock';render()}});
+
+/* ===== Production operations: quality lab log, preventive maintenance, purchase requests ===== */
+const QC={key:'',rows:[],busy:false,from:addDays(TODAY(),-30),to:TODAY(),flt:'all'};
+const PM={key:'',assets:[],log:[],busy:false};
+const PR={key:'',rows:[],names:{},busy:false,flt:'open'};
+const PR_ST={pending:['بانتظار الاعتماد','warn'],approved:['معتمد','ok'],rejected:['مرفوض','bad'],ordered:['تم الطلب من المورد','info'],received:['تم الاستلام','ok'],cancelled:['ملغي','']};
+const QC_RES={pass:['مطابق','ok'],fail:['غير مطابق','bad'],hold:['موقوف للمراجعة','warn']};
+const v_=id=>{const e=document.getElementById(id);return e?(e.type==='checkbox'?e.checked:e.value.trim()):''};
+const dDiff=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/864e5);
+async function rpcSave(fn,p,ok){const {error}=await sb.rpc(fn,{p});if(error){const e=document.getElementById('ops_e');if(e)e.textContent=errText(error);else toast(errText(error));return false}closeModal();toast(ok||'تم الحفظ');return true}
+const lineOpts=sel=>opt((PP.lineDefs||[]).map(l=>[l.id,l.name]),sel,'— الخط —');
+function ensureRefs(){if(!PP.lineDefs||!PP.products){if(!PP._rl){PP._rl=1;ppRefs().then(()=>{PP._rl=0;render()}).catch(()=>{PP._rl=0})}return false}return true}
+
+/* ---------- quality ---------- */
+async function qcLoad(){QC.busy=true;try{QC.rows=await fetchAll(()=>sb.from('prod_qc').select('*').gte('day',QC.from).lte('day',QC.to).order('day',{ascending:false}).order('created_at',{ascending:false}));QC.key=QC.from+'|'+QC.to}catch(e){toast(errText(e));QC.key='err'}finally{QC.busy=false;render()}}
+function ppQcView(){
+  if(!ensureRefs()||QC.key!==QC.from+'|'+QC.to){if(!QC.busy&&QC.key!=='err'){QC.busy=true;setTimeout(qcLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const ed=isProdEditor();const R=QC.rows;const f=R.filter(r=>QC.flt==='all'||r.result===QC.flt);
+  const n=R.length,ok=R.filter(r=>r.result==='pass').length,bad=R.filter(r=>r.result==='fail').length,hold=R.filter(r=>r.result==='hold').length;
+  const by=new Map();R.forEach(r=>{const k=r.code||r.item||'—';const o=by.get(k)||{k,item:r.item,n:0,f:0,s:[]};o.n++;if(r.result!=='pass')o.f++;if(r.strength!=null)o.s.push(+r.strength);by.set(k,o)});
+  const n2=v=>(+v).toLocaleString('en-US',{maximumFractionDigits:2});const sp=(v,lim,lo)=>v==null?'<span class="muted">—</span>':`<b class="${lim!=null&&(lo?v<lim:v>lim)?'flag':''}">${n2(v)}</b>${lim!=null?` <span class="small muted">(${lo?'أدنى':'أعلى'} ${n2(lim)})</span>`:''}`;
+  const yn=v=>v==null?'—':v?'✓':'<span class="flag">✗</span>';
+  return `<div class="toolbar noprint"><label class="fl">من <input type="date" id="qc_from" value="${QC.from}" data-act="qcPer"></label><label class="fl">إلى <input type="date" id="qc_to" value="${QC.to}" data-act="qcPer"></label>
+    ${[['all','الكل'],['fail','غير مطابق'],['hold','موقوف'],['pass','مطابق']].map(([k,l])=>`<button class="chip ${QC.flt===k?'on':''}" data-act="qcFlt" data-v="${k}">${l}</button>`).join('')}<span class="grow"></span>${ed?`<button class="btn p" data-act="qcEdit">+ فحص جديد</button>`:''}</div>
+   <div class="kpis k4">${kpiTile('فحوصات الفترة',num(n))}${kpiTile('نسبة المطابقة',n?Math.round(ok/n*100)+'%':'—',`${num(ok)} مطابق`)}${kpiTile('غير مطابق',num(bad))}${kpiTile('موقوف للمراجعة',num(hold))}</div>
+   <div class="card"><h2>سجل فحوصات المختبر<span class="sub">${num(f.length)}</span></h2>${table([
+     {l:'التاريخ',c:'nw',f:r=>fdate(r.day)},{l:'الخط',f:r=>esc(lineName(r.line_id))},{l:'المنتج',f:r=>`${esc(r.item||'')} <span class="small muted" dir="ltr">${esc(r.code||'')}</span>`},{l:'الدفعة',f:r=>esc(r.batch||'—')},
+     {l:'مقاومة الضغط (ميجاباسكال)',c:'n',f:r=>sp(r.strength!=null?+r.strength:null,r.strength_min!=null?+r.strength_min:null,1)},{l:'الامتصاص %',c:'n',f:r=>sp(r.absorption!=null?+r.absorption:null,r.absorption_max!=null?+r.absorption_max:null,0)},
+     {l:'الأبعاد',c:'n',f:r=>yn(r.dims_ok)},{l:'المظهر',c:'n',f:r=>yn(r.visual_ok)},{l:'النتيجة',f:r=>pill(...(QC_RES[r.result]||[r.result,'']))+(r.action?`<div class="small muted">${esc(r.action)}</div>`:'')},
+     {l:'',c:'nw',f:r=>ed?`<button class="btn s" data-act="qcEdit" data-id="${r.id}">تعديل</button>`:''}],f,{empty:'ما فيه فحوصات مسجلة في الفترة'})}</div>
+   ${by.size?`<div class="card"><h2>حسب المنتج</h2>${table([{l:'المنتج',f:o=>`${esc(o.item||'')} <span class="small muted" dir="ltr">${esc(o.k)}</span>`},{l:'الفحوصات',c:'n',f:o=>num(o.n)},{l:'غير مطابق / موقوف',c:'n',f:o=>o.f?`<span class="flag">${o.f}</span>`:'—'},{l:'نسبة المطابقة',c:'n',f:o=>pill(Math.round((o.n-o.f)/o.n*100)+'%',o.f/o.n>.1?'bad':o.f?'warn':'ok')},{l:'متوسط مقاومة الضغط',c:'n',f:o=>o.s.length?num(+(o.s.reduce((a,b)=>a+b,0)/o.s.length).toFixed(1)):'—'}],[...by.values()].sort((a,b)=>b.f/b.n-a.f/a.n))}</div>`:''}`;
+}
+function qcEdit(id){const r=id?QC.rows.find(x=>x.id===id):{day:TODAY(),dims_ok:true,visual_ok:true,result:'pass'};if(!r)return;
+  openModal(id?'تعديل فحص':'فحص جودة جديد',`<datalist id="dl_qc">${(PP.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}</datalist><div class="fgrid">
+   <label class="fl">التاريخ<input type="date" id="qc_day" value="${r.day||''}"></label><label class="fl">الخط<select id="qc_line">${lineOpts(r.line_id)}</select></label>
+   <label class="fl">كود المنتج<input id="qc_code" list="dl_qc" value="${esc(r.code||'')}" dir="ltr"></label><label class="fl">اسم المنتج<input id="qc_item" value="${esc(r.item||'')}"></label>
+   <label class="fl">رقم الدفعة / التشغيلة<input id="qc_batch" value="${esc(r.batch||'')}"></label><label class="fl">عدد العينات<input type="number" id="qc_samples" value="${r.samples??''}"></label>
+   <label class="fl">مقاومة الضغط (متوسط) ميجاباسكال<input type="number" step="0.1" id="qc_str" value="${r.strength??''}"></label><label class="fl">الحد الأدنى المطلوب<input type="number" step="0.1" id="qc_strmin" value="${r.strength_min??''}"></label>
+   <label class="fl">الامتصاص %<input type="number" step="0.1" id="qc_abs" value="${r.absorption??''}"></label><label class="fl">الحد الأعلى المسموح %<input type="number" step="0.1" id="qc_absmax" value="${r.absorption_max??''}"></label>
+   <label class="fl ck"><input type="checkbox" id="qc_dims" ${r.dims_ok!==false?'checked':''}> الأبعاد مطابقة</label><label class="fl ck"><input type="checkbox" id="qc_vis" ${r.visual_ok!==false?'checked':''}> المظهر واللون مطابق</label>
+   <label class="fl">القرار<select id="qc_res">${opt([['pass','مطابق'],['hold','موقوف للمراجعة']],r.result==='hold'?'hold':'pass')}</select></label><label class="fl">الإجراء المتخذ<input id="qc_act" value="${esc(r.action||'')}" placeholder="مثال: إعادة الفحص بعد 28 يوم"></label>
+   <label class="fl" style="grid-column:1/-1">ملاحظات<textarea id="qc_notes" rows="2">${esc(r.notes||'')}</textarea></label></div>
+   <div class="small muted">النتيجة تصير «غير مطابق» تلقائياً لو المقاومة أقل من الحد، أو الامتصاص أعلى من الحد، أو الأبعاد أو المظهر غير مطابق.</div><div id="ops_e" class="flag"></div>
+   <div class="formbar">${id?`<button class="btn d" data-act="qcDel" data-id="${id}">حذف</button>`:''}<span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="qcSave" data-id="${id||''}">حفظ</button></div>`,
+   b=>{const c=b.querySelector('#qc_code');c.addEventListener('change',()=>{const p=(PP.products||[]).find(x=>normCode(x.code)===normCode(c.value));if(p&&!v_('qc_item'))b.querySelector('#qc_item').value=p.name;
+     const last=QC.rows.find(x=>normCode(x.code)===normCode(c.value)&&(x.strength_min!=null||x.absorption_max!=null));if(last){if(!v_('qc_strmin')&&last.strength_min!=null)b.querySelector('#qc_strmin').value=last.strength_min;if(!v_('qc_absmax')&&last.absorption_max!=null)b.querySelector('#qc_absmax').value=last.absorption_max}})})}
+async function qcSave(id){const p={id:id||null,day:v_('qc_day'),line_id:v_('qc_line'),code:v_('qc_code'),item:v_('qc_item'),batch:v_('qc_batch'),samples:v_('qc_samples'),strength:v_('qc_str'),strength_min:v_('qc_strmin'),absorption:v_('qc_abs'),absorption_max:v_('qc_absmax'),dims_ok:v_('qc_dims'),visual_ok:v_('qc_vis'),result:v_('qc_res'),action:v_('qc_act'),notes:v_('qc_notes')};
+  if(!p.day||!(p.code||p.item)){document.getElementById('ops_e').textContent='التاريخ والمنتج مطلوبين';return}
+  if(await rpcSave('prod_qc_save',p)){QC.key='';render()}}
+
+/* ---------- preventive maintenance ---------- */
+async function pmLoad(){PM.busy=true;try{const [a,l]=await Promise.all([sb.from('prod_assets').select('*').order('name'),sb.from('prod_maint').select('*').gte('day',addDays(TODAY(),-180)).order('day',{ascending:false})]);if(a.error)throw a.error;if(l.error)throw l.error;PM.assets=a.data||[];PM.log=l.data||[];PM.key='ok'}catch(e){toast(errText(e));PM.key='err'}finally{PM.busy=false;render()}}
+const pmDue=a=>a.every_days>0?(a.last_done?addDays(a.last_done,+a.every_days):null):undefined;
+function pmState(a){const d=pmDue(a);if(d===undefined)return ['بدون جدول','',9999];if(d===null)return ['ما سُجلت صيانة','warn',-1];const left=dDiff(TODAY(),d);return left<0?[`متأخرة ${-left} يوم`,'bad',left]:left<=7?[`مستحقة خلال ${left} يوم`,'warn',left]:[`بعد ${left} يوم`,'ok',left]}
+function ppMaintView(){
+  if(!ensureRefs()||PM.key!=='ok'){if(!PM.busy&&PM.key!=='err'){PM.busy=true;setTimeout(pmLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const ed=isProdEditor();const A=PM.assets.filter(a=>a.active!==false).map(a=>({...a,st:pmState(a)})).sort((a,b)=>a.st[2]-b.st[2]);
+  const od=A.filter(a=>a.st[1]==='bad').length,soon=A.filter(a=>a.st[1]==='warn').length;const c90=PM.log.filter(m=>m.kind==='corrective'&&m.day>=addDays(TODAY(),-90));
+  const per=id=>{const L=PM.log.filter(m=>m.asset_id===id&&m.day>=addDays(TODAY(),-90));return {n:L.filter(m=>m.kind==='corrective').length,h:L.reduce((s,m)=>s+(+m.hours||0),0),c:L.reduce((s,m)=>s+(+m.cost||0),0)}};
+  if(!A.length)return `<div class="card empty"><h2>الصيانة الوقائية</h2><p>سجّل مكائن وقوالب كل خط مع كل كم يوم تحتاج صيانة، والنظام ينبهك قبل موعدها ويحسب الأعطال والتكلفة.</p>${ed?`<button class="btn p" data-act="pmAsset">+ ماكينة / قالب</button>`:''}</div>`;
+  return `<div class="toolbar noprint"><span class="grow"></span>${ed?`<button class="btn" data-act="pmAsset">+ ماكينة / قالب</button>`:''}</div>
+   <div class="kpis k4">${kpiTile('المكائن والقوالب',num(A.length))}${kpiTile('صيانة متأخرة',num(od))}${kpiTile('مستحقة خلال أسبوع',num(soon))}${kpiTile('أعطال آخر 90 يوم',num(c90.length),`${num(c90.reduce((s,m)=>s+(+m.hours||0),0))} ساعة توقف`)}</div>
+   <div class="card"><h2>جدول الصيانة</h2>${table([{l:'الماكينة / القالب',f:a=>`<b>${esc(a.name)}</b><div class="small muted">${a.kind==='mould'?'قالب':a.kind==='other'?'أخرى':'ماكينة'} · ${esc(lineName(a.line_id))}</div>`},
+     {l:'كل',c:'n',f:a=>a.every_days?`${a.every_days} يوم`:'—'},{l:'آخر صيانة',c:'nw',f:a=>a.last_done?fdate(a.last_done):'—'},{l:'الموعد القادم',c:'nw',f:a=>{const d=pmDue(a);return d?fdate(d):'—'}},{l:'الحالة',f:a=>pill(a.st[0],a.st[1])},
+     {l:'أعطال 90 يوم',c:'n',f:a=>{const p=per(a.id);return p.n?`<span class="flag">${p.n}</span> <span class="small muted">${num(p.h)} س</span>`:'—'}},{l:'تكلفة 90 يوم',c:'n',f:a=>{const p=per(a.id);return p.c?num(p.c):'—'}},
+     {l:'',c:'nw',f:a=>ed?`<button class="btn s p" data-act="pmLog" data-id="${a.id}">تسجيل صيانة</button> <button class="btn s" data-act="pmAsset" data-id="${a.id}">تعديل</button>`:''}],A)}</div>
+   <div class="card"><h2>سجل الصيانة<span class="sub">آخر 180 يوم</span></h2>${table([{l:'التاريخ',c:'nw',f:m=>fdate(m.day)},{l:'الماكينة / القالب',f:m=>esc(PM.assets.find(a=>a.id===m.asset_id)?.name||'—')},{l:'النوع',f:m=>m.kind==='preventive'?pill('وقائية','ok'):pill('عطل / إصلاح','bad')},{l:'ساعات التوقف',c:'n',f:m=>m.hours!=null?num(m.hours):'—'},{l:'التكلفة',c:'n',f:m=>m.cost!=null?num(m.cost):'—'},{l:'ملاحظات',f:m=>esc(m.notes||'')}],PM.log.slice(0,200),{empty:'ما فيه صيانة مسجلة'})}</div>`;
+}
+function pmAsset(id){const a=id?PM.assets.find(x=>x.id===id):{kind:'machine',every_days:30};if(!a)return;
+  openModal(id?'تعديل '+a.name:'ماكينة / قالب جديد',`<div class="fgrid"><label class="fl">الاسم<input id="pa_name" value="${esc(a.name||'')}" placeholder="مثال: مكبس ماسا 3"></label><label class="fl">النوع<select id="pa_kind">${opt([['machine','ماكينة'],['mould','قالب'],['other','أخرى']],a.kind)}</select></label>
+   <label class="fl">الخط<select id="pa_line">${lineOpts(a.line_id)}</select></label><label class="fl">الصيانة الوقائية كل (يوم)<input type="number" id="pa_every" value="${a.every_days??''}"></label>
+   <label class="fl">تاريخ آخر صيانة<input type="date" id="pa_last" value="${a.last_done||''}"></label><label class="fl" style="grid-column:1/-1">ملاحظات / بنود الصيانة<textarea id="pa_notes" rows="2">${esc(a.notes||'')}</textarea></label></div><div id="ops_e" class="flag"></div>
+   <div class="formbar">${id?`<button class="btn d" data-act="pmAssetDel" data-id="${id}">حذف</button>`:''}<span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="pmAssetSave" data-id="${id||''}">حفظ</button></div>`)}
+function pmLog(id){const a=PM.assets.find(x=>x.id===id);if(!a)return;
+  openModal('تسجيل صيانة — '+a.name,`<div class="fgrid"><label class="fl">التاريخ<input type="date" id="pm_day" value="${TODAY()}"></label><label class="fl">النوع<select id="pm_kind">${opt([['preventive','صيانة وقائية مجدولة'],['corrective','عطل / إصلاح']],'preventive')}</select></label>
+   <label class="fl">ساعات التوقف<input type="number" step="0.5" id="pm_hours"></label><label class="fl">التكلفة (ر.س)<input type="number" id="pm_cost"></label><label class="fl" style="grid-column:1/-1">اللي انعمل<textarea id="pm_notes" rows="2"></textarea></label></div>
+   <div class="small muted">الصيانة الوقائية تحدّث «آخر صيانة» ويتحسب الموعد القادم منها.</div><div id="ops_e" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="pmLogSave" data-id="${id}">حفظ</button></div>`)}
+
+/* ---------- purchase requests ---------- */
+async function prLoad(){PR.busy=true;try{const {data,error}=await sb.from('purchase_requests').select('*').order('created_at',{ascending:false}).limit(500);if(error)throw error;PR.rows=data||[];
+  const ids=[...new Set(PR.rows.flatMap(r=>[r.requested_by,r.decided_by]).filter(Boolean))].filter(i=>!PR.names[i]);
+  if(ids.length){const {data:p}=await sb.from('profiles').select('id,full_name').in('id',ids);(p||[]).forEach(x=>PR.names[x.id]=x.full_name)}PR.key='ok'}catch(e){toast(errText(e));PR.key='err'}finally{PR.busy=false;render()}}
+function ppPrView(){
+  if(PR.key!=='ok'){if(!PR.busy&&PR.key!=='err'){PR.busy=true;setTimeout(prLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const me_=S.me?.id;const ap=isProdApprover();const can=isProdEditor()||ap;
+  const grp={open:['pending','approved','ordered'],pending:['pending'],done:['received'],closed:['rejected','cancelled'],all:null};
+  const f=PR.rows.filter(r=>!grp[PR.flt]||grp[PR.flt].includes(r.status));const pend=PR.rows.filter(r=>r.status==='pending');
+  const act=r=>{let h='';if(r.status==='pending'&&ap&&r.requested_by!==me_)h+=`<button class="btn s p" data-act="prSt" data-id="${r.id}" data-s="approved">اعتماد</button> <button class="btn s d" data-act="prSt" data-id="${r.id}" data-s="rejected">رفض</button>`;
+    if(r.status==='approved'&&can)h+=`<button class="btn s" data-act="prSt" data-id="${r.id}" data-s="ordered">تم الطلب</button>`;if(r.status==='ordered'&&can)h+=`<button class="btn s" data-act="prSt" data-id="${r.id}" data-s="received">تم الاستلام</button>`;
+    if(r.status==='pending'&&r.requested_by===me_)h+=` <button class="btn s" data-act="prSt" data-id="${r.id}" data-s="cancelled">إلغاء</button>`;return h};
+  return `<div class="toolbar noprint">${[['open','المفتوحة'],['pending','بانتظار الاعتماد'],['done','مستلمة'],['closed','مرفوضة / ملغاة'],['all','الكل']].map(([k,l])=>`<button class="chip ${PR.flt===k?'on':''}" data-act="prFlt" data-v="${k}">${l}</button>`).join('')}<span class="grow"></span>${can?`<button class="btn p" data-act="prNew">+ طلب شراء</button>`:''}</div>
+   <div class="kpis k4">${kpiTile('بانتظار الاعتماد',num(pend.length),pend.filter(r=>r.urgency==='urgent').length?`<span class="flag">${pend.filter(r=>r.urgency==='urgent').length} عاجل</span>`:'')}${kpiTile('معتمدة ولم تُطلب',num(PR.rows.filter(r=>r.status==='approved').length))}${kpiTile('عند المورد',num(PR.rows.filter(r=>r.status==='ordered').length))}${kpiTile('قيمة المفتوح التقديرية',num(PR.rows.filter(r=>grp.open.includes(r.status)).reduce((s,r)=>s+(+r.est_cost||0),0)),'ر.س')}</div>
+   <div class="card"><h2>طلبات الشراء<span class="sub">${num(f.length)}</span></h2>${table([{l:'#',c:'n',f:r=>r.no},{l:'التاريخ',c:'nw',f:r=>fdate(r.created_at.slice(0,10))},{l:'الصنف',f:r=>`<b>${esc(r.item)}</b>${r.reason?`<div class="small muted">${esc(r.reason)}</div>`:''}`},{l:'الكمية',c:'n',f:r=>r.qty!=null?`${num(r.qty)} ${esc(r.unit||'')}`:'—'},
+     {l:'التكلفة التقديرية',c:'n',f:r=>r.est_cost!=null?num(r.est_cost):'—'},{l:'مطلوب قبل',c:'nw',f:r=>(r.urgency==='urgent'?pill('عاجل','bad')+' ':'')+(r.needed_by?fdate(r.needed_by):'')},{l:'مقدم الطلب',f:r=>esc(PR.names[r.requested_by]||'—')+`<div class="small muted">${esc(r.dept||'')}</div>`},
+     {l:'الحالة',f:r=>pill(...(PR_ST[r.status]||[r.status,'']))+(r.decided_by?`<div class="small muted">${esc(PR.names[r.decided_by]||'')}${r.decision_note?' · '+esc(r.decision_note):''}</div>`:'')},{l:'',c:'nw',f:act}],f,{empty:'ما فيه طلبات'})}</div>`;
+}
+function prNew(){openModal('طلب شراء جديد',`<div class="fgrid"><label class="fl" style="grid-column:1/-1">الصنف المطلوب<input id="pr_item" placeholder="مثال: أسمنت بورتلاندي، قطعة غيار، زيت هيدروليك…"></label>
+  <label class="fl">الكمية<input type="number" id="pr_qty"></label><label class="fl">الوحدة<input id="pr_unit" placeholder="طن، كيس، حبة…"></label><label class="fl">التكلفة التقديرية (ر.س)<input type="number" id="pr_cost"></label>
+  <label class="fl">القسم<input id="pr_dept" value="الإنتاج"></label><label class="fl">الأولوية<select id="pr_urg">${opt([['normal','عادي'],['urgent','عاجل']],'normal')}</select></label><label class="fl">مطلوب قبل<input type="date" id="pr_need"></label>
+  <label class="fl" style="grid-column:1/-1">السبب / الاستخدام<textarea id="pr_reason" rows="2"></textarea></label></div><div id="ops_e" class="flag"></div>
+  <div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="prSave">إرسال للاعتماد</button></div>`)}
+async function prSt(id,s){const r=PR.rows.find(x=>x.id===id);let note='';
+  if(s==='rejected'){note=prompt('سبب الرفض؟')||'';if(!note)return}else if(s==='cancelled'&&!confirm('إلغاء الطلب؟'))return;
+  const {error}=await sb.rpc('pr_save',{p:{id,status:s,note}});if(error)return toast(errText(error));toast(PR_ST[s][0]);PR.key='';render()}
+
+Object.assign(ACT,{qcEdit:d=>qcEdit(d.id),qcSave:d=>qcSave(d.id),qcDel:async d=>{if(!confirm('حذف الفحص؟'))return;if(await rpcSave('prod_qc_save',{id:d.id,del:true},'تم الحذف')){QC.key='';render()}},
+  qcFlt:d=>{QC.flt=d.v;render()},pmAsset:d=>pmAsset(d.id),pmLog:d=>pmLog(d.id),
+  pmAssetSave:async d=>{const p={id:d.id||null,name:v_('pa_name'),kind:v_('pa_kind'),line_id:v_('pa_line'),every_days:v_('pa_every'),last_done:v_('pa_last'),notes:v_('pa_notes')};if(await rpcSave('prod_asset_save',p)){PM.key='';render()}},
+  pmAssetDel:async d=>{if(!confirm('حذف الماكينة وسجل صيانتها؟'))return;if(await rpcSave('prod_asset_save',{id:d.id,del:true},'تم الحذف')){PM.key='';render()}},
+  pmLogSave:async d=>{const p={asset_id:d.id,day:v_('pm_day'),kind:v_('pm_kind'),hours:v_('pm_hours'),cost:v_('pm_cost'),notes:v_('pm_notes')};if(!p.day)return;if(await rpcSave('prod_maint_save',p)){PM.key='';render()}},
+  prNew:()=>prNew(),prFlt:d=>{PR.flt=d.v;render()},prSt:d=>prSt(d.id,d.s),
+  prSave:async()=>{const p={item:v_('pr_item'),qty:v_('pr_qty'),unit:v_('pr_unit'),est_cost:v_('pr_cost'),dept:v_('pr_dept'),urgency:v_('pr_urg'),needed_by:v_('pr_need'),reason:v_('pr_reason')};if(!p.item){document.getElementById('ops_e').textContent='اكتب الصنف المطلوب';return}if(await rpcSave('pr_save',p,'أُرسل الطلب لمدير المصنع')){PR.key='';render()}}});
+document.addEventListener('change',e=>{const a=e.target;if(a&&a.dataset&&a.dataset.act==='qcPer'){QC.from=document.getElementById('qc_from').value||QC.from;QC.to=document.getElementById('qc_to').value||QC.to;render()}});
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
