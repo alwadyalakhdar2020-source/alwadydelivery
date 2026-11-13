@@ -424,11 +424,11 @@ const icon=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 /* ===== Page permissions: every page of every app gets N/A · Viewer · Auditor · Editor per user ===== */
 const PAGES={
   crm:{name:'CRM — المبيعات والإنتاج',groups:[
-    ['التحليل والأداء',[['dash','لوحة المبيعات'],['pipeline','البايب لاين الشهري'],['regions','الأداء الإقليمي'],['reps','أداء المندوبين'],['alerts','التنبيهات والإجراءات'],['reports','التقارير']]],
-    ['العملاء والمبيعات',[['clients','العملاء'],['items','الأصناف'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['collections','التحصيل'],['opps','فرص البيع'],['projects','المشاريع'],['samples','العينات والاعتمادات']]],
+    ['التحليل والأداء',[['dash','لوحة المبيعات'],['pipeline','البايب لاين الشهري'],['regions','الأداء الإقليمي'],['reps','أداء المندوبين'],['alerts','التنبيهات والإجراءات'],['reports','التقارير'],['kpis','مؤشرات أداء المندوبين'],['decline','العملاء المتراجعون']]],
+    ['العملاء والمبيعات',[['clients','العملاء'],['custmap','خريطة العملاء'],['items','الأصناف'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['collections','التحصيل'],['aging','أعمار الديون'],['opps','فرص البيع'],['projects','المشاريع'],['samples','العينات والاعتمادات']]],
     ['العمل الميداني',[['field','لوحة الميدان'],['plan','خطة الزيارات'],['visits','الزيارات الميدانية'],['complaints','الشكاوى'],['comms','الاتصالات']]],
     ['البيانات والإدارة',[['imports','مركز استيراد Excel'],['integrity','سلامة البيانات'],['kpi','إعدادات المؤشرات'],['team','المستخدمون والفريق'],['audit','سجل التدقيق'],['data','الربط مع SAP']]],
-    ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية']]],
+    ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية (الخطة والملخص والسجل)'],['prod_actual','الإنتاج الفعلي وتحليل التوقفات'],['prod_stock','المخزون والطلبات'],['prod_qc','الجودة والمختبر'],['prod_maint','الصيانة الوقائية'],['prod_pr','طلبات الشراء']]],
     ['الذكاء الاصطناعي',[['ai','المساعد الذكي (ملخصات وصياغة وتحليل)']]]]},
   fleet:{name:'حركة السيارات والتوصيل',note:'الدور في التوصيل (مدير نظام، مدير عمليات، منسق حركة، مشرف مبيعات، مندوب) يحدد اللي يقدر يسويه على السيرفر، وهذي الصفحات تحدد اللي يظهر له. عرض أو مراجع = يشوف بس بدون تعديل.',groups:[['التشغيل والتوصيل',[['ops','لوحة الحركة'],['orders','طلبات التوصيل'],['plan','تخطيط الردود'],['reserve','الاحتياطي'],['maint','الصيانة'],['dreports','تقارير التوصيل']]],['الأداء والتوريد',[['dashboard','لوحة الأداء'],['entry','الإدخال اليومي'],['vehicle','سجل السيارة'],['drivers','السائقين وتقرير ردودهم'],['costs','تكاليف التشغيل'],['docs','الوثائق والتنبيهات'],['carrier','الناقل الخارجي'],['report','التقرير'],['places','الأحياء والمسافات'],['log','سجل الحركات']]],['الإدارة',[['admin','إدارة النظام'],['setup','الإعدادات']]]]},
   hr:{name:'الموارد البشرية والشؤون الإدارية',note:'الخدمة الذاتية (طلب جديد، طلباتي، ملفي، حضوري، الإشعارات) متاحة لكل موظف مربوط بحسابه وتعرض بياناته هو فقط. الصفحات تحت تعطي صلاحية على بيانات بقية الموظفين.',groups:[
@@ -445,7 +445,7 @@ const appLvl=app=>isAppAdmin(app)?3:Math.max(0,...Object.values((S.pages||{})[ap
 const lvlName=n=>['N/A','Viewer','Auditor','Editor'][n]||'N/A';
 // role templates to fill the matrix quickly (the admin can still change any page)
 const PAGE_TEMPLATES={
-  crm:{rep:{dash:'view',pipeline:'edit',reps:'view',alerts:'edit',reports:'view',clients:'edit',items:'view',quotes:'edit',orders:'view',collections:'view',opps:'edit',projects:'edit',samples:'edit',field:'view',plan:'edit',visits:'edit',complaints:'edit',comms:'edit',team:'view',data:'view',prod:'view'},
+  crm:{rep:{dash:'view',pipeline:'edit',reps:'view',alerts:'edit',reports:'view',clients:'edit',items:'view',quotes:'edit',orders:'view',collections:'view',opps:'edit',projects:'edit',samples:'edit',field:'view',plan:'edit',visits:'edit',complaints:'edit',comms:'edit',team:'view',data:'view',prod:'view',kpis:'view',decline:'view',custmap:'view',aging:'view'},
        sup:'rep+',mgr:'all-edit',auditor:'all-audit',viewer:'all-view'},
   fleet:{dispatcher:{ops:'edit',orders:'edit',plan:'edit',reserve:'edit',maint:'edit',dreports:'view',dashboard:'view',entry:'edit',vehicle:'edit',costs:'edit',docs:'edit',drivers:'edit',carrier:'edit',report:'view',places:'view',log:'audit'},rep:{orders:'edit',log:'view'},sales_sup:{orders:'edit',reserve:'view',dreports:'view',log:'view'},fadmin:'all-edit',auditor:'all-audit',viewer:'all-view'},
   hr:{auditor:'all-audit',viewer:'all-view',manager:'all-edit'}
@@ -454,6 +454,14 @@ function templatePages(app,key){const t=PAGE_TEMPLATES[app]?.[key];const all=lv=
   if(t==='all-edit')return all('edit');if(t==='all-audit')return all('audit');if(t==='all-view')return all('view');
   if(t==='rep+'){const r={...PAGE_TEMPLATES[app].rep,regions:'view',reps:'view',integrity:'view',audit:'audit'};return r}
   return {...(t||{})}}
+
+// production tabs: each tab is its own page so a user (e.g. quality) can be given one tab only
+const PROD_TAB_PAGE={plan:'prod',summary:'prod',weeks:'prod',import:'prod',actual:'prod_actual',stops:'prod_actual',stock:'prod_stock',qc:'prod_qc',maint:'prod_maint',pr:'prod_pr'};
+const PROD_PAGES=['prod','prod_actual','prod_stock','prod_qc','prod_maint','prod_pr'];
+const prodLegacy=()=>['prod','plant','admin','mgr'].includes(role());
+const prodTabLvl=t=>prodLegacy()||isAppAdmin('crm')?3:lvl('crm',PROD_TAB_PAGE[t]||'prod');
+const prodAny=()=>prodLegacy()||PROD_PAGES.some(p=>lvl('crm',p)>0);
+const prodEd=t=>isProdEditor()||prodTabLvl(t)>=3;
 
 /* ===== Monthly pipeline ===== */
 const PL={key:'',rep:'',month:'',doc:null,items:[],risks:[],backlog:[],coll:[],dirty:false,errors:{},loading:false};
@@ -901,7 +909,7 @@ const APPS=[
 const appById=id=>APPS.find(a=>a.id===id);
 const canApp=id=>{const a=appById(id);return !!(a&&S.me&&S.me.active&&a.can())};
 const NAVS={
-  sales:[['crmback','pipe','الرجوع إلى CRM',()=>!!appExt('sales')],['prod','factory','خطة الإنتاج',()=>lvl('crm','prod')>0||['prod','plant','admin','mgr'].includes(role())]],
+  sales:[['crmback','pipe','الرجوع إلى CRM',()=>!!appExt('sales')],['prod','factory','خطة الإنتاج',()=>prodAny()]],
   fleet:[['dash','dash','لوحة الأداء',()=>lvl('fleet','dash')>0],['entry','plus','الإدخال اليومي',()=>lvl('fleet','entry')>0],['vehicle','truck','سجل السيارة',()=>lvl('fleet','vehicle')>0],['carrier','swap','الناقل الخارجي',()=>lvl('fleet','carrier')>0],['report','chart','التقرير',()=>lvl('fleet','report')>0],['customers','users','التوريد حسب العميل',()=>lvl('fleet','customers')>0],['places','pin','الأحياء والمسافات',()=>lvl('fleet','places')>0],['log','log','سجل الحركات',()=>lvl('fleet','log')>0],['import','upload','استيراد Excel',()=>lvl('fleet','import')>0],['setup','gear','الإعدادات',()=>lvl('fleet','setup')>0]],
   admin:[['users','user','المستخدمون والصلاحيات',()=>true],['ai','spark','المساعد الذكي',()=>true],['reports','log','التقرير الأسبوعي',()=>isAdmin()],['audit','log','سجل التدقيق',()=>true]]
 };
@@ -1434,7 +1442,9 @@ async function ppReview(st,note){const {error}=await sb.rpc('review_prod_week',{
 /* ---------- views ---------- */
 V.prod=()=>{
   const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
-  if(!tabs.some(t=>t[0]===PP.tab))PP.tab='plan';
+  for(let i=tabs.length-1;i>=0;i--)if(prodTabLvl(tabs[i][0])<1)tabs.splice(i,1);
+  if(!tabs.length)return `<div class="card empty">ما عندك صلاحية على شاشات الإنتاج.</div>`;
+  if(!tabs.some(t=>t[0]===PP.tab))PP.tab=tabs[0][0];
   let h=`<div class="tabs noprint">${tabs.map(([k,l])=>`<button class="tab ${PP.tab===k?'on':''}" data-act="ppTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   if(PP.tab==='weeks')return h+ppWeeksView();
   if(PP.tab==='import')return h+ppImportView();
@@ -1849,7 +1859,7 @@ function paStats(lines){let ps=0,ex=0,pq=0,aq=0,pqN=0,lost=0;const by=[];
 const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
 function ppActualView(){
   if(PA.key!==PP.ws){if(!PA.busy){PA.busy=true;setTimeout(paLoad,0)}return ppWeekBar()+`<div class="card empty">جارٍ التحميل…</div>`}
-  const ed=isProdEditor();const lines=PP.lines.filter(l=>paSlots(l).length);const st=paStats(PP.lines);
+  const ed=prodEd('actual');const lines=PP.lines.filter(l=>paSlots(l).length);const st=paStats(PP.lines);
   let h=ppWeekBar();
   if(!lines.length)return h+`<div class="card empty">ما فيه خطة لهذا الأسبوع. سجّل الخطة أولاً، وبعدها تسجّل الإنتاج الفعلي لكل وردية.</div>`;
   h+=`<div class="kpis k5">${kpiTile('ورديات إنتاج مخططة',num(st.ps))}${kpiTile('ورديات نُفّذت',num(st.ex),'سُجّل لها إنتاج فعلي')}${kpiTile('تحقيق الورديات',pct(st.ex,st.ps))}${kpiTile('ورديات ضائعة',num(st.lost),'مرّ موعدها بدون إنتاج')}${kpiTile('تحقيق الكمية',pct(st.aq,st.pq),st.pqN?`${num(st.aq)} من ${num(st.pq)}`:'الخطة بدون كميات رقمية')}</div>
@@ -1927,7 +1937,7 @@ function pkRows(){const M=new Map();const add=(code,w,name)=>{const k=normCode(c
 function pkLowCount(){if(PK2.key!=='ok')return null;return pkRows().filter(r=>r.low).length}
 function ppStockView(){
   if(PK2.key!=='ok'){if(!PK2.busy){PK2.busy=true;setTimeout(pkLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
-  const ed=isProdEditor()||isAdmin();let rows=pkRows();const all=rows;
+  const ed=prodEd('stock')||isAdmin();let rows=pkRows();const all=rows;
   if(PK2.whs)rows=rows.filter(r=>r.whs===PK2.whs);
   const n={short:rows.filter(r=>r.short).length,low:rows.filter(r=>r.low).length};
   if(PK2.flt==='short')rows=rows.filter(r=>r.short);else if(PK2.flt==='low')rows=rows.filter(r=>r.low);else if(PK2.flt==='dem')rows=rows.filter(r=>r.dem>0);
@@ -1970,7 +1980,7 @@ function ensureRefs(){if(!PP.lineDefs||!PP.products){if(!PP._rl){PP._rl=1;ppRefs
 async function qcLoad(){QC.busy=true;try{QC.rows=await fetchAll(()=>sb.from('prod_qc').select('*').gte('day',QC.from).lte('day',QC.to).order('day',{ascending:false}).order('created_at',{ascending:false}));QC.key=QC.from+'|'+QC.to}catch(e){toast(errText(e));QC.key='err'}finally{QC.busy=false;render()}}
 function ppQcView(){
   if(!ensureRefs()||QC.key!==QC.from+'|'+QC.to){if(!QC.busy&&QC.key!=='err'){QC.busy=true;setTimeout(qcLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
-  const ed=isProdEditor();const R=QC.rows;const f=R.filter(r=>QC.flt==='all'||r.result===QC.flt);
+  const ed=prodEd('qc');const R=QC.rows;const f=R.filter(r=>QC.flt==='all'||r.result===QC.flt);
   const n=R.length,ok=R.filter(r=>r.result==='pass').length,bad=R.filter(r=>r.result==='fail').length,hold=R.filter(r=>r.result==='hold').length;
   const by=new Map();R.forEach(r=>{const k=r.code||r.item||'—';const o=by.get(k)||{k,item:r.item,n:0,f:0,s:[]};o.n++;if(r.result!=='pass')o.f++;if(r.strength!=null)o.s.push(+r.strength);by.set(k,o)});
   const n2=v=>(+v).toLocaleString('en-US',{maximumFractionDigits:2});const sp=(v,lim,lo)=>v==null?'<span class="muted">—</span>':`<b class="${lim!=null&&(lo?v<lim:v>lim)?'flag':''}">${n2(v)}</b>${lim!=null?` <span class="small muted">(${lo?'أدنى':'أعلى'} ${n2(lim)})</span>`:''}`;
@@ -2009,7 +2019,7 @@ const pmDue=a=>a.every_days>0?(a.last_done?addDays(a.last_done,+a.every_days):nu
 function pmState(a){const d=pmDue(a);if(d===undefined)return ['بدون جدول','',9999];if(d===null)return ['ما سُجلت صيانة','warn',-1];const left=dDiff(TODAY(),d);return left<0?[`متأخرة ${-left} يوم`,'bad',left]:left<=7?[`مستحقة خلال ${left} يوم`,'warn',left]:[`بعد ${left} يوم`,'ok',left]}
 function ppMaintView(){
   if(!ensureRefs()||PM.key!=='ok'){if(!PM.busy&&PM.key!=='err'){PM.busy=true;setTimeout(pmLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
-  const ed=isProdEditor();const A=PM.assets.filter(a=>a.active!==false).map(a=>({...a,st:pmState(a)})).sort((a,b)=>a.st[2]-b.st[2]);
+  const ed=prodEd('maint');const A=PM.assets.filter(a=>a.active!==false).map(a=>({...a,st:pmState(a)})).sort((a,b)=>a.st[2]-b.st[2]);
   const od=A.filter(a=>a.st[1]==='bad').length,soon=A.filter(a=>a.st[1]==='warn').length;const c90=PM.log.filter(m=>m.kind==='corrective'&&m.day>=addDays(TODAY(),-90));
   const per=id=>{const L=PM.log.filter(m=>m.asset_id===id&&m.day>=addDays(TODAY(),-90));return {n:L.filter(m=>m.kind==='corrective').length,h:L.reduce((s,m)=>s+(+m.hours||0),0),c:L.reduce((s,m)=>s+(+m.cost||0),0)}};
   if(!A.length)return `<div class="card empty"><h2>الصيانة الوقائية</h2><p>سجّل مكائن وقوالب كل خط مع كل كم يوم تحتاج صيانة، والنظام ينبهك قبل موعدها ويحسب الأعطال والتكلفة.</p>${ed?`<button class="btn p" data-act="pmAsset">+ ماكينة / قالب</button>`:''}</div>`;
@@ -2037,7 +2047,7 @@ async function prLoad(){PR.busy=true;try{const {data,error}=await sb.from('purch
   if(ids.length){const {data:p}=await sb.from('profiles').select('id,full_name').in('id',ids);(p||[]).forEach(x=>PR.names[x.id]=x.full_name)}PR.key='ok'}catch(e){toast(errText(e));PR.key='err'}finally{PR.busy=false;render()}}
 function ppPrView(){
   if(PR.key!=='ok'){if(!PR.busy&&PR.key!=='err'){PR.busy=true;setTimeout(prLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
-  const me_=S.me?.id;const ap=isProdApprover();const can=isProdEditor()||ap;
+  const me_=S.me?.id;const ap=isProdApprover();const can=prodEd('pr')||ap;
   const grp={open:['pending','approved','ordered'],pending:['pending'],done:['received'],closed:['rejected','cancelled'],all:null};
   const f=PR.rows.filter(r=>!grp[PR.flt]||grp[PR.flt].includes(r.status));const pend=PR.rows.filter(r=>r.status==='pending');
   const act=r=>{let h='';if(r.status==='pending'&&ap&&r.requested_by!==me_)h+=`<button class="btn s p" data-act="prSt" data-id="${r.id}" data-s="approved">اعتماد</button> <button class="btn s d" data-act="prSt" data-id="${r.id}" data-s="rejected">رفض</button>`;

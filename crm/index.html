@@ -860,7 +860,7 @@ function computeAlerts(){
   vis(S.quotes).filter(q=>q.source!=='import'&&q.status==='sent'&&q.sentAt&&daysBetween(q.sentAt.slice(0,10),t)>7).forEach(q=>push('warn','quote',L('عرض سعر بلا رد من العميل','Quote awaiting client reply'),`${q.no} · ${cName(q.clientId)} · ${daysBetween(q.sentAt.slice(0,10),t)} ${L('يوم','days')}`,q.repId,['quote',q.id]));
   if(lead)vis(S.quotes).filter(q=>q.status==='pending'&&q.source!=='import').forEach(q=>push('info','quote',L('عرض سعر ينتظر اعتمادك','Quote needs your approval'),`${q.no} · ${cName(q.clientId)} · ${money(qTotal(q))}`,q.repId,['quote',q.id]));
   vis(S.opps).filter(o=>!['order','lost'].includes(o.stage)&&o.nextDate&&o.nextDate<t).forEach(o=>push('warn','opp',L('فرصة بيع متأخرة المتابعة','Opportunity follow-up overdue'),`${o.title} · ${o.nextStep||''}`,o.repId,['opp',o.id]));
-  {const od=new Map();vis(S.invoices).forEach(i=>{const due=i.bal!=null&&i.bal!==''?+i.bal:(+i.amount||0)-(+i.paid||0);if(!(due>0))return;const dd=daysBetween(t,i.dueDate||i.date);if(dd>=0)return;const k=i.clientId||i.clientCode;let o=od.get(k);if(!o){o={c:i.clientId,n:i.cname,r:i.repId,a:0,k:0,m:0};od.set(k,o)}o.a+=due;o.k++;o.m=Math.max(o.m,-dd)});
+  {const od=new Map();vis(S.invoices).forEach(i=>{if(i.kind==='cn')return;const due=invBal(i);if(!(due>0))return;const dd=daysBetween(t,i.dueDate||i.date);if(dd>=0)return;const k=i.clientId||i.clientCode;let o=od.get(k);if(!o){o={c:i.clientId,n:i.cname,r:i.repId,a:0,k:0,m:0};od.set(k,o)}o.a+=due;o.k++;o.m=Math.max(o.m,-dd)});
    od.forEach(o=>{if(!o.c||o.m<=30&&o.a<1000)return;push(o.m>60?'bad':'warn','money',L('مبالغ متأخرة التحصيل','Overdue receivables'),`${o.c?cName(o.c):o.n||'—'} · ${money(o.a)} · ${o.k} ${L('فاتورة','inv.')} · ${L('أقدمها','oldest')} ${o.m} ${L('يوم','d')}`,o.r,['client',o.c])})}
   vis(S.complaints).filter(c=>c.status!=='closed'&&daysBetween(c.openedAt.slice(0,10),t)>5).forEach(c=>push('bad','complaint',L('شكوى مفتوحة أكثر من 5 أيام','Complaint open 5+ days'),`${cName(c.clientId)} · ${c.desc}`,c.repId,['complaint',c.id]));
   vis(S.samples).filter(s=>s.testResult==='pending'&&s.sentDate&&daysBetween(s.sentDate,t)>14).forEach(s=>push('warn','sample',L('عينة بلا نتيجة اختبار منذ أسبوعين','Sample result pending 2+ weeks'),`${prodName(s.product)} · ${cName(s.consultantId)}`,s.repId,['sample',s.id]));
@@ -1089,6 +1089,7 @@ function impValidate(){
       it.data=data;it.amount=data.value;orderRow.set(nn,it);
     }
     else if(type==='invoices'){invValidate(it,g,nums,dates,seen,rowNo,ix,rej,has)}
+    else if(type==='creditnotes'){cnValidate(it,g,nums,dates,seen,rowNo,ix,rej,has)}
     else{ // collections
       const v=String(g('voucher')).trim(),nv=normCode(v);
       if(seen.has(nv)){it.status='dup';it.reason=L(`رقم سند مكرر داخل الملف (السطر ${seen.get(nv)})`,`Duplicate voucher in file (row ${seen.get(nv)})`);return}seen.set(nv,rowNo);
@@ -1143,7 +1144,7 @@ async function impRun(){
         if(type==='customers'){
           doc=prev?{...prev,...it.data}:{type:'contractor',status:'active',contact:'',phone:'',email:'',district:'',notes:'',repId:'',createdAt:now,createdBy:by,...it.data};
           doc.hist=[...(prev?.hist||[]).slice(-19),{at:now,imp:impId,ch:prev?it.ch:'create'}];
-        }else if(type==='invoices'){
+        }else if(type==='invoices'||type==='creditnotes'){
           doc=prev?{...prev,...it.data}:{source:'import',createdAt:now,createdBy:by,importId:impId,...it.data};
         }else if(type==='items'){
           doc=prev?{...prev,...it.data}:{createdAt:now,createdBy:by,...it.data};
@@ -1990,7 +1991,7 @@ REPORTS.push(
 V.imports=()=>{
   if(!canImport())return `<div class="card empty">${L('مركز الاستيراد متاح لمدير النظام ومدير المبيعات.','The import center is available to the system admin and sales manager.')}</div>`;
   const tab=IMP.tab;
-  let h=`<div class="tabs">${[['customers',L('بيانات العملاء','Customer master')],['items',L('الأصناف','Items')],['quotes',L('عروض الأسعار','Quotations')],['orders',L('أوامر البيع','Sales orders')],['collections',L('التحصيل','Collections')],['invoices',L('الأرصدة المفتوحة','Open invoices')],['cols',L('إعداد الأعمدة والسطور','Columns & rows setup')],['history',L('سجل الاستيراد','Import history')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="impTab" data-v="${k}">${l}</button>`).join('')}</div>`;
+  let h=`<div class="tabs">${[['customers',L('بيانات العملاء','Customer master')],['items',L('الأصناف','Items')],['quotes',L('عروض الأسعار','Quotations')],['orders',L('أوامر البيع','Sales orders')],['collections',L('التحصيل','Collections')],['invoices',L('الفواتير','Invoices')],['creditnotes',L('الإشعارات الدائنة','Credit notes')],['cols',L('إعداد الأعمدة والسطور','Columns & rows setup')],['history',L('سجل الاستيراد','Import history')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="impTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   if(tab==='history')return h+importHistory();
   if(tab==='cols')return h+impColsView();
   const def=impDef(tab);const icfg=impCfg(tab);const st=IMP.step;
@@ -2002,13 +2003,14 @@ V.imports=()=>{
        quotes:L('يتعرّف النظام على العرض برقم العرض: العرض الموجود يُحدَّث ويُحفظ تغييره في سجل العرض، ولا يُكرر.','Quotations are matched by number: existing ones are updated with their change history kept, never duplicated.'),
        items:L('يتعرّف النظام على الصنف بكوده: الصنف الموجود يُحدَّث بدل تكراره. الأصناف تظهر في أوامر البيع وفي صفحة «الأصناف».','Items are matched by code: existing ones are updated, never duplicated.'),
        orders:L('يتعرّف النظام على أمر البيع برقمه. السطور التي تحمل نفس رقم الأمر تُجمع كأصناف داخل أمر واحد، والأمر الموجود يُحدَّث ولا يُكرر. يُربط الأمر بالعميل والمندوب وبعرض السعر إن وُجد رقمه.','Orders are matched by number; rows sharing a number become the lines of one order.'),
-       invoices:L('ارفع تقرير الفواتير المفتوحة كامل من SAP (كل الفروع). الفاتورة تُعرف برقمها وتتحدث بدل ما تتكرر، وأي فاتورة كانت مفتوحة وما عادت في الملف تُقفل كمسددة. يُحسب العمر من تاريخ الاستحقاق، ولو ما فيه فمن تاريخ الفاتورة + مدة سداد العميل.','Upload the full SAP open-items report. Invoices are matched by number; any open invoice missing from the new file is closed as settled.'),
+       invoices:L('ارفع كل الفواتير (المفتوحة والمغلقة) بقيمتها. الفاتورة تُعرف برقمها وتتحدث بدل ما تتكرر. النظام يطرح منها التحصيل المستورد والإشعارات الدائنة ويحسب رصيد كل فاتورة وعمرها. لو عندك عمود «المسدد» (PaidToDate) أو «الرصيد المتبقي» من SAP اربطه وراح يعتمده بدل الحساب.','Upload all invoices with their amounts; collections and credit notes are subtracted to get each balance. A PaidToDate or balance column, if mapped, is used as is.'),
+       creditnotes:L('الإشعار الدائن يُطرح من رصيد العميل: على الفاتورة المذكورة فيه إن وُجدت، وإلا على أقدم فاتورة مفتوحة.','Credit notes reduce the customer balance: the named invoice first, else the oldest open invoice.'),
        collections:L('كل سند قبض يُضاف مرة واحدة. الاستيراد الجديد يُلحق بالسجلات السابقة ولا يستبدلها، والسند المكرر أو المتعارض يُستبعد ويظهر لك قبل التأكيد.','Each voucher is added once. New imports append to history, never overwrite it; duplicates and conflicts are excluded and shown before you confirm.')}[tab]}</p>
      <div class="small"><b>${L('الأعمدة','Columns')}:</b> ${def.fields.map(f=>`${L(f.ar,f.en)}${f.req?' <span class="req">*</span>':''}`).join(' · ')}</div>
      <div class="small muted" style="margin-top:6px">${L('سطر العناوين','Header row')}: <b>${+icfg.hdrRow||1}</b> · ${icfg.skipNoKey===false?L('السطور بدون معرّف تُرفض','Rows without a key are rejected'):L('السطور بدون معرّف (مثل الإجمالي) تُتجاهل','Rows without a key (e.g. totals) are ignored')} · <button class="btn s" data-act="impTab" data-v="cols">${L("تعديل الأعمدة والسطور","Edit columns &amp; rows")}</button></div></div>`;
     if(tab==='collections')h+=`<div class="card"><h2>${L('فترة التحصيل','Collection period')}<span class="sub">${L('اختياري: أي سند تاريخه خارج الفترة يُرفض','Optional: vouchers outside it are rejected')}</span></h2><div class="toolbar"><label class="fl" for="imp_from">${L('من','From')} <input type="date" id="imp_from" data-act="impPer" data-k="from" value="${esc(IMP.period?.from||'')}"></label><label class="fl" for="imp_to">${L('إلى','To')} <input type="date" id="imp_to" data-act="impPer" data-k="to" value="${esc(IMP.period?.to||'')}"></label></div></div>`;
     h+=`<label class="dz" id="dropzone" for="impFile"><b>${L('اسحب ملف Excel هنا أو اضغط للاختيار','Drop an Excel file here or click to choose')}</b><span class="small muted">.xlsx · .xls · .csv — ${L(`سطر العناوين رقم ${+icfg.hdrRow||1}، وتقدر تختار الورقة بعد رفع الملف`,`header row ${+icfg.hdrRow||1}; choose the sheet after upload`)}</span><span class="btn p">${L('اختيار ملف','Choose file')}</span></label><input id="impFile" type="file" accept=".xlsx,.xls,.csv" hidden data-act="impFile">
-     <div class="toolbar"><button class="btn" data-act="impTemplate">${L('تنزيل القالب','Download template')}</button>${['items','orders','invoices'].includes(tab)?'':`<button class="btn" data-act="impTest">${L('جرّب بملف اختبار جاهز','Try a ready test file')}</button><button class="btn" data-act="impTestDl">${L('تنزيل ملف الاختبار','Download test file')}</button>`}<span class="small muted">${L('ملف الاختبار مبني من بياناتك ويحتوي أخطاء متعمدة (مكرر، ناقص، تاريخ خاطئ، عميل غير موجود) لتتأكد من قواعد التحقق.','The test file is built from your data with deliberate errors to check the validation rules.')}</span></div>`;
+     <div class="toolbar"><button class="btn" data-act="impTemplate">${L('تنزيل القالب','Download template')}</button>${['items','orders','invoices','creditnotes'].includes(tab)?'':`<button class="btn" data-act="impTest">${L('جرّب بملف اختبار جاهز','Try a ready test file')}</button><button class="btn" data-act="impTestDl">${L('تنزيل ملف الاختبار','Download test file')}</button>`}<span class="small muted">${L('ملف الاختبار مبني من بياناتك ويحتوي أخطاء متعمدة (مكرر، ناقص، تاريخ خاطئ، عميل غير موجود) لتتأكد من قواعد التحقق.','The test file is built from your data with deliberate errors to check the validation rules.')}</span></div>`;
     return h;
   }
   if(st==='map'){
@@ -2028,7 +2030,7 @@ V.imports=()=>{
     const ST={new:[L('جديد','New'),'ok'],update:[L('تحديث','Update'),'info'],same:[L('بدون تغيير','No change'),''],dup:[L('مكرر','Duplicate'),'warn'],rej:[L('مرفوض','Rejected'),'bad'],conflict:[L('متعارض','Conflict'),'bad'],unmatched:[L('عميل غير مطابق','Unmatched'),'warn'],skip:[L('متجاهل','Ignored'),''],line:[L('سطر صنف','Item line'),'info']};
     h+=`<div class="kpis k5">${kpiTile(L('إجمالي السجلات','Total rows'),num(c.total))}${kpiTile(L('ستُعالج','To process'),num(c.processed),`${L('جديد','new')} ${c.created} · ${L('تحديث','update')} ${c.updated}${c.same?` · ${L('بلا تغيير','unchanged')} ${c.same}`:''}`)}
      ${kpiTile(L('مكررة','Duplicates'),num(c.duplicates),L('لن تُستورد','will be skipped'))}${kpiTile(L('مرفوضة','Rejected'),num(c.rejected),L('تحتاج تصحيح في الملف','fix in file'))}
-     ${kpiTile(['quotes','collections','orders','invoices'].includes(tab)?L('عملاء غير مطابقين','Unmatched customers'):L('المبلغ','Amount'),['customers','items'].includes(tab)?'—':num(c.unmatched),tab==='orders'?`${L('قيمة الأوامر','Orders value')} ${smoney(r.amount)}${c.lines?` · ${c.lines} ${L('سطر صنف إضافي','extra item lines')}`:''}`:tab==='collections'?`${L('إجمالي التحصيل المعالج','Processed total')} ${money(r.amount)}`:tab==='quotes'?`${L('قيمة العروض','Value')} ${smoney(r.amount)}`:'')}</div>
+     ${kpiTile(['quotes','collections','orders','invoices','creditnotes'].includes(tab)?L('عملاء غير مطابقين','Unmatched customers'):L('المبلغ','Amount'),['customers','items'].includes(tab)?'—':num(c.unmatched),tab==='orders'?`${L('قيمة الأوامر','Orders value')} ${smoney(r.amount)}${c.lines?` · ${c.lines} ${L('سطر صنف إضافي','extra item lines')}`:''}`:tab==='collections'?`${L('إجمالي التحصيل المعالج','Processed total')} ${money(r.amount)}`:tab==='quotes'?`${L('قيمة العروض','Value')} ${smoney(r.amount)}`:'')}</div>
      ${c.skipped?`<div class="banner"><span class="sp">${L(`تم تجاهل ${c.skipped} سطر بدون معرّف (مثل سطور الإجمالي أو الفواصل).`,`${c.skipped} rows without a key were ignored (totals or separators).`)}</span></div>`:''}
      ${r.warnings.map(w=>`<div class="banner"><span class="sp">${esc(w)}</span></div>`).join('')}
      ${r.unknownReps.length?`<div class="banner info"><span class="sp">${L('مندوبون في الملف غير مسجلين بالنظام: ','Reps in the file not found in the system: ')}<b>${r.unknownReps.map(x=>esc(x.name)).join('، ')}</b>. ${L('أنشئهم ثم أعد التحقق، أو صحّح أسماءهم في الملف.','Create them and re-validate, or fix the names in the file.')}</span><button class="btn s p" data-act="impMkReps">${L('إنشاء المندوبين وإعادة التحقق','Create reps & re-validate')}</button></div>`:''}
@@ -3041,7 +3043,7 @@ Object.assign(ACT,{
 (function(){const _b=banners;banners=function(){let h=_b();const m=me();if(mode==='db'&&loaded.has('team')&&m.unlinked)h=`<div class="banner bad"><span class="sp">${L('حسابك غير مسجّل ضمن فريق المبيعات. اطلب من مدير النظام تحديد دورك (مندوب، مشرف، مدير مبيعات) من «المستخدمون والصلاحيات» في المنصة.','Your account is not in the sales team yet. Ask the system admin to set your sales role.')}</span></div>`+h;return h}})();
 V.prodplan=()=>{setTimeout(()=>{location.href='../index.html#sales/prod'},30);return `<div class="card empty">${L('…جاري فتح خطة الإنتاج','Opening the production plan…')}</div>`};
 /* ============ Platform page permissions (N/A · Viewer · Auditor · Editor) ============ */
-NAV.forEach(n=>{if(n[0]==='g')return;const f=n[3]||ALL;n[3]=()=>wadyLvl('crm',n[0]==='prodplan'?'prod':n[0])>=1&&f()});
+NAV.forEach(n=>{if(n[0]==='g')return;const f=n[3]||ALL;n[3]=()=>(n[0]==='prodplan'?['prod','prod_actual','prod_stock','prod_qc','prod_maint','prod_pr'].some(p=>wadyLvl('crm',p)>=1):wadyLvl('crm',n[0])>=1)&&f()});
 const WADY_CRM_COL={clients:'clients',quotes:'quotes',opps:'opps',projects:'projects',samples:'samples',visits:'visits',complaints:'complaints',comms:'comms',pipeline:'pipeline',invoices:'collections',collChunks:'imports',imports:'imports',settings:'kpi',team:'team',actions:'alerts',items:'items',orders:'orders',impUndo:'imports',targets:'reps'};
 window.WADY_GUARD=col=>{if(WADY_PERM.admin||col==='audit'||col==='attachments')return null;const pg=WADY_CRM_COL[col];const l=pg?wadyLvl('crm',pg):wadyAppLvl('crm');
   if(col==='visits'&&wadyLvl('crm','plan')>=3)return null;return l>=3?null:L('صلاحيتك على هذه الصفحة ','Your access to this page is ')+(l===2?L('تدقيق','audit'):l===1?L('عرض','view'):L('غير متاحة','none'))+L(' فقط — التعديل يحتاج صلاحية محرر',' only — editing needs Editor')};
@@ -3404,9 +3406,9 @@ IMP_DEF.collections.fields.push(F_('so','رقم أمر البيع','Sales order 
 /* ===== CRM: rep KPIs (discount, new paying customers vs target, sales growth, collection target),
    monthly sales import, declining customers, customer map, unified customer timeline ===== */
 {const a=NAV.findIndex(n=>n[0]==='reps');NAV.splice(a+1,0,
-   ['kpis','gauge',()=>L('مؤشرات أداء المندوبين','Rep KPIs'),()=>wadyLvl('crm','reps')>=1],
-   ['decline','alert',()=>L('العملاء المتراجعون','Declining customers'),()=>wadyLvl('crm','alerts')>=1]);
- const b=NAV.findIndex(n=>n[0]==='clients');NAV.splice(b+1,0,['custmap','map',()=>L('خريطة العملاء','Customer map'),()=>wadyLvl('crm','clients')>=1]);
+   ['kpis','gauge',()=>L('مؤشرات أداء المندوبين','Rep KPIs'),()=>wadyLvl('crm','kpis')>=1],
+   ['decline','alert',()=>L('العملاء المتراجعون','Declining customers'),()=>wadyLvl('crm','decline')>=1]);
+ const b=NAV.findIndex(n=>n[0]==='clients');NAV.splice(b+1,0,['custmap','map',()=>L('خريطة العملاء','Customer map'),()=>wadyLvl('crm','custmap')>=1]);
  const h=(location.hash||'').slice(1);if(['kpis','decline','custmap'].includes(h)){route=h;setTimeout(render,0)}}
 const KX={sales:null,key:'',busy:false,open:''};
 const ymOf=d=>String(d).slice(0,7);
@@ -3572,33 +3574,69 @@ IMP_DEF.invoices={ar:'الأرصدة المفتوحة (أعمار الديون)'
   F_('date','تاريخ الفاتورة','Invoice date',['تاريخ الفاتورة','تاريخ المستند','التاريخ','posting date','docdate','invoice date','date'],{req:1,t:'date'}),
   F_('due','تاريخ الاستحقاق','Due date',['تاريخ الاستحقاق','الاستحقاق','due date','docduedate','duedate']),
   F_('amount','قيمة الفاتورة','Invoice amount',['قيمة الفاتورة','المبلغ','الإجمالي','doctotal','invoice amount','amount','total'],{t:'num'}),
-  F_('bal','الرصيد المتبقي','Open balance',['الرصيد المتبقي','المتبقي','الرصيد','المبلغ المفتوح','المبلغ المستحق','open balance','balance due','balance','open amount','paidtodate'],{req:1,t:'num'}),
+  F_('bal','الرصيد المتبقي (اختياري)','Open balance (optional)',['الرصيد المتبقي','المتبقي','الرصيد','المبلغ المفتوح','المبلغ المستحق','open balance','balance due','balance','open amount'],{t:'num'}),
+  F_('paid','المسدد من الفاتورة (اختياري)','Paid to date (optional)',['المسدد','المدفوع','المبلغ المسدد','paidtodate','paid to date','paid','paid amount'],{t:'num'}),
   F_('rep','المندوب','Sales rep',['المندوب','مندوب المبيعات','sales representative','sales rep','slpname','salesperson'])]};
 IMP_DEF.invoices.fields.find(f=>f.k==='due').t='date';
+IMP_DEF.creditnotes={ar:'الإشعارات الدائنة (Credit notes)',en:'Credit notes',fields:[
+  F_('no','رقم الإشعار','Credit note no.',['رقم الإشعار','رقم الاشعار الدائن','رقم المستند','credit note','credit note no','docnum','document no'],{req:1}),
+  F_('code','كود العميل','Customer code',['كود العميل','رمز العميل','رقم العميل','customer code','cardcode','bp code'],{req:1}),
+  F_('name','اسم العميل','Customer name',['اسم العميل','العميل','customer name','cardname']),
+  F_('date','التاريخ','Date',['التاريخ','تاريخ الإشعار','تاريخ المستند','posting date','docdate','date'],{req:1,t:'date'}),
+  F_('amount','المبلغ','Amount',['المبلغ','القيمة','الإجمالي','doctotal','amount','total'],{req:1,t:'num'}),
+  F_('inv','رقم الفاتورة المرتبطة','Invoice ref.',['رقم الفاتورة','الفاتورة المرتبطة','مرجع الفاتورة','base ref','baseref','invoice no','invoice ref'])]};
+IMP_KEY.creditnotes='no';IMP_COL.creditnotes='invoices';
+IMP_EX.creditnotes={no:'CN-26-9001',code:'CU-9001',name:'مؤسسة مثال للمقاولات',date:'2026-10-10',amount:5000,inv:'INV-26-9001'};
 IMP_KEY.invoices='no';IMP_COL.invoices='invoices';
 IMP_EX.invoices={no:'INV-26-9001',code:'CU-9001',name:'مؤسسة مثال للمقاولات',date:'2026-09-01',due:'2026-10-01',amount:120000,bal:45000};
 IMP_DEF.customers.fields.push(F_('creditLimit','حد الائتمان','Credit limit',['حد الائتمان','الحد الائتماني','حد الاعتماد','credit limit','creditline','credit line'],{t:'num'}),
   F_('payDays','مدة السداد (يوم)','Payment terms (days)',['مدة السداد','شروط الدفع','أيام السداد','فترة السداد','payment terms','paymentterms','pymntgroup','terms days'],{t:'num'}));
 IMP_EX.customers.creditLimit=200000;IMP_EX.customers.payDays=60;
 
-const invBal=i=>i.bal!=null&&i.bal!==''?+i.bal:(+i.amount||0)-(+i.paid||0);
+const invFixed=i=>i.bal!=null&&i.bal!==''||i.paid!=null&&i.paid!=='';
+const invBal=i=>{if(i.kind==='cn')return 0;if(i.bal!=null&&i.bal!=='')return +i.bal;if(i.paid!=null&&i.paid!=='')return (+i.amount||0)-(+i.paid||0);const A=arAlloc();return A.open.has(i.id)?A.open.get(i.id):(+i.amount||0)};
+/* invoices without a balance: payments (collections) and credit notes are applied to them — first to the invoice they name, then oldest invoice first */
+function arStart(){const s=(S.settings.find(x=>x.id==='arcfg')||{}).start;if(s)return s;let m='';S.invoices.forEach(i=>{if(i.kind!=='cn'&&!invFixed(i)&&i.date&&(!m||i.date<m))m=i.date});return m}
+let ARC={v:-1};
+function arAlloc(){if(ARC.v===dataVer)return ARC;const start=arStart();const open=new Map(),credit=new Map(),used=new Map();const by=new Map();const key=c=>normCode(c||'');
+  S.invoices.forEach(i=>{if(i.kind==='cn'||invFixed(i))return;const k=key(i.clientCode);let o=by.get(k);if(!o){o={inv:[],cr:[]};by.set(k,o)}o.inv.push({i,open:+i.amount||0})});
+  if(by.size){I().coll.forEach(c=>{if(start&&c.d<start)return;const o=by.get(key(c.code));if(o)o.cr.push({a:+c.amt||0,ref:normCode(c.inv||''),src:'coll'})});
+    S.invoices.forEach(i=>{if(i.kind!=='cn'||start&&i.date<start)return;const o=by.get(key(i.clientCode));if(o)o.cr.push({a:+i.amount||0,ref:normCode(i.invRef||''),src:'cn'})});}
+  by.forEach((o,k)=>{o.inv.sort((a,b)=>((a.i.dueDate||a.i.date)||'').localeCompare((b.i.dueDate||b.i.date)||'')||String(a.i.no).localeCompare(String(b.i.no)));const byNo=new Map(o.inv.map(x=>[normCode(x.i.no),x]));
+    o.cr.forEach(c=>{if(!c.ref)return;const x=byNo.get(c.ref);if(!x)return;const t=Math.min(x.open,c.a);x.open-=t;c.a-=t});
+    o.cr.forEach(c=>{for(const x of o.inv){if(c.a<=0.005)break;const t=Math.min(x.open,c.a);x.open-=t;c.a-=t}});
+    o.inv.forEach(x=>open.set(x.i.id,Math.round(x.open*100)/100));const left=o.cr.reduce((s,c)=>s+c.a,0);if(left>0.5)credit.set(k,Math.round(left*100)/100)});
+  ARC={v:dataVer,open,credit,start};return ARC}
 function invValidate(it,g,nums,dates,seen,rowNo,ix,rej,has){
   const no=String(g('no')).trim(),nn=normCode(no);
   if(seen.has(nn)){it.status='dup';it.reason=L(`رقم فاتورة مكرر داخل الملف (السطر ${seen.get(nn)})`,`Duplicate invoice no. in file (row ${seen.get(nn)})`);return}seen.set(nn,rowNo);
-  const bal=nums.bal;if(!bal){it.status='skip';it.reason=L('رصيدها صفر — مسددة','Zero balance — paid');return}
+  const hasBal='bal' in nums,hasPaid='paid' in nums;
+  if(hasBal&&!nums.bal){it.status='skip';it.reason=L('رصيدها صفر — مسددة','Zero balance — paid');return}
+  if(!hasBal&&nums.amount==null){it.status='rej';it.reason=L('لازم «قيمة الفاتورة» أو «الرصيد المتبقي»','Amount or balance required');return}
+  const bal=hasBal?nums.bal:hasPaid?nums.amount-nums.paid:null;
   const code=String(g('code')).trim();const c=ix.custByCode.get(normCode(code));
   let repId='';if(has('rep')&&g('rep')!==''){repId=repOf(g('rep'))||'';if(!repId)it.note=L('المندوب غير معرّف، سيُنسب لمندوب العميل','Rep not found; customer rep used')}
-  const amount=nums.amount!=null?nums.amount:bal;
+  const amount=nums.amount!=null?nums.amount:bal;if(nums.amount!=null&&nums.amount<=0){it.status='skip';it.reason=L('قيمة صفر أو سالبة','Zero or negative amount');return}
   let due=dates.due||'';if(!due&&c&&+c.payDays>0)due=addDays(dates.date,+c.payDays);
-  const data={no,clientCode:code,cname:String(g('name')||c?.name||'').trim(),date:dates.date,dueDate:due||dates.date,dueSrc:dates.due?'file':(due?'terms':'date'),amount,bal,paid:amount-bal,repId:repId||c?.repId||'',region:c?.region||''};
+  const data={no,clientCode:code,cname:String(g('name')||c?.name||'').trim(),date:dates.date,dueDate:due||dates.date,dueSrc:dates.due?'file':(due?'terms':'date'),amount,...(bal!=null?{bal,paid:amount-bal}:{bal:null,paid:null}),repId:repId||c?.repId||'',region:c?.region||''};
   if(c)data.clientId=c.id;
-  const ex=S.invoices.find(x=>normCode(x.no)===nn);it.data=data;it.amount=bal;
+  const ex=S.invoices.find(x=>normCode(x.no)===nn);it.data=data;it.amount=bal??amount;
   if(ex){const ch=diff(ex,{...ex,...data});if(!Object.keys(ch).length){it.status='same';it.reason=L('بدون تغيير','No change')}else{it.status='update';it.ch=ch;it.id=ex.id;it.reason=Object.keys(ch).join('، ')}}
   else{it.id='inv-'+safeId(no);if(!c){it.status='unmatched';it.reason=L('كود العميل غير موجود — تُحفظ وتظهر باسمها لين يُضاف العميل','Customer code not in master — kept')}}
 }
 /* the file is the full list of what is still open: an open invoice that is no longer in it has been settled */
-function invCloseMissing(items,seen,warnings){
-  const gone=S.invoices.filter(i=>invBal(i)!==0&&!seen.has(normCode(i.no)));if(!gone.length)return;
+function cnValidate(it,g,nums,dates,seen,rowNo,ix,rej,has){
+  const no=String(g('no')).trim(),nn=normCode(no);
+  if(seen.has(nn)){it.status='dup';it.reason=L(`رقم مكرر داخل الملف (السطر ${seen.get(nn)})`,`Duplicate no. in file (row ${seen.get(nn)})`);return}seen.set(nn,rowNo);
+  const amount=Math.abs(nums.amount||0);if(!amount){it.status='skip';it.reason=L('مبلغ صفر','Zero amount');return}
+  const code=String(g('code')).trim();const c=ix.custByCode.get(normCode(code));
+  const data={kind:'cn',no,clientCode:code,cname:String(g('name')||c?.name||'').trim(),date:dates.date,amount,invRef:String(g('inv')||'').trim(),repId:c?.repId||'',region:c?.region||''};if(c)data.clientId=c.id;
+  const id='cn-'+safeId(no);const ex=S.invoices.find(x=>x.id===id);it.data=data;it.amount=amount;
+  if(ex){const ch=diff(ex,{...ex,...data});if(!Object.keys(ch).length){it.status='same';it.reason=L('بدون تغيير','No change')}else{it.status='update';it.ch=ch;it.id=id;it.reason=Object.keys(ch).join('، ')}}
+  else{it.id=id;if(!c){it.status='unmatched';it.reason=L('كود العميل غير موجود','Customer code not in master')}}
+}
+function invCloseMissing(items,seen,warnings){if(!IMP.map.bal)return; // only a balance snapshot closes what is missing
+  const gone=S.invoices.filter(i=>i.kind!=='cn'&&i.bal!=null&&i.bal!==''&&+i.bal!==0&&!seen.has(normCode(i.no)));if(!gone.length)return;
   const K=IMP.map.no||'no',N=IMP.map.name||'name';
   gone.forEach(i=>items.push({row:'—',status:'update',id:i.id,data:{bal:0,paid:+i.amount||0,closedAt:TODAY()},amount:-invBal(i),ch:{[L('الرصيد','Balance')]:[num(invBal(i)),'0']},
     reason:L('ما عادت موجودة في الملف ← تُعتبر مسددة','No longer in the file → treated as settled'),raw:{[K]:i.no,[N]:i.cname||cName(i.clientId)}}));
@@ -3610,15 +3648,15 @@ const AG_B=[['cur',()=>L('غير مستحق','Not due')],['b30',()=>L('1–30 ي
 const agBucket=d=>d<=0?'cur':d<=30?'b30':d<=60?'b60':d<=90?'b90':'b90p';
 function agData(){
   const t=TODAY();const cl=new Map();
-  vis(S.invoices).forEach(i=>{const b=invBal(i);if(!b)return;const key=i.clientId||('code:'+normCode(i.clientCode));
+  const AC=arAlloc();vis(S.invoices).forEach(i=>{if(i.kind==='cn')return;const b=invBal(i);if(!b)return;const key=i.clientId||('code:'+normCode(i.clientCode));
     let o=cl.get(key);if(!o){const c=i.clientId?byId('clients',i.clientId):null;o={key,c,id:i.clientId||'',code:c?.code||i.clientCode,name:c?.name||i.cname||'—',repId:c?.repId||i.repId||'',lim:+(c?.creditLimit||0),tot:0,od:0,max:0,inv:[],cur:0,b30:0,b60:0,b90:0,b90p:0};cl.set(key,o)}
     const d=daysBetween(i.dueDate||i.date,t);o[agBucket(d)]+=b;o.tot+=b;if(d>0){o.od+=b;o.max=Math.max(o.max,d)}o.inv.push({...i,b,d})});
-  const rows=[...cl.values()].map(o=>({...o,over:o.lim>0&&o.tot>o.lim,use:o.lim>0?o.tot/o.lim:null})).sort((a,b)=>b.od-a.od||b.tot-a.tot);
+  const rows=[...cl.values()].map(o=>{const cr=AC.credit.get(normCode(o.code))||0;return {...o,cr,over:o.lim>0&&o.tot>o.lim,use:o.lim>0?o.tot/o.lim:null}}).sort((a,b)=>b.od-a.od||b.tot-a.tot);
   const sum=k=>rows.reduce((s,o)=>s+o[k],0);
   const reps=new Map();rows.forEach(o=>{let r=reps.get(o.repId);if(!r){r={id:o.repId,name:o.repId?tName(o.repId):L('بدون مندوب','Unassigned'),n:0,tot:0,od:0,b90p:0,over:0};reps.set(o.repId,r)}r.n++;r.tot+=o.tot;r.od+=o.od;r.b90p+=o.b90p;if(o.over)r.over++});
   return {rows,reps:[...reps.values()].sort((a,b)=>b.od-a.od),tot:sum('tot'),od:sum('od'),b:Object.fromEntries(AG_B.map(([k])=>[k,sum(k)])),over:rows.filter(o=>o.over).length,last:S.imports.filter(i=>i.type==='invoices'&&i.status==='active').sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]};
 }
-function clientAR(id){const t=TODAY();let tot=0,od=0,max=0;S.invoices.forEach(i=>{if(i.clientId!==id)return;const b=invBal(i);if(!b)return;tot+=b;const d=daysBetween(i.dueDate||i.date,t);if(d>0){od+=b;max=Math.max(max,d)}});
+function clientAR(id){const t=TODAY();let tot=0,od=0,max=0;S.invoices.forEach(i=>{if(i.clientId!==id||i.kind==='cn')return;const b=invBal(i);if(!b)return;tot+=b;const d=daysBetween(i.dueDate||i.date,t);if(d>0){od+=b;max=Math.max(max,d)}});
   const c=byId('clients',id);const lim=+(c?.creditLimit||0);return {tot,od,max,lim,over:lim>0&&tot>lim}}
 function arBanner(id){if(!id)return '';const a=clientAR(id);const m=[];
   if(a.over)m.push(L(`تجاوز حد الائتمان: الرصيد ${money(a.tot)} والحد ${money(a.lim)}`,`Over credit limit: ${money(a.tot)} vs ${money(a.lim)}`));
@@ -3644,7 +3682,7 @@ const lastRemind=id=>S.comms.filter(c=>c.clientId===id&&c.remind).map(c=>c.at).s
 V.aging=()=>{
   const D=agData();const rid=fv('agRep','');const fl=fv('agF','od');const q=normTxt(fv('agQ',''));
   let rows=D.rows.filter(o=>(!rid||o.repId===rid)&&(fl==='all'||fl==='od'&&o.od>0||fl==='b90p'&&o.b90p>0||fl==='over'&&o.over)&&(!q||normTxt(o.name+' '+o.code).includes(q)));
-  if(!D.rows.length&&!S.invoices.length)return `<div class="card empty"><h2>${L('أعمار الديون','AR aging')}</h2><p>${L('ما فيه أرصدة مفتوحة للحين. ارفع تقرير الفواتير المفتوحة من SAP في «مركز استيراد Excel» ← «الأرصدة المفتوحة» (رقم الفاتورة، كود العميل، تاريخ الفاتورة، تاريخ الاستحقاق، الرصيد المتبقي).','No open invoices yet. Import the SAP open-items report from the Excel import center → Open invoices.')}</p>${canImport()?`<button class="btn p" data-act="arGoImp">${L('رفع ملف الأرصدة','Import open invoices')}</button>`:''}</div>`;
+  if(!D.rows.length&&!S.invoices.length)return `<div class="card empty"><h2>${L('أعمار الديون','AR aging')}</h2><p>${L('ما فيه فواتير للحين. ارفع ملف الفواتير (المفتوحة والمغلقة) من «مركز استيراد Excel» ← «الفواتير»: رقم الفاتورة، كود العميل، تاريخ الفاتورة، تاريخ الاستحقاق، قيمة الفاتورة. وبعدها ملف الإشعارات الدائنة. النظام يطرح التحصيل والإشعارات ويطلع الرصيد.','No invoices yet. Import all invoices, then credit notes; collections and credit notes are subtracted automatically.')}</p>${canImport()?`<button class="btn p" data-act="arGoImp">${L('رفع ملف الأرصدة','Import open invoices')}</button>`:''}</div>`;
   const reps=visibleReps();const t=TODAY();
   const bar=AG_B.map(([k,l],n)=>{const v=D.b[k];const w=D.tot>0?Math.max(0,v/D.tot*100):0;return w>0?`<i class="ag-${k}" style="width:${w}%" title="${l()}: ${money(v)}"></i>`:''}).join('');
   let h=`<div class="toolbar"><select data-act="filtSel" data-k="agRep" aria-label="${L('المندوب','Rep')}">${opt(reps.map(r=>[r.id,r.name]),rid,L('كل المندوبين','All reps'))}</select>
@@ -3660,11 +3698,13 @@ V.aging=()=>{
   h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)}</span></h2>${table([
     {l:L('العميل','Customer'),f:o=>`${o.id?`<a href="#" data-open="client" data-id="${o.id}"><b>${esc(o.name)}</b></a>`:`<b>${esc(o.name)}</b> ${pill(L('غير مطابق','Unmatched'),'warn')}`}<div class="small muted">${esc(o.code||'')} · ${esc(o.repId?tName(o.repId):'—')}</div>`},
     ...AG_B.map(([k,l])=>({l:l(),c:'n',f:o=>o[k]?`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`:'<span class="muted">—</span>'})),
-    {l:L('الإجمالي','Total'),c:'n',f:o=>`<b>${num(Math.round(o.tot))}</b>`},
+    {l:L('الإجمالي','Total'),c:'n',f:o=>`<b>${num(Math.round(o.tot))}</b>${o.cr?`<div class="small muted">${L('دائن غير مخصص','unapplied credit')} ${num(Math.round(o.cr))}</div>`:''}`},
     {l:L('حد الائتمان','Limit'),c:'n',f:o=>o.lim?`${num(o.lim)}<div class="small ${o.over?'flag':'muted'}">${Math.round(o.use*100)}%</div>`:'<span class="muted">—</span>'},
     {l:'',c:'nw',f:o=>{const lr=o.id?lastRemind(o.id):'';return o.od>0?`<button class="btn s" data-act="arRemind" data-k="${esc(o.key)}">${L('تذكير','Remind')}</button>${lr?`<div class="small muted">${L('آخر تذكير','last')} ${fdate(lr.slice(0,10))}</div>`:''}`:''}}],rows.slice(0,lim))}
    ${rows.length>lim?`<button class="btn s" data-act="filt" data-k="agLim" data-v="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>
-  <div class="small muted">${L('العمر يُحسب من تاريخ الاستحقاق في الملف؛ لو ما فيه، من تاريخ الفاتورة + مدة السداد المسجلة للعميل؛ ولو ما فيه، من تاريخ الفاتورة.','Age counts from the due date in the file; else invoice date + customer terms; else invoice date.')}</div>`;
+  <div class="card small"><b>${L('طريقة الحساب','How balances are worked out')}</b><br>${L('رصيد الفاتورة = قيمتها ناقص المسدد. لو الملف ما فيه عمود «المسدد» أو «الرصيد المتبقي»، النظام يطرح دفعات التحصيل المستوردة والإشعارات الدائنة لكل عميل: أولاً على الفاتورة المذكورة في السند أو الإشعار، والباقي على الأقدم فالأقدم. أي دفعة تزيد عن الفواتير تظهر «دائن غير مخصص».','Invoice balance = amount − paid. Without a paid/balance column, collections and credit notes are applied per customer: first to the invoice they name, then oldest first.')}
+   <br>${L('العمر يُحسب من تاريخ الاستحقاق؛ لو ما فيه، من تاريخ الفاتورة + مدة سداد العميل؛ ولو ما فيه، من تاريخ الفاتورة.','Age counts from the due date; else invoice date + customer terms; else invoice date.')}
+   ${(()=>{const A=arAlloc();return A.start?`<div style="margin-top:6px">${L('الدفعات والإشعارات المحسوبة من تاريخ','Payments and credit notes counted from')} <b>${fdate(A.start)}</b>${isLead()?` <input type="date" value="${A.start}" data-act="arStart" aria-label="${L('بداية الحساب','Start date')}" style="width:auto"> <span class="muted">${L('(تلقائياً أقدم فاتورة في الملف — غيّره لو ملف الفواتير يبدأ بعد أول الدفعات)','(defaults to the oldest invoice)')}</span>`:''}</div>`:''})()}</div>`;
   return h;
 };
 function arXlsx(){if(!xlsxOk())return;const D=agData();const H=[L('كود العميل','Code'),L('العميل','Customer'),L('المندوب','Rep'),...AG_B.map(([,l])=>l()),L('الإجمالي','Total'),L('حد الائتمان','Limit'),L('أقدم تأخير (يوم)','Oldest days')];
@@ -3737,12 +3777,14 @@ ${k.foot?`<div class="ft">${esc(k.foot)}</div>`:''}
     {l:L('الالتزام','Adherence'),c:'n',f:x=>x.pct==null?'—':pill(x.pct+'%',x.pct>=80?'ok':x.pct>=50?'warn':'bad')}],rows.sort((a,b)=>(a.pct??101)-(b.pct??101)))}</div>`;
   const i=h.indexOf('<div class="week">');return i<0?h+card:h.slice(0,i)+card+h.slice(i)}}
 
-NAV.splice(NAV.findIndex(n=>n[0]==='collections')+1,0,['aging','coin',()=>L('أعمار الديون','AR aging'),ALL]);
+NAV.splice(NAV.findIndex(n=>n[0]==='collections')+1,0,['aging','coin',()=>L('أعمار الديون','AR aging'),()=>wadyLvl('crm','aging')>=1]);
 Object.assign(ACT,{arRemind:d=>arRemind(d.k),arXlsx:()=>arXlsx(),arPrint:()=>arPrint(),arGoImp:()=>{IMP.tab='invoices';IMP.step='pick';location.hash='imports'},
   arCopy:()=>{const t=document.getElementById('ar_msg');if(!t)return;t.select();navigator.clipboard?.writeText(t.value).then(()=>toast(L('تم النسخ','Copied')),()=>document.execCommand('copy'))},
   arWa:d=>{const t=document.getElementById('ar_msg')?.value||'';window.open(`https://wa.me/${d.p}?text=${encodeURIComponent(t)}`,'_blank','noopener');arLog(d.k,t);closeModal()},
   agQ:()=>{},filtSel2:d=>{F[d.k]=d.v;render();scrollTo(0,0)},qPrint:d=>printQuote(d.id),qCfg:()=>qCfgEdit()});
 document.addEventListener('input',e=>{const a=e.target;if(a&&a.dataset&&a.dataset.act==='agQ'){clearTimeout(a._t);a._t=setTimeout(()=>{F.agQ=a.value;render();const n=document.querySelector('[data-act="agQ"]');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}},350)}});
+
+document.addEventListener('change',async e=>{const a=e.target;if(!a||!a.dataset||a.dataset.act!=='arStart'||!isLead())return;const cur=S.settings.find(x=>x.id==='arcfg')||{};try{await save('settings',{...cur,id:'arcfg',start:a.value||''});toast(L('تم — أُعيد حساب الأرصدة','Saved — balances recalculated'))}catch(err){handleErr(err)}});
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
