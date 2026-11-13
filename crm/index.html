@@ -5,7 +5,7 @@
 <!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items']};</script>
+<script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
 <script src="claude-shim.js"></script>
 <style>
 /* Layout: operations console — fixed nav rail (desktop) / bottom tab bar (phone), one working column of filter bar, KPI tiles, charts and lists */
@@ -230,6 +230,8 @@ td.nw{white-space:nowrap}
 .kx-t tr.kx-grp td{background:rgba(5,29,72,.08);font-weight:800}.kx-t tr.kx-gt td{background:rgba(56,172,87,.1);font-weight:800}.kx-t tfoot td{background:rgba(5,29,72,.12);font-weight:800}.kx-t tr.kx-det>td{background:rgba(127,140,160,.07);padding:8px 12px}
 .tl{display:flex;flex-direction:column;gap:2px;max-height:360px;overflow:auto}.tl-i{display:grid;grid-template-columns:96px 24px 1fr auto;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px solid rgba(127,140,160,.15);font-size:13px}.tl-d{color:var(--muted,#5A6A82);font-size:12px}.tl-v{font-weight:700;white-space:nowrap}
 @media (max-width:600px){.tl-i{grid-template-columns:80px 20px 1fr}.tl-v{grid-column:3}}
+.ag-bar{display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--line,#E3E8EF);margin:4px 0 10px}.ag-bar i{display:block;height:100%}.ag-leg{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px}.ag-leg span{display:inline-flex;align-items:center;gap:6px}.ag-leg i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.ag-cur{background:#38AC57}.ag-b30{background:#F2C14E}.ag-b60{background:#F08A3C}.ag-b90{background:#E0533D}.ag-b90p{background:#8E1B1B}
 </style>
 
 </head><body><div id="app">
@@ -858,7 +860,8 @@ function computeAlerts(){
   vis(S.quotes).filter(q=>q.source!=='import'&&q.status==='sent'&&q.sentAt&&daysBetween(q.sentAt.slice(0,10),t)>7).forEach(q=>push('warn','quote',L('عرض سعر بلا رد من العميل','Quote awaiting client reply'),`${q.no} · ${cName(q.clientId)} · ${daysBetween(q.sentAt.slice(0,10),t)} ${L('يوم','days')}`,q.repId,['quote',q.id]));
   if(lead)vis(S.quotes).filter(q=>q.status==='pending'&&q.source!=='import').forEach(q=>push('info','quote',L('عرض سعر ينتظر اعتمادك','Quote needs your approval'),`${q.no} · ${cName(q.clientId)} · ${money(qTotal(q))}`,q.repId,['quote',q.id]));
   vis(S.opps).filter(o=>!['order','lost'].includes(o.stage)&&o.nextDate&&o.nextDate<t).forEach(o=>push('warn','opp',L('فرصة بيع متأخرة المتابعة','Opportunity follow-up overdue'),`${o.title} · ${o.nextStep||''}`,o.repId,['opp',o.id]));
-  vis(S.invoices).filter(i=>(+i.amount)-(+i.paid)>0).forEach(i=>{const due=+i.amount-(+i.paid);const dd=daysBetween(t,i.dueDate);if(dd<0)push('bad','money',L('مبلغ متأخر التحصيل','Overdue collection'),`${i.no} · ${cName(i.clientId)} · ${money(due)} · ${-dd} ${L('يوم تأخير','days late')}`,i.repId,['client',i.clientId])});
+  {const od=new Map();vis(S.invoices).forEach(i=>{const due=i.bal!=null&&i.bal!==''?+i.bal:(+i.amount||0)-(+i.paid||0);if(!(due>0))return;const dd=daysBetween(t,i.dueDate||i.date);if(dd>=0)return;const k=i.clientId||i.clientCode;let o=od.get(k);if(!o){o={c:i.clientId,n:i.cname,r:i.repId,a:0,k:0,m:0};od.set(k,o)}o.a+=due;o.k++;o.m=Math.max(o.m,-dd)});
+   od.forEach(o=>{if(!o.c||o.m<=30&&o.a<1000)return;push(o.m>60?'bad':'warn','money',L('مبالغ متأخرة التحصيل','Overdue receivables'),`${o.c?cName(o.c):o.n||'—'} · ${money(o.a)} · ${o.k} ${L('فاتورة','inv.')} · ${L('أقدمها','oldest')} ${o.m} ${L('يوم','d')}`,o.r,['client',o.c])})}
   vis(S.complaints).filter(c=>c.status!=='closed'&&daysBetween(c.openedAt.slice(0,10),t)>5).forEach(c=>push('bad','complaint',L('شكوى مفتوحة أكثر من 5 أيام','Complaint open 5+ days'),`${cName(c.clientId)} · ${c.desc}`,c.repId,['complaint',c.id]));
   vis(S.samples).filter(s=>s.testResult==='pending'&&s.sentDate&&daysBetween(s.sentDate,t)>14).forEach(s=>push('warn','sample',L('عينة بلا نتيجة اختبار منذ أسبوعين','Sample result pending 2+ weeks'),`${prodName(s.product)} · ${cName(s.consultantId)}`,s.repId,['sample',s.id]));
   vis(S.comms).filter(c=>c.needsReply).forEach(c=>push('warn','comm',L('رسالة عميل تنتظر الرد','Client message awaiting reply'),`${cName(c.clientId)} · ${c.summary}`,c.repId,['comm',c.id]));
@@ -1035,7 +1038,7 @@ function impValidate(){
       if(repId)data.repId=repId;if(status)data.status=status;
       if(has('kind')&&g('kind')!==''){const kd=lookup(KIND_MAP,g('kind'));if(!kd)return rej(L('نوع عميل غير معروف (المسموح Customer أو Lead): ','Unknown kind (Customer or Lead): ')+g('kind'));data.kind=kd}
       if(has('category')&&g('category')!==''){data.category=String(g('category')).trim();const ty=typeOf(data.category);if(ty)data.type=ty}
-      if('histVolume'in nums)data.histVolume=nums.histVolume;if('histValue'in nums)data.histValue=nums.histValue;if('lastTx'in dates)data.lastTxDate=dates.lastTx;
+      if('histVolume'in nums)data.histVolume=nums.histVolume;if('histValue'in nums)data.histValue=nums.histValue;if('lastTx'in dates)data.lastTxDate=dates.lastTx;if('creditLimit'in nums)data.creditLimit=nums.creditLimit;if('payDays'in nums)data.payDays=nums.payDays;
       if(has('sup')&&supByTxt(g('sup')))data.supId=supByTxt(g('sup'));
       const ex=ix.custByCode.get(nc);it.data=data;
       if(ex){const ch=diff(ex,{...ex,...data});if(!Object.keys(ch).length){it.status='same';it.reason=L('بدون تغيير','No change')}else{it.status='update';it.ch=ch;it.id=ex.id;it.reason=Object.keys(ch).join('، ')}}
@@ -1085,6 +1088,7 @@ function impValidate(){
       if(c)data.clientId=c.id;if(q)data.quoteId=q.id;else if(qref)it.note=L('رقم عرض السعر غير موجود في النظام','Quotation ref not found');
       it.data=data;it.amount=data.value;orderRow.set(nn,it);
     }
+    else if(type==='invoices'){invValidate(it,g,nums,dates,seen,rowNo,ix,rej,has)}
     else{ // collections
       const v=String(g('voucher')).trim(),nv=normCode(v);
       if(seen.has(nv)){it.status='dup';it.reason=L(`رقم سند مكرر داخل الملف (السطر ${seen.get(nv)})`,`Duplicate voucher in file (row ${seen.get(nv)})`);return}seen.set(nv,rowNo);
@@ -1103,6 +1107,7 @@ function impValidate(){
       if(!c){it.status='unmatched';it.reason=L('كود العميل غير موجود في البيانات الأساسية — سيُحفظ ويُطابق تلقائياً عند إضافة العميل','Customer code not in master — kept and auto-matched when the customer is added')}
     }
   });
+  if(type==='invoices')invCloseMissing(items,seen,warnings);
   if(type==='orders')orderRow.forEach(it=>{if(it.status!=='new'&&it.status!=='unmatched')return;const ex=S.orders.find(o=>normCode(o.no)===normCode(it.data.no));
     if(ex){const ch=diff(ex,{...ex,...it.data,lines:ex.lines});const lc=JSON.stringify(ex.lines)!==JSON.stringify(it.data.lines);if(lc)ch[L('الأصناف','Lines')]=[String((ex.lines||[]).length),String(it.data.lines.length)];
       if(!Object.keys(ch).length){it.status='same';it.reason=L('الأمر موجود بنفس البيانات','Already imported, unchanged')}else{it.status='update';it.ch=ch;it.id=ex.id;it.reason=Object.keys(ch).join('، ')}}
@@ -1138,6 +1143,8 @@ async function impRun(){
         if(type==='customers'){
           doc=prev?{...prev,...it.data}:{type:'contractor',status:'active',contact:'',phone:'',email:'',district:'',notes:'',repId:'',createdAt:now,createdBy:by,...it.data};
           doc.hist=[...(prev?.hist||[]).slice(-19),{at:now,imp:impId,ch:prev?it.ch:'create'}];
+        }else if(type==='invoices'){
+          doc=prev?{...prev,...it.data}:{source:'import',createdAt:now,createdBy:by,importId:impId,...it.data};
         }else if(type==='items'){
           doc=prev?{...prev,...it.data}:{createdAt:now,createdBy:by,...it.data};
         }else{
@@ -1983,7 +1990,7 @@ REPORTS.push(
 V.imports=()=>{
   if(!canImport())return `<div class="card empty">${L('مركز الاستيراد متاح لمدير النظام ومدير المبيعات.','The import center is available to the system admin and sales manager.')}</div>`;
   const tab=IMP.tab;
-  let h=`<div class="tabs">${[['customers',L('بيانات العملاء','Customer master')],['items',L('الأصناف','Items')],['quotes',L('عروض الأسعار','Quotations')],['orders',L('أوامر البيع','Sales orders')],['collections',L('التحصيل','Collections')],['cols',L('إعداد الأعمدة والسطور','Columns & rows setup')],['history',L('سجل الاستيراد','Import history')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="impTab" data-v="${k}">${l}</button>`).join('')}</div>`;
+  let h=`<div class="tabs">${[['customers',L('بيانات العملاء','Customer master')],['items',L('الأصناف','Items')],['quotes',L('عروض الأسعار','Quotations')],['orders',L('أوامر البيع','Sales orders')],['collections',L('التحصيل','Collections')],['invoices',L('الأرصدة المفتوحة','Open invoices')],['cols',L('إعداد الأعمدة والسطور','Columns & rows setup')],['history',L('سجل الاستيراد','Import history')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="impTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   if(tab==='history')return h+importHistory();
   if(tab==='cols')return h+impColsView();
   const def=impDef(tab);const icfg=impCfg(tab);const st=IMP.step;
@@ -1995,12 +2002,13 @@ V.imports=()=>{
        quotes:L('يتعرّف النظام على العرض برقم العرض: العرض الموجود يُحدَّث ويُحفظ تغييره في سجل العرض، ولا يُكرر.','Quotations are matched by number: existing ones are updated with their change history kept, never duplicated.'),
        items:L('يتعرّف النظام على الصنف بكوده: الصنف الموجود يُحدَّث بدل تكراره. الأصناف تظهر في أوامر البيع وفي صفحة «الأصناف».','Items are matched by code: existing ones are updated, never duplicated.'),
        orders:L('يتعرّف النظام على أمر البيع برقمه. السطور التي تحمل نفس رقم الأمر تُجمع كأصناف داخل أمر واحد، والأمر الموجود يُحدَّث ولا يُكرر. يُربط الأمر بالعميل والمندوب وبعرض السعر إن وُجد رقمه.','Orders are matched by number; rows sharing a number become the lines of one order.'),
+       invoices:L('ارفع تقرير الفواتير المفتوحة كامل من SAP (كل الفروع). الفاتورة تُعرف برقمها وتتحدث بدل ما تتكرر، وأي فاتورة كانت مفتوحة وما عادت في الملف تُقفل كمسددة. يُحسب العمر من تاريخ الاستحقاق، ولو ما فيه فمن تاريخ الفاتورة + مدة سداد العميل.','Upload the full SAP open-items report. Invoices are matched by number; any open invoice missing from the new file is closed as settled.'),
        collections:L('كل سند قبض يُضاف مرة واحدة. الاستيراد الجديد يُلحق بالسجلات السابقة ولا يستبدلها، والسند المكرر أو المتعارض يُستبعد ويظهر لك قبل التأكيد.','Each voucher is added once. New imports append to history, never overwrite it; duplicates and conflicts are excluded and shown before you confirm.')}[tab]}</p>
      <div class="small"><b>${L('الأعمدة','Columns')}:</b> ${def.fields.map(f=>`${L(f.ar,f.en)}${f.req?' <span class="req">*</span>':''}`).join(' · ')}</div>
      <div class="small muted" style="margin-top:6px">${L('سطر العناوين','Header row')}: <b>${+icfg.hdrRow||1}</b> · ${icfg.skipNoKey===false?L('السطور بدون معرّف تُرفض','Rows without a key are rejected'):L('السطور بدون معرّف (مثل الإجمالي) تُتجاهل','Rows without a key (e.g. totals) are ignored')} · <button class="btn s" data-act="impTab" data-v="cols">${L("تعديل الأعمدة والسطور","Edit columns &amp; rows")}</button></div></div>`;
     if(tab==='collections')h+=`<div class="card"><h2>${L('فترة التحصيل','Collection period')}<span class="sub">${L('اختياري: أي سند تاريخه خارج الفترة يُرفض','Optional: vouchers outside it are rejected')}</span></h2><div class="toolbar"><label class="fl" for="imp_from">${L('من','From')} <input type="date" id="imp_from" data-act="impPer" data-k="from" value="${esc(IMP.period?.from||'')}"></label><label class="fl" for="imp_to">${L('إلى','To')} <input type="date" id="imp_to" data-act="impPer" data-k="to" value="${esc(IMP.period?.to||'')}"></label></div></div>`;
     h+=`<label class="dz" id="dropzone" for="impFile"><b>${L('اسحب ملف Excel هنا أو اضغط للاختيار','Drop an Excel file here or click to choose')}</b><span class="small muted">.xlsx · .xls · .csv — ${L(`سطر العناوين رقم ${+icfg.hdrRow||1}، وتقدر تختار الورقة بعد رفع الملف`,`header row ${+icfg.hdrRow||1}; choose the sheet after upload`)}</span><span class="btn p">${L('اختيار ملف','Choose file')}</span></label><input id="impFile" type="file" accept=".xlsx,.xls,.csv" hidden data-act="impFile">
-     <div class="toolbar"><button class="btn" data-act="impTemplate">${L('تنزيل القالب','Download template')}</button>${['items','orders'].includes(tab)?'':`<button class="btn" data-act="impTest">${L('جرّب بملف اختبار جاهز','Try a ready test file')}</button><button class="btn" data-act="impTestDl">${L('تنزيل ملف الاختبار','Download test file')}</button>`}<span class="small muted">${L('ملف الاختبار مبني من بياناتك ويحتوي أخطاء متعمدة (مكرر، ناقص، تاريخ خاطئ، عميل غير موجود) لتتأكد من قواعد التحقق.','The test file is built from your data with deliberate errors to check the validation rules.')}</span></div>`;
+     <div class="toolbar"><button class="btn" data-act="impTemplate">${L('تنزيل القالب','Download template')}</button>${['items','orders','invoices'].includes(tab)?'':`<button class="btn" data-act="impTest">${L('جرّب بملف اختبار جاهز','Try a ready test file')}</button><button class="btn" data-act="impTestDl">${L('تنزيل ملف الاختبار','Download test file')}</button>`}<span class="small muted">${L('ملف الاختبار مبني من بياناتك ويحتوي أخطاء متعمدة (مكرر، ناقص، تاريخ خاطئ، عميل غير موجود) لتتأكد من قواعد التحقق.','The test file is built from your data with deliberate errors to check the validation rules.')}</span></div>`;
     return h;
   }
   if(st==='map'){
@@ -2020,7 +2028,7 @@ V.imports=()=>{
     const ST={new:[L('جديد','New'),'ok'],update:[L('تحديث','Update'),'info'],same:[L('بدون تغيير','No change'),''],dup:[L('مكرر','Duplicate'),'warn'],rej:[L('مرفوض','Rejected'),'bad'],conflict:[L('متعارض','Conflict'),'bad'],unmatched:[L('عميل غير مطابق','Unmatched'),'warn'],skip:[L('متجاهل','Ignored'),''],line:[L('سطر صنف','Item line'),'info']};
     h+=`<div class="kpis k5">${kpiTile(L('إجمالي السجلات','Total rows'),num(c.total))}${kpiTile(L('ستُعالج','To process'),num(c.processed),`${L('جديد','new')} ${c.created} · ${L('تحديث','update')} ${c.updated}${c.same?` · ${L('بلا تغيير','unchanged')} ${c.same}`:''}`)}
      ${kpiTile(L('مكررة','Duplicates'),num(c.duplicates),L('لن تُستورد','will be skipped'))}${kpiTile(L('مرفوضة','Rejected'),num(c.rejected),L('تحتاج تصحيح في الملف','fix in file'))}
-     ${kpiTile(['quotes','collections','orders'].includes(tab)?L('عملاء غير مطابقين','Unmatched customers'):L('المبلغ','Amount'),['customers','items'].includes(tab)?'—':num(c.unmatched),tab==='orders'?`${L('قيمة الأوامر','Orders value')} ${smoney(r.amount)}${c.lines?` · ${c.lines} ${L('سطر صنف إضافي','extra item lines')}`:''}`:tab==='collections'?`${L('إجمالي التحصيل المعالج','Processed total')} ${money(r.amount)}`:tab==='quotes'?`${L('قيمة العروض','Value')} ${smoney(r.amount)}`:'')}</div>
+     ${kpiTile(['quotes','collections','orders','invoices'].includes(tab)?L('عملاء غير مطابقين','Unmatched customers'):L('المبلغ','Amount'),['customers','items'].includes(tab)?'—':num(c.unmatched),tab==='orders'?`${L('قيمة الأوامر','Orders value')} ${smoney(r.amount)}${c.lines?` · ${c.lines} ${L('سطر صنف إضافي','extra item lines')}`:''}`:tab==='collections'?`${L('إجمالي التحصيل المعالج','Processed total')} ${money(r.amount)}`:tab==='quotes'?`${L('قيمة العروض','Value')} ${smoney(r.amount)}`:'')}</div>
      ${c.skipped?`<div class="banner"><span class="sp">${L(`تم تجاهل ${c.skipped} سطر بدون معرّف (مثل سطور الإجمالي أو الفواصل).`,`${c.skipped} rows without a key were ignored (totals or separators).`)}</span></div>`:''}
      ${r.warnings.map(w=>`<div class="banner"><span class="sp">${esc(w)}</span></div>`).join('')}
      ${r.unknownReps.length?`<div class="banner info"><span class="sp">${L('مندوبون في الملف غير مسجلين بالنظام: ','Reps in the file not found in the system: ')}<b>${r.unknownReps.map(x=>esc(x.name)).join('، ')}</b>. ${L('أنشئهم ثم أعد التحقق، أو صحّح أسماءهم في الملف.','Create them and re-validate, or fix the names in the file.')}</span><button class="btn s p" data-act="impMkReps">${L('إنشاء المندوبين وإعادة التحقق','Create reps & re-validate')}</button></div>`:''}
@@ -3554,6 +3562,187 @@ Object.assign(ACT,{kxOpen:d=>{KX.open=KX.open===d.id?'':d.id;render()},kxTargets
   repPrintKpi:()=>{const el=document.querySelector('.kx-t');if(!el)return;printHtmlDoc(L('مؤشرات أداء المندوبين','Rep KPIs'),filterLabel(period()),el.outerHTML)}});
 function printHtmlDoc(title,sub,body){const logo=window.WADY_LOGO_DATA||'';const w=window.open('','_blank');if(!w)return;
   w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}header{display:flex;align-items:center;gap:12px;border-bottom:3px solid #051D48;padding-bottom:6px;margin-bottom:8px}header img{height:40px}h1{font-size:18px;margin:0;color:#051D48}.sub{color:#5A6A82;font-size:10px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #D3DBE6;padding:4px 6px;text-align:start}th{background:#051D48;color:#fff}td.n,th.n{text-align:end}tr.kx-grp td{background:#E8EEF6;font-weight:800}tr.kx-gt td,tfoot td{background:#E3F3E7;font-weight:800}.rk-bar{position:relative;height:12px;background:#EEF2F7;border-radius:3px}.rk-bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;border-radius:3px}.rk-bar span{position:absolute;inset-inline-end:4px;top:-2px;font-size:9px;font-weight:700}button.lnk{all:unset}thead{display:table-header-group}tr{break-inside:avoid}</style></head><body><header>${logo?`<img src="${logo}">`:''}<div><h1>${esc(title)}</h1><div class="sub">${esc(sub)}</div></div></header>${body}<script>setTimeout(()=>print(),400)<\/script></body></html>`);w.document.close()}
+
+/* ============ Receivables: open-invoice import, aging, credit limits, payment reminders, quote print, team visit adherence ============ */
+/* --- import definition: the open-items report from SAP (one row per open invoice) --- */
+IMP_DEF.invoices={ar:'الأرصدة المفتوحة (أعمار الديون)',en:'Open invoices (AR aging)',fields:[
+  F_('no','رقم الفاتورة','Invoice no.',['رقم الفاتورة','رقم المستند','الفاتورة','invoice no','invoice number','docnum','document no','ref'],{req:1}),
+  F_('code','كود العميل','Customer code',['كود العميل','رمز العميل','رقم العميل','customer code','cardcode','bp code'],{req:1}),
+  F_('name','اسم العميل','Customer name',['اسم العميل','العميل','customer name','cardname','bp name']),
+  F_('date','تاريخ الفاتورة','Invoice date',['تاريخ الفاتورة','تاريخ المستند','التاريخ','posting date','docdate','invoice date','date'],{req:1,t:'date'}),
+  F_('due','تاريخ الاستحقاق','Due date',['تاريخ الاستحقاق','الاستحقاق','due date','docduedate','duedate']),
+  F_('amount','قيمة الفاتورة','Invoice amount',['قيمة الفاتورة','المبلغ','الإجمالي','doctotal','invoice amount','amount','total'],{t:'num'}),
+  F_('bal','الرصيد المتبقي','Open balance',['الرصيد المتبقي','المتبقي','الرصيد','المبلغ المفتوح','المبلغ المستحق','open balance','balance due','balance','open amount','paidtodate'],{req:1,t:'num'}),
+  F_('rep','المندوب','Sales rep',['المندوب','مندوب المبيعات','sales representative','sales rep','slpname','salesperson'])]};
+IMP_DEF.invoices.fields.find(f=>f.k==='due').t='date';
+IMP_KEY.invoices='no';IMP_COL.invoices='invoices';
+IMP_EX.invoices={no:'INV-26-9001',code:'CU-9001',name:'مؤسسة مثال للمقاولات',date:'2026-09-01',due:'2026-10-01',amount:120000,bal:45000};
+IMP_DEF.customers.fields.push(F_('creditLimit','حد الائتمان','Credit limit',['حد الائتمان','الحد الائتماني','حد الاعتماد','credit limit','creditline','credit line'],{t:'num'}),
+  F_('payDays','مدة السداد (يوم)','Payment terms (days)',['مدة السداد','شروط الدفع','أيام السداد','فترة السداد','payment terms','paymentterms','pymntgroup','terms days'],{t:'num'}));
+IMP_EX.customers.creditLimit=200000;IMP_EX.customers.payDays=60;
+
+const invBal=i=>i.bal!=null&&i.bal!==''?+i.bal:(+i.amount||0)-(+i.paid||0);
+function invValidate(it,g,nums,dates,seen,rowNo,ix,rej,has){
+  const no=String(g('no')).trim(),nn=normCode(no);
+  if(seen.has(nn)){it.status='dup';it.reason=L(`رقم فاتورة مكرر داخل الملف (السطر ${seen.get(nn)})`,`Duplicate invoice no. in file (row ${seen.get(nn)})`);return}seen.set(nn,rowNo);
+  const bal=nums.bal;if(!bal){it.status='skip';it.reason=L('رصيدها صفر — مسددة','Zero balance — paid');return}
+  const code=String(g('code')).trim();const c=ix.custByCode.get(normCode(code));
+  let repId='';if(has('rep')&&g('rep')!==''){repId=repOf(g('rep'))||'';if(!repId)it.note=L('المندوب غير معرّف، سيُنسب لمندوب العميل','Rep not found; customer rep used')}
+  const amount=nums.amount!=null?nums.amount:bal;
+  let due=dates.due||'';if(!due&&c&&+c.payDays>0)due=addDays(dates.date,+c.payDays);
+  const data={no,clientCode:code,cname:String(g('name')||c?.name||'').trim(),date:dates.date,dueDate:due||dates.date,dueSrc:dates.due?'file':(due?'terms':'date'),amount,bal,paid:amount-bal,repId:repId||c?.repId||'',region:c?.region||''};
+  if(c)data.clientId=c.id;
+  const ex=S.invoices.find(x=>normCode(x.no)===nn);it.data=data;it.amount=bal;
+  if(ex){const ch=diff(ex,{...ex,...data});if(!Object.keys(ch).length){it.status='same';it.reason=L('بدون تغيير','No change')}else{it.status='update';it.ch=ch;it.id=ex.id;it.reason=Object.keys(ch).join('، ')}}
+  else{it.id='inv-'+safeId(no);if(!c){it.status='unmatched';it.reason=L('كود العميل غير موجود — تُحفظ وتظهر باسمها لين يُضاف العميل','Customer code not in master — kept')}}
+}
+/* the file is the full list of what is still open: an open invoice that is no longer in it has been settled */
+function invCloseMissing(items,seen,warnings){
+  const gone=S.invoices.filter(i=>invBal(i)!==0&&!seen.has(normCode(i.no)));if(!gone.length)return;
+  const K=IMP.map.no||'no',N=IMP.map.name||'name';
+  gone.forEach(i=>items.push({row:'—',status:'update',id:i.id,data:{bal:0,paid:+i.amount||0,closedAt:TODAY()},amount:-invBal(i),ch:{[L('الرصيد','Balance')]:[num(invBal(i)),'0']},
+    reason:L('ما عادت موجودة في الملف ← تُعتبر مسددة','No longer in the file → treated as settled'),raw:{[K]:i.no,[N]:i.cname||cName(i.clientId)}}));
+  warnings.push(L(`${gone.length} فاتورة كانت مفتوحة وما هي موجودة في هذا الملف، وراح تُقفل كمسددة. تأكد إن الملف فيه كل الفواتير المفتوحة لكل الفروع وليس جزء منها.`,`${gone.length} previously open invoices are not in this file and will be closed as settled. Make sure the file lists ALL open invoices.`));
+}
+
+/* --- aging engine --- */
+const AG_B=[['cur',()=>L('غير مستحق','Not due')],['b30',()=>L('1–30 يوم','1–30 d')],['b60',()=>L('31–60','31–60')],['b90',()=>L('61–90','61–90')],['b90p',()=>L('+90 يوم','90+ d')]];
+const agBucket=d=>d<=0?'cur':d<=30?'b30':d<=60?'b60':d<=90?'b90':'b90p';
+function agData(){
+  const t=TODAY();const cl=new Map();
+  vis(S.invoices).forEach(i=>{const b=invBal(i);if(!b)return;const key=i.clientId||('code:'+normCode(i.clientCode));
+    let o=cl.get(key);if(!o){const c=i.clientId?byId('clients',i.clientId):null;o={key,c,id:i.clientId||'',code:c?.code||i.clientCode,name:c?.name||i.cname||'—',repId:c?.repId||i.repId||'',lim:+(c?.creditLimit||0),tot:0,od:0,max:0,inv:[],cur:0,b30:0,b60:0,b90:0,b90p:0};cl.set(key,o)}
+    const d=daysBetween(i.dueDate||i.date,t);o[agBucket(d)]+=b;o.tot+=b;if(d>0){o.od+=b;o.max=Math.max(o.max,d)}o.inv.push({...i,b,d})});
+  const rows=[...cl.values()].map(o=>({...o,over:o.lim>0&&o.tot>o.lim,use:o.lim>0?o.tot/o.lim:null})).sort((a,b)=>b.od-a.od||b.tot-a.tot);
+  const sum=k=>rows.reduce((s,o)=>s+o[k],0);
+  const reps=new Map();rows.forEach(o=>{let r=reps.get(o.repId);if(!r){r={id:o.repId,name:o.repId?tName(o.repId):L('بدون مندوب','Unassigned'),n:0,tot:0,od:0,b90p:0,over:0};reps.set(o.repId,r)}r.n++;r.tot+=o.tot;r.od+=o.od;r.b90p+=o.b90p;if(o.over)r.over++});
+  return {rows,reps:[...reps.values()].sort((a,b)=>b.od-a.od),tot:sum('tot'),od:sum('od'),b:Object.fromEntries(AG_B.map(([k])=>[k,sum(k)])),over:rows.filter(o=>o.over).length,last:S.imports.filter(i=>i.type==='invoices'&&i.status==='active').sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]};
+}
+function clientAR(id){const t=TODAY();let tot=0,od=0,max=0;S.invoices.forEach(i=>{if(i.clientId!==id)return;const b=invBal(i);if(!b)return;tot+=b;const d=daysBetween(i.dueDate||i.date,t);if(d>0){od+=b;max=Math.max(max,d)}});
+  const c=byId('clients',id);const lim=+(c?.creditLimit||0);return {tot,od,max,lim,over:lim>0&&tot>lim}}
+function arBanner(id){if(!id)return '';const a=clientAR(id);const m=[];
+  if(a.over)m.push(L(`تجاوز حد الائتمان: الرصيد ${money(a.tot)} والحد ${money(a.lim)}`,`Over credit limit: ${money(a.tot)} vs ${money(a.lim)}`));
+  if(a.max>90)m.push(L(`عليه مبالغ متأخرة أكثر من 90 يوم (${money(a.od)} متأخر)`,`Has amounts 90+ days overdue (${money(a.od)})`));
+  else if(a.od>0)m.push(L(`عليه ${money(a.od)} متأخرة السداد (أقدمها ${a.max} يوم)`,`${money(a.od)} overdue (oldest ${a.max} d)`));
+  return m.length?`<div class="banner ${a.over||a.max>90?'bad':'warn'} ar-ban"><span class="sp">${m.map(esc).join(' · ')}</span></div>`:''}
+
+/* --- reminder message (WhatsApp link; sending automatically needs a WhatsApp Business API account) --- */
+function waPhone(p){let d=String(p||'').replace(/[^\d]/g,'');if(!d)return '';if(d.startsWith('00'))d=d.slice(2);if(d.startsWith('05')&&d.length===10)d='966'+d.slice(1);else if(d.startsWith('5')&&d.length===9)d='966'+d;return d.length>=11?d:''}
+function remindText(o){const nm=o.c?.contact||o.name;const inv=o.inv.filter(i=>i.d>0).sort((a,b)=>b.d-a.d);const r=o.repId?byId('team',o.repId):null;
+  return `السلام عليكم ورحمة الله ${nm}،\nنود تذكيركم بوجود مبالغ مستحقة السداد لصالح مصنع الوادي الأخضر المميز بقيمة ${num(Math.round(o.od))} ريال`+
+    (inv.length?` على ${inv.length===1?'الفاتورة':'الفواتير'} ${inv.slice(0,5).map(i=>i.no).join('، ')}${inv.length>5?' وغيرها':''}، وأقدمها مستحقة منذ ${inv[0].d} يوم`:'')+
+    `.\nنأمل التكرم بالسداد أو التواصل معنا لأي استفسار.\nشاكرين ومقدرين تعاونكم${r?`\n${r.name}${r.phone?' — '+r.phone:''}`:''}`}
+function arRemind(key){const o=agData().rows.find(x=>x.key===key);if(!o)return;const ph=waPhone(o.c?.phone);const msg=remindText(o);
+  openModal(L('تذكير بالسداد','Payment reminder')+' — '+o.name,`<div class="small muted" style="margin-bottom:6px">${ph?L('يفتح واتساب برسالة جاهزة وتراجعها قبل الإرسال.','Opens WhatsApp with the message ready to review.'):L('العميل ما له رقم جوال صالح — انسخ الرسالة وأرسلها يدوياً.','No valid mobile on file — copy the message.')}</div>
+   <textarea id="ar_msg" rows="9" style="width:100%">${esc(msg)}</textarea>
+   <div class="formbar"><button class="btn" data-act="arCopy">${L('نسخ الرسالة','Copy')}</button>${ph?`<button class="btn p" data-act="arWa" data-p="${ph}" data-k="${esc(key)}">${L('فتح واتساب','Open WhatsApp')}</button>`:''}</div>`)}
+async function arLog(key,msg){const o=agData().rows.find(x=>x.key===key);if(!o||!o.id)return;
+  try{await save('comms',{id:uid('cm-'),clientId:o.id,repId:o.repId||me().id,channel:'whatsapp',dir:'out',at:new Date().toISOString(),summary:L('تذكير بالسداد: ','Payment reminder: ')+money(o.od),remind:true,needsReply:false},{silent:true})}catch(e){console.warn(e)}}
+const lastRemind=id=>S.comms.filter(c=>c.clientId===id&&c.remind).map(c=>c.at).sort().pop();
+
+/* --- the aging page --- */
+V.aging=()=>{
+  const D=agData();const rid=fv('agRep','');const fl=fv('agF','od');const q=normTxt(fv('agQ',''));
+  let rows=D.rows.filter(o=>(!rid||o.repId===rid)&&(fl==='all'||fl==='od'&&o.od>0||fl==='b90p'&&o.b90p>0||fl==='over'&&o.over)&&(!q||normTxt(o.name+' '+o.code).includes(q)));
+  if(!D.rows.length&&!S.invoices.length)return `<div class="card empty"><h2>${L('أعمار الديون','AR aging')}</h2><p>${L('ما فيه أرصدة مفتوحة للحين. ارفع تقرير الفواتير المفتوحة من SAP في «مركز استيراد Excel» ← «الأرصدة المفتوحة» (رقم الفاتورة، كود العميل، تاريخ الفاتورة، تاريخ الاستحقاق، الرصيد المتبقي).','No open invoices yet. Import the SAP open-items report from the Excel import center → Open invoices.')}</p>${canImport()?`<button class="btn p" data-act="arGoImp">${L('رفع ملف الأرصدة','Import open invoices')}</button>`:''}</div>`;
+  const reps=visibleReps();const t=TODAY();
+  const bar=AG_B.map(([k,l],n)=>{const v=D.b[k];const w=D.tot>0?Math.max(0,v/D.tot*100):0;return w>0?`<i class="ag-${k}" style="width:${w}%" title="${l()}: ${money(v)}"></i>`:''}).join('');
+  let h=`<div class="toolbar"><select data-act="filtSel" data-k="agRep" aria-label="${L('المندوب','Rep')}">${opt(reps.map(r=>[r.id,r.name]),rid,L('كل المندوبين','All reps'))}</select>
+   <input type="search" placeholder="${L('بحث باسم أو كود العميل','Search customer')}" value="${esc(fv('agQ',''))}" data-act="agQ">
+   ${[['od',L('المتأخر','Overdue')],['b90p',L('+90 يوم','90+')],['over',L('تجاوز الحد','Over limit')],['all',L('الكل','All')]].map(([k,l])=>`<button class="chip ${fl===k?'on':''}" data-act="filt" data-k="agF" data-v="${k}">${l}</button>`).join('')}
+   <span class="grow"></span>${D.last?`<span class="small muted">${L('آخر رفع','Last import')}: ${fdt(D.last.at)}</span>`:''}<button class="btn s" data-act="arXlsx">Excel</button><button class="btn s" data-act="arPrint">${L('طباعة','Print')}</button>${canImport()?`<button class="btn s" data-act="arGoImp">${L('رفع ملف جديد','New file')}</button>`:''}</div>
+  <div class="kpis k5">${kpiTile(L('إجمالي المديونية','Total receivable'),smoney(D.tot),`${num(D.rows.length)} ${L('عميل','customers')}`)}${kpiTile(L('المتأخر','Overdue'),smoney(D.od),`${D.tot?Math.round(D.od/D.tot*100):0}% ${L('من الإجمالي','of total')}`)}
+   ${kpiTile(L('أكثر من 90 يوم','90+ days'),smoney(D.b.b90p),`${D.rows.filter(o=>o.b90p>0).length} ${L('عميل','customers')}`)}${kpiTile(L('تجاوزوا حد الائتمان','Over credit limit'),num(D.over),D.rows.some(o=>o.lim>0)?'':L('ما فيه حدود ائتمان مسجلة','No limits on file'))}
+   ${kpiTile(L('غير مستحق بعد','Not yet due'),smoney(D.b.cur))}</div>
+  <div class="card"><h2>${L('توزيع المديونية حسب العمر','Aging distribution')}</h2><div class="ag-bar">${bar}</div><div class="ag-leg">${AG_B.map(([k,l])=>`<span><i class="ag-${k}"></i>${l()} <b>${smoney(D.b[k])}</b></span>`).join('')}</div></div>`;
+  if(isLead()&&!rid)h+=`<div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:r=>r.id?`<a href="#" data-act="filtSel2" data-k="agRep" data-v="${r.id}">${esc(r.name)}</a>`:esc(r.name)},{l:L('العملاء','Customers'),c:'n',f:r=>num(r.n)},{l:L('المديونية','Receivable'),c:'n',f:r=>money(r.tot)},{l:L('المتأخر','Overdue'),c:'n',f:r=>`<b>${money(r.od)}</b>`},{l:L('+90 يوم','90+'),c:'n',f:r=>r.b90p?`<span class="flag">${money(r.b90p)}</span>`:'—'},{l:L('تجاوز الحد','Over limit'),c:'n',f:r=>r.over||'—'}],D.reps.map(r=>({...r,id:r.id})))}</div>`;
+  const lim=fv('agLim',150);
+  h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)}</span></h2>${table([
+    {l:L('العميل','Customer'),f:o=>`${o.id?`<a href="#" data-open="client" data-id="${o.id}"><b>${esc(o.name)}</b></a>`:`<b>${esc(o.name)}</b> ${pill(L('غير مطابق','Unmatched'),'warn')}`}<div class="small muted">${esc(o.code||'')} · ${esc(o.repId?tName(o.repId):'—')}</div>`},
+    ...AG_B.map(([k,l])=>({l:l(),c:'n',f:o=>o[k]?`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`:'<span class="muted">—</span>'})),
+    {l:L('الإجمالي','Total'),c:'n',f:o=>`<b>${num(Math.round(o.tot))}</b>`},
+    {l:L('حد الائتمان','Limit'),c:'n',f:o=>o.lim?`${num(o.lim)}<div class="small ${o.over?'flag':'muted'}">${Math.round(o.use*100)}%</div>`:'<span class="muted">—</span>'},
+    {l:'',c:'nw',f:o=>{const lr=o.id?lastRemind(o.id):'';return o.od>0?`<button class="btn s" data-act="arRemind" data-k="${esc(o.key)}">${L('تذكير','Remind')}</button>${lr?`<div class="small muted">${L('آخر تذكير','last')} ${fdate(lr.slice(0,10))}</div>`:''}`:''}}],rows.slice(0,lim))}
+   ${rows.length>lim?`<button class="btn s" data-act="filt" data-k="agLim" data-v="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>
+  <div class="small muted">${L('العمر يُحسب من تاريخ الاستحقاق في الملف؛ لو ما فيه، من تاريخ الفاتورة + مدة السداد المسجلة للعميل؛ ولو ما فيه، من تاريخ الفاتورة.','Age counts from the due date in the file; else invoice date + customer terms; else invoice date.')}</div>`;
+  return h;
+};
+function arXlsx(){if(!xlsxOk())return;const D=agData();const H=[L('كود العميل','Code'),L('العميل','Customer'),L('المندوب','Rep'),...AG_B.map(([,l])=>l()),L('الإجمالي','Total'),L('حد الائتمان','Limit'),L('أقدم تأخير (يوم)','Oldest days')];
+  const aoa=[H,...D.rows.map(o=>[o.code,o.name,o.repId?tName(o.repId):'',...AG_B.map(([k])=>Math.round(o[k])),Math.round(o.tot),o.lim||'',o.max||''])];
+  const det=[[L('رقم الفاتورة','Invoice'),L('كود العميل','Code'),L('العميل','Customer'),L('تاريخ الفاتورة','Date'),L('الاستحقاق','Due'),L('القيمة','Amount'),L('المتبقي','Balance'),L('أيام التأخير','Days late')]];
+  D.rows.forEach(o=>o.inv.forEach(i=>det.push([i.no,o.code,o.name,i.date,i.dueDate,+i.amount||'',Math.round(i.b),Math.max(0,i.d)])));
+  xlsxBlob(aoa,L('أعمار الديون','Aging'),[[L('الفواتير','Invoices'),det]]).then(b=>saveFile(`${L('أعمار الديون','AR aging')}-${TODAY()}.xlsx`,b))}
+function arPrint(){const D=agData();const rid=fv('agRep','');const rows=D.rows.filter(o=>!rid||o.repId===rid);
+  const th=`<tr><th>${L('العميل','Customer')}</th><th>${L('المندوب','Rep')}</th>${AG_B.map(([,l])=>`<th>${l()}</th>`).join('')}<th>${L('الإجمالي','Total')}</th><th>${L('الحد','Limit')}</th></tr>`;
+  const tr=rows.map(o=>`<tr><td>${esc(o.name)} <small>${esc(o.code||'')}</small></td><td>${esc(o.repId?tName(o.repId):'')}</td>${AG_B.map(([k])=>`<td class="n">${o[k]?num(Math.round(o[k])):''}</td>`).join('')}<td class="n"><b>${num(Math.round(o.tot))}</b></td><td class="n">${o.lim?num(o.lim):''}</td></tr>`).join('');
+  const sum=`<tr class="tot"><td colspan="2">${L('الإجمالي','Total')}</td>${AG_B.map(([k])=>`<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o[k],0)))}</td>`).join('')}<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o.tot,0)))}</td><td></td></tr>`;
+  printHtmlDoc(L('أعمار الديون','AR aging'),`${rid?tName(rid)+' · ':''}${fdate(TODAY())}`,`<table>${th}${tr}${sum}</table>`)}
+
+/* --- quotation print (A4 portrait, brand header, VAT) --- */
+function qCfg(){return {vat:15,vatOn:true,...((S.settings.find(x=>x.id==='qcfg')||{}))}}
+function qCfgEdit(){const c=qCfg();openForm({title:L('بيانات الشركة في عرض السعر','Company details on quotations'),data:c,
+  extra:`<div class="small muted" style="margin-bottom:8px">${L('اللي تتركه فاضي ما يطلع في العرض.','Blank fields are left off the printout.')}</div>`,fields:[
+  {k:'coName',l:L('اسم الشركة','Company name')},{k:'coNameEn',l:L('الاسم بالإنجليزي','English name')},{k:'vatNo',l:L('الرقم الضريبي','VAT no.')},{k:'crNo',l:L('السجل التجاري','CR no.')},
+  {k:'addr',l:L('العنوان','Address')},{k:'phone',l:L('الهاتف','Phone')},{k:'email',l:L('البريد','Email')},{k:'vat',l:L('نسبة الضريبة %','VAT %'),t:'num'},
+  {k:'vatOn',l:L('الأسعار في العرض','Prices'),t:'check',cl:L('أضف ضريبة القيمة المضافة على الإجمالي','Add VAT on top of the total')},{k:'bank',l:L('بيانات الحساب البنكي (IBAN)','Bank / IBAN'),t:'area'},{k:'foot',l:L('ملاحظة أسفل العرض','Footer note'),t:'area'}],
+  onSave:v=>save('settings',{...c,...v,id:'qcfg'})})}
+function printQuote(id){const q=byId('quotes',id);if(!q)return;const c=byId('clients',q.clientId)||{};const r=byId('team',q.repId)||{};const k=qCfg();const logo=window.WADY_LOGO_DATA||'';
+  const lines=(q.lines||[]).filter(l=>l.product);const sub=lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0);const dsc=sub*(+q.discount||0)/100;const net=sub-dsc;const vat=k.vatOn?net*(+k.vat||0)/100:0;
+  const draft=!['approved','sent','accepted','ordered'].includes(q.status);const m=v=>(+v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const pn=p=>{const x=PRODUCTS.find(z=>z.id===p);return x?x.ar:p};const kv=(a,b)=>b?`<tr><th>${a}</th><td>${esc(b)}</td></tr>`:'';
+  const w=window.open('','_blank');if(!w)return toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(q.no)}</title><style>
+@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:12px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #051D48;padding-bottom:10px}.hd img{height:64px}.hd .co{flex:1}.hd .co b{font-size:17px;color:#051D48;display:block}.hd .co small{color:#555;display:block;line-height:1.6}
+.tt{display:flex;justify-content:space-between;align-items:flex-end;margin:14px 0 10px}.tt h1{margin:0;font-size:22px;color:#051D48}.tt h1 span{display:block;font-size:12px;color:#38AC57;letter-spacing:2px}
+.meta{border-collapse:collapse}.meta th{text-align:right;color:#666;font-weight:500;padding:2px 0 2px 12px}.meta td{font-weight:700}
+.box{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.box>div{border:1px solid #D7DEE8;border-radius:8px;padding:8px 10px}.box h3{margin:0 0 4px;font-size:11px;color:#38AC57}
+.box table{border-collapse:collapse;width:100%}.box th{text-align:right;color:#666;font-weight:500;width:34%;padding:1px 0}.box td{padding:1px 0}
+.ln{width:100%;border-collapse:collapse}.ln th{background:#051D48;color:#fff;padding:7px 6px;font-weight:600;font-size:11px}.ln td{border-bottom:1px solid #E3E8EF;padding:7px 6px}.ln tr:nth-child(even) td{background:#F6F8FB}.n{text-align:left;direction:ltr;white-space:nowrap}
+.tot{display:flex;justify-content:flex-end;margin-top:10px}.tot table{border-collapse:collapse;min-width:270px}.tot td{padding:5px 8px;border-bottom:1px solid #E3E8EF}.tot tr.g td{background:#051D48;color:#fff;font-weight:800;font-size:14px}
+.tr{margin-top:14px;border:1px solid #D7DEE8;border-radius:8px;padding:8px 10px;white-space:pre-wrap;line-height:1.7}.tr h3{margin:0 0 4px;font-size:11px;color:#38AC57}
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px;text-align:center}.sg div{border-top:1px solid #999;padding-top:6px;color:#444}
+.ft{margin-top:20px;border-top:2px solid #38AC57;padding-top:6px;color:#666;font-size:10px;text-align:center}
+.wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:90px;color:rgba(200,0,0,.08);transform:rotate(-25deg);font-weight:900;pointer-events:none}</style></head><body>
+${draft?`<div class="wm">مسودة</div>`:''}
+<div class="hd">${logo?`<img src="${logo}" alt="">`:''}<div class="co"><b>${esc(k.coName||'مصنع الوادي الأخضر المميز')}</b>${k.coNameEn?`<small dir="ltr" style="text-align:right">${esc(k.coNameEn)}</small>`:''}<small>${[k.vatNo&&'الرقم الضريبي: '+k.vatNo,k.crNo&&'س.ت: '+k.crNo].filter(Boolean).map(esc).join(' · ')}</small><small>${[k.addr,k.phone,k.email].filter(Boolean).map(esc).join(' · ')}</small></div></div>
+<div class="tt"><h1>عرض سعر<span>QUOTATION</span></h1><table class="meta"><tr><th>رقم العرض</th><td>${esc(q.no)}</td></tr><tr><th>التاريخ</th><td>${fdate((q.sentAt||q.approvedAt||q.createdAt||'').slice(0,10)||TODAY())}</td></tr>${q.validUntil?`<tr><th>صالح حتى</th><td>${fdate(q.validUntil)}</td></tr>`:''}</table></div>
+<div class="box"><div><h3>العميل</h3><table>${kv('الاسم',c.name)}${kv('الكود',c.code)}${kv('المسؤول',c.contact)}${kv('الجوال',c.phone)}${kv('الرقم الضريبي',c.vatNo)}${kv('المدينة',[c.city,c.district].filter(Boolean).join(' - '))}</table></div>
+<div><h3>مقدم العرض</h3><table>${kv('مندوب المبيعات',r.name)}${kv('الجوال',r.phone)}${kv('البريد',r.email)}${q.oppId?kv('الفرصة',byId('opps',q.oppId)?.title):''}</table></div></div>
+<table class="ln"><tr><th>#</th><th style="text-align:right">الصنف</th><th>المقاس</th><th>اللون</th><th>الكمية</th><th>الوحدة</th><th>سعر الوحدة</th><th>الإجمالي</th></tr>
+${lines.map((l,n)=>`<tr><td>${n+1}</td><td><b>${esc(pn(l.product))}</b></td><td>${esc(l.size||'')}</td><td>${esc(l.color||'')}</td><td class="n">${num(+l.qty||0)}</td><td>${esc(l.unit||'')}</td><td class="n">${m(+l.price||0)}</td><td class="n"><b>${m((+l.qty||0)*(+l.price||0))}</b></td></tr>`).join('')}</table>
+<div class="tot"><table><tr><td>الإجمالي قبل الخصم</td><td class="n">${m(sub)}</td></tr>${dsc?`<tr><td>الخصم ${+q.discount}%</td><td class="n">- ${m(dsc)}</td></tr><tr><td>الصافي</td><td class="n">${m(net)}</td></tr>`:''}${k.vatOn?`<tr><td>ضريبة القيمة المضافة ${+k.vat}%</td><td class="n">${m(vat)}</td></tr>`:''}<tr class="g"><td>الإجمالي ${k.vatOn?'شامل الضريبة':''} (ر.س)</td><td class="n">${m(net+vat)}</td></tr></table></div>
+${q.terms?`<div class="tr"><h3>الشروط والأحكام</h3>${esc(q.terms)}</div>`:''}${q.notes?`<div class="tr"><h3>ملاحظات</h3>${esc(q.notes)}</div>`:''}${k.bank?`<div class="tr"><h3>بيانات التحويل البنكي</h3>${esc(k.bank)}</div>`:''}
+<div class="sg"><div>توقيع وختم الشركة</div><div>موافقة العميل (الاسم والتوقيع والختم)</div></div>
+${k.foot?`<div class="ft">${esc(k.foot)}</div>`:''}
+<script>window.onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
+/* print + company-details buttons in the quotation drawer */
+{const _q=OPEN.quote;OPEN.quote=(id,refresh)=>{_q(id,refresh);const q=byId('quotes',id);if(!q||q.source==='import')return;
+  const tb=document.querySelector('#mbody .toolbar');if(tb&&!tb.querySelector('[data-act="qPrint"]')){tb.insertAdjacentHTML('beforeend',`<button class="btn" data-act="qPrint" data-id="${id}">${L('طباعة / PDF','Print / PDF')}</button>${isLead()?`<button class="btn s" data-act="qCfg" title="${L('بيانات الشركة في العرض','Company details')}">⚙</button>`:''}`)}}}
+/* credit warnings: client drawer and new quotation form */
+{const _c=OPEN.client;if(_c)OPEN.client=(id,refresh)=>{_c(id,refresh);const b=arBanner(id);if(!b)return;const mb=document.getElementById('mbody');if(mb&&!mb.querySelector('.ar-ban'))mb.insertAdjacentHTML('afterbegin',b)}}
+{const _e=editQuote;editQuote=function(id,preset){_e(id,preset);const f=document.getElementById('theform');if(!f)return;const sel=f.querySelector('[name="clientId"]');
+  const put=v=>{f.querySelector('.ar-ban')?.remove();const b=arBanner(v);if(b)f.insertAdjacentHTML('afterbegin',b)};put((sel&&sel.value)||(id?byId('quotes',id)?.clientId:preset?.clientId));sel?.addEventListener('change',()=>put(sel.value))}}
+
+/* --- visit plan: team adherence for supervisors --- */
+{const _p=V.plan;V.plan=()=>{const h=_p();if(!isLead())return h;
+  const ws=fv('planWeek',weekStart(TODAY()));const we=addDays(ws,6);const t=TODAY();
+  const rows=visibleReps().map(r=>{const vs=S.visits.filter(v=>v.repId===r.id&&v.date>=ws&&v.date<=we);const pl=vs.filter(v=>v.planned!==false);const done=vs.filter(v=>v.status==='done');
+    const far=done.filter(v=>visitFlags(v).some(f=>f[0]==='far')).length;const nogps=done.filter(v=>!v.checkIn||v.checkIn.src!=='gps').length;
+    const missed=vs.filter(v=>v.status==='planned'&&v.date<t).length;return {r,pl:pl.length,done:done.length,unpl:done.filter(v=>v.planned===false).length,far,nogps,missed,pct:pl.length?Math.round(pl.filter(v=>v.status==='done').length/pl.length*100):null}});
+  if(!rows.some(x=>x.pl||x.done))return h;
+  const card=`<div class="card"><h2>${L('التزام الفريق بخطة هذا الأسبوع','Team adherence this week')}<span class="sub">${fdate(ws)} – ${fdate(addDays(ws,4))}</span></h2>${table([
+    {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filtSel2" data-k="planRep" data-v="${x.r.id}">${esc(x.r.name)}</a>`},{l:L('مخطط','Planned'),c:'n',f:x=>x.pl},{l:L('منفذ','Done'),c:'n',f:x=>x.done},
+    {l:L('خارج الخطة','Unplanned'),c:'n',f:x=>x.unpl||'—'},{l:L('فائتة','Missed'),c:'n',f:x=>x.missed?`<span class="flag">${x.missed}</span>`:'—'},{l:L('بعيدة عن الموقع','Off-site'),c:'n',f:x=>x.far?`<span class="flag">${x.far}</span>`:'—'},{l:L('بدون GPS','No GPS'),c:'n',f:x=>x.nogps||'—'},
+    {l:L('الالتزام','Adherence'),c:'n',f:x=>x.pct==null?'—':pill(x.pct+'%',x.pct>=80?'ok':x.pct>=50?'warn':'bad')}],rows.sort((a,b)=>(a.pct??101)-(b.pct??101)))}</div>`;
+  const i=h.indexOf('<div class="week">');return i<0?h+card:h.slice(0,i)+card+h.slice(i)}}
+
+NAV.splice(NAV.findIndex(n=>n[0]==='collections')+1,0,['aging','coin',()=>L('أعمار الديون','AR aging'),ALL]);
+Object.assign(ACT,{arRemind:d=>arRemind(d.k),arXlsx:()=>arXlsx(),arPrint:()=>arPrint(),arGoImp:()=>{IMP.tab='invoices';IMP.step='pick';location.hash='imports'},
+  arCopy:()=>{const t=document.getElementById('ar_msg');if(!t)return;t.select();navigator.clipboard?.writeText(t.value).then(()=>toast(L('تم النسخ','Copied')),()=>document.execCommand('copy'))},
+  arWa:d=>{const t=document.getElementById('ar_msg')?.value||'';window.open(`https://wa.me/${d.p}?text=${encodeURIComponent(t)}`,'_blank','noopener');arLog(d.k,t);closeModal()},
+  agQ:()=>{},filtSel2:d=>{F[d.k]=d.v;render();scrollTo(0,0)},qPrint:d=>printQuote(d.id),qCfg:()=>qCfgEdit()});
+document.addEventListener('input',e=>{const a=e.target;if(a&&a.dataset&&a.dataset.act==='agQ'){clearTimeout(a._t);a._t=setTimeout(()=>{F.agQ=a.value;render();const n=document.querySelector('[data-act="agQ"]');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}},350)}});
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
