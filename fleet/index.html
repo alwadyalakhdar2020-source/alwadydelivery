@@ -2647,6 +2647,111 @@ document.addEventListener("click",e=>{const pi=e.target.closest("[data-pod]");if
   if(a==="link")f3Link(b.dataset.veh);else if(a==="trip")f3Trip(b.dataset.lane,+b.dataset.no);else if(a==="pod")f3Pod(b.dataset.id);else if(a==="area")f3Area();else if(a==="copy")f3copy(b.dataset.t);else if(a==="fuelimp")f3FuelImport()},true);
 (function(){const s=document.createElement("style");s.textContent=".podi{cursor:pointer;margin-inline-end:4px}.f3-lk{margin-inline-start:auto}.f3g{margin:8px 0;padding:10px}tr.neg td{background:#FDECEA}";document.head.appendChild(s)})();
 
+/* ===== Fleet: breakdown analysis (types, chart, rate per vehicle) + KPI period comparison ===== */
+const FA={on:false,from:addDays(today(),-89),to:today(),rows:null,busy:false,charts:{}};
+const FA_KW=[["زيت|تهريب زيت|oil","تهريب / زيوت"],["رديتر|حرار|تبريد|ماء","تبريد وحرارة"],["بطاري|تشغيل|سلف|دينمو","بطارية وتشغيل"],["كفر|إطار|بنشر|تاير","إطارات"],["فرامل|بريك|هوب","فرامل"],["هيدرول|ونش|رافعة|كرين|ذراع","هيدروليك / ونش"],["مكيف|تكييف","تكييف"],["قير|جير|كلتش|دبرياج|عمود","ناقل الحركة"],["مكين|محرك|ماطور|بستم","محرك"],["كهرب|فيوز|لمبة|اضاء|إضاء|سلك","كهرباء"],["حادث|صدم|اصطدام","حادث"],["سطحة|صندوق|بودي|هيكل|لحام","الهيكل / السطحة"]];
+const faKw=t=>{t=String(t||"");for(const [re,l] of FA_KW)if(new RegExp(re,"i").test(t))return l;return "غير محدد من الوصف"};
+const faDays=(a,b)=>Math.max(0,diffDays(a,b)+1);
+async function faLoad(){FA.busy=true;try{FA.rows=await api("fleet_maint_list",{f:{from:FA.from,to:FA.to,branch:S2.mnt.branch||"",vehicle:S2.mnt.vehicle||""}})||[]}catch(e){toast(errMsg(e),"err");FA.rows=[]}FA.busy=false;paintMaint()}
+function faCompute(){
+  const T=today(),from=FA.from,to=FA.to<T?FA.to:T,L=faDays(from,to);const R=(FA.rows||[]).filter(m=>m.opened_on<=to&&(m.closed_on||T)>=from);
+  const down=m=>faDays(m.opened_on<from?from:m.opened_on,(m.closed_on||T)>to?to:(m.closed_on||T));
+  const types={};R.forEach(m=>{const k=m.category||"أخرى";const o=types[k]=types[k]||{k,n:0,d:0,veh:new Set(),open:0};o.n++;o.d+=down(m);o.veh.add(m.vehicle_id);if(m.status!=="closed")o.open++});
+  const other={};R.filter(m=>(m.category||"أخرى")==="أخرى").forEach(m=>{const k=faKw(m.description+" "+(m.notes||""));other[k]=(other[k]||0)+1});
+  const vs=[...S.vehicles].filter(v=>v.active!==false&&(!S2.mnt.branch||v.branch===S2.mnt.branch)&&(!S2.mnt.vehicle||v.id===S2.mnt.vehicle));
+  const veh=vs.map(v=>{const ms=R.filter(m=>m.vehicle_id===v.id).sort((a,b)=>a.opened_on<b.opened_on?-1:1);const dd=ms.reduce((s,m)=>s+down(m),0);
+    const tc={};ms.forEach(m=>{tc[m.category||"أخرى"]=(tc[m.category||"أخرى"]||0)+1});const top=Object.entries(tc).sort((a,b)=>b[1]-a[1])[0];
+    const gaps=[];for(let i=1;i<ms.length;i++)gaps.push(diffDays(ms[i-1].closed_on||ms[i-1].opened_on,ms[i].opened_on));
+    return {v,n:ms.length,dd,rate:L?Math.min(1,dd/L):0,per30:L?ms.length/L*30:0,mtbf:gaps.length?gaps.reduce((s,x)=>s+x,0)/gaps.length:null,top:top?top[0]:"",open:ms.some(m=>m.status!=="closed")}}).sort((a,b)=>b.rate-a.rate||b.n-a.n);
+  const tot={n:R.length,d:R.reduce((s,m)=>s+down(m),0),veh:new Set(R.map(m=>m.vehicle_id)).size,fleet:vs.length,L};
+  tot.avail=vs.length&&L?1-tot.d/(vs.length*L):null;
+  return {types:Object.values(types).sort((a,b)=>b.n-a.n),other:Object.entries(other).sort((a,b)=>b[1]-a[1]),veh,tot,from,to}
+}
+function faHtml(){
+  if(!FA.rows){if(!FA.busy)setTimeout(faLoad,0);return `<div class="panel empty">جاري تحميل الأعطال…</div>`}
+  const X=faCompute(),t=X.tot;const k=(l,v,c,s="")=>`<div class="kpi" style="--c:${c}"><span class="l">${l}</span><span class="v">${v}</span>${s?`<span class="d">${s}</span>`:""}</div>`;
+  return `<div class="panel"><div class="filters"><label class="f">من<input type="date" id="fa-from" value="${FA.from}"></label><label class="f">إلى<input type="date" id="fa-to" value="${FA.to}"></label>
+     <div class="row">${[[30,"30 يوم"],[90,"90 يوم"],[180,"6 أشهر"],[365,"سنة"]].map(([n,l])=>`<button class="btn sm ${diffDays(FA.from,FA.to)+1===n&&FA.to===today()?"primary":""}" data-fa-days="${n}">${l}</button>`).join("")}<button class="btn sm" id="fa-xls">تصدير Excel</button></div></div>
+     <p class="small muted" style="margin:6px 0 0">الفرع والسيارة من الفلتر فوق. أيام التعطل = الأيام اللي كانت فيها السيارة في الصيانة داخل الفترة. نسبة التعطل = أيام التعطل ÷ أيام الفترة.</p></div>
+   <div class="kpis">${k("عدد الأعطال",fmt(t.n),"var(--red)",`${t.veh} سيارة من ${t.fleet}`)}${k("أيام التعطل",fmt(t.d),"var(--orange)",`خلال ${t.L} يوم`)}${k("جاهزية الأسطول",t.avail==null?"—":pct(t.avail,1),"var(--green)","نسبة الأيام اللي كانت فيها السيارات جاهزة")}${k("متوسط مدة الإصلاح",t.n?fmt(t.d/t.n,1)+" يوم":"—","var(--navy-ink)")}</div>
+   ${!t.n?`<div class="panel empty">ما فيه أعطال في الفترة.</div>`:`<div class="grid2">
+    <div class="panel"><h2>أنواع الأعطال <span class="q">العدد وأيام التعطل</span></h2><div class="chart"><canvas id="fa-types"></canvas></div></div>
+    <div class="panel"><h2>نسبة التعطل لكل سيارة <span class="q">الأعلى 15</span></h2><div class="chart tall"><canvas id="fa-veh"></canvas></div></div></div>
+   <div class="panel"><h2>تفصيل أنواع الأعطال</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">النوع</th><th>العدد</th><th>النسبة من الأعطال</th><th>أيام التعطل</th><th>متوسط مدة الإصلاح</th><th>سيارات تأثرت</th><th>مفتوحة الآن</th></tr></thead><tbody>
+    ${X.types.map(o=>`<tr><td class="txt"><b>${esc(o.k)}</b></td><td>${o.n}</td><td>${pct(o.n/t.n,0)}</td><td>${fmt(o.d)}</td><td>${fmt(o.d/o.n,1)} يوم</td><td>${o.veh.size}</td><td>${o.open||"—"}</td></tr>`).join("")}</tbody></table></div>
+    ${X.other.length?`<p class="small" style="margin:8px 0 0"><b>«أخرى» من وصف العطل (تقديري):</b> ${X.other.map(([l,n])=>`${esc(l)} (${n})`).join("، ")}. اختيار النوع الصحيح عند فتح الطلب يخلي التحليل أدق.</p>`:""}</div>
+   <div class="panel"><h2>الأعطال لكل سيارة</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th><th>عدد الأعطال</th><th>أيام التعطل</th><th>نسبة التعطل</th><th>أعطال لكل 30 يوم</th><th>متوسط الأيام بين عطلين</th><th class="txt">أكثر نوع</th></tr></thead><tbody>
+    ${X.veh.filter(r=>r.n).map(r=>`<tr${r.rate>=.2?' class="neg"':""}><td class="txt"><b>${esc(vehLabel(r.v))}</b>${r.open?' <span class="tag">في الصيانة</span>':""}</td><td>${esc(r.v.branch||"")}</td><td>${r.n}</td><td>${fmt(r.dd)}</td><td><b>${pct(r.rate,1)}</b></td><td>${fmt(r.per30,1)}</td><td>${r.mtbf==null?"—":fmt(r.mtbf,0)+" يوم"}</td><td class="txt">${esc(r.top)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="small muted" style="margin:6px 0 0">${X.veh.filter(r=>!r.n).length} سيارة بدون أعطال في الفترة. الصفوف الحمراء: متعطلة 20% من الفترة أو أكثر.</p></div>`}`;
+}
+function faCharts(){for(const k in FA.charts){try{FA.charts[k].destroy()}catch(e){}}FA.charts={};if(!FA.rows||!window.Chart)return;const X=faCompute();if(!X.tot.n)return;
+  const a=$("#fa-types"),b=$("#fa-veh");
+  if(a)FA.charts.t=new Chart(a,{type:"bar",data:{labels:X.types.map(o=>o.k),datasets:[{label:"عدد الأعطال",data:X.types.map(o=>o.n),backgroundColor:"#E0533D",yAxisID:"y"},{label:"أيام التعطل",data:X.types.map(o=>o.d),backgroundColor:"#F2C14E",yAxisID:"y1"}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{y:{beginAtZero:true,title:{display:true,text:"عدد"},ticks:{precision:0}},y1:{beginAtZero:true,position:"right",grid:{drawOnChartArea:false},title:{display:true,text:"أيام"}}}}});
+  const V=X.veh.filter(r=>r.n).slice(0,15);
+  if(b)FA.charts.v=new Chart(b,{type:"bar",data:{labels:V.map(r=>vehLabel(r.v)),datasets:[{label:"نسبة التعطل %",data:V.map(r=>+(r.rate*100).toFixed(1)),backgroundColor:V.map(r=>r.rate>=.2?"#B42318":r.rate>=.1?"#F08A3C":"#F2C14E")}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:c=>`${V[c.dataIndex].n} عطل · ${V[c.dataIndex].dd} يوم`}}},scales:{x:{beginAtZero:true,ticks:{callback:v=>v+"%"}}}}});
+}
+{const _pm=paintMaint;paintMaint=function(){const el=$("#v-maint");if(!el||S.view!=="maint")return _pm.apply(this,arguments);
+  if(!FA.on){_pm.apply(this,arguments);const h=el.querySelector(".panel .row");if(h&&!el.querySelector("#fa-tabs"))el.querySelector(".panel").insertAdjacentHTML("afterbegin",`<div class="row" id="fa-tabs" style="margin-bottom:8px"><button class="btn sm primary">الطلبات</button><button class="btn sm" data-fa-on="1">تحليل الأعطال</button></div>`);return}
+  _pm.apply(this,arguments);const keep=el.querySelector(".panel");const filt=keep.querySelector(".filters");
+  el.innerHTML=`<div class="panel"><div class="row" id="fa-tabs" style="margin-bottom:8px"><button class="btn sm" data-fa-on="0">الطلبات</button><button class="btn sm primary">تحليل الأعطال</button></div><h2 style="margin:0">تحليل الأعطال</h2>${filt?filt.outerHTML:""}</div>`+faHtml();
+  const st=el.querySelector("#mt-st");if(st)st.closest("label").style.display="none";faCharts()}}
+document.addEventListener("click",e=>{const on=e.target.closest("[data-fa-on]");if(on){FA.on=on.dataset.faOn==="1";paintMaint();return}
+  const d=e.target.closest("[data-fa-days]");if(d){FA.to=today();FA.from=addDays(FA.to,-(+d.dataset.faDays-1));FA.rows=null;paintMaint();return}
+  if(e.target.id==="fa-xls"&&FA.rows){const X=faCompute();exportXLSX(`تحليل-الأعطال-${X.from}-${X.to}.xlsx`,{"حسب النوع":X.types.map(o=>({"النوع":o.k,"العدد":o.n,"النسبة %":+(o.n/X.tot.n*100).toFixed(1),"أيام التعطل":o.d,"متوسط مدة الإصلاح":+(o.d/o.n).toFixed(1),"سيارات تأثرت":o.veh.size})),
+    "حسب السيارة":X.veh.map(r=>({"السيارة":vehLabel(r.v),"الفرع":r.v.branch||"","عدد الأعطال":r.n,"أيام التعطل":r.dd,"نسبة التعطل %":+(r.rate*100).toFixed(1),"أعطال لكل 30 يوم":+r.per30.toFixed(2),"متوسط الأيام بين عطلين":r.mtbf==null?"":Math.round(r.mtbf),"أكثر نوع":r.top})),
+    "الطلبات":FA.rows.map(m=>({"رقم":m.id,"السيارة":laneName(m.vehicle_id),"الفرع":m.branch,"النوع":m.category,"الوصف":m.description,"تاريخ العطل":m.opened_on,"تاريخ الرجوع":m.closed_on||"","المدة":m.days}))})}},true);
+document.addEventListener("change",e=>{if(e.target.id==="fa-from"||e.target.id==="fa-to"){const f=$("#fa-from").value,t=$("#fa-to").value;if(f&&t&&f<=t){FA.from=f;FA.to=t;FA.rows=null;paintMaint()}}
+  if(FA.on&&["mt-br","mt-veh"].includes(e.target.id)){FA.rows=null;setTimeout(paintMaint,0)}});
+
+/* ---------- KPI period comparison (dashboard) ---------- */
+const PC={mode:"prev",cf:"",ct:"",cache:{},busy:false};
+const PC_MODES=[["prev","الفترة السابقة المماثلة"],["month","نفس الفترة من الشهر الماضي"],["year","نفس الفترة من السنة الماضية"],["custom","فترة مخصصة"],["m6","آخر 6 أشهر (شهرياً)"],["w8","آخر 8 أسابيع (أسبوعياً)"]];
+const addMonthsIso=(iso,n)=>{const [y,m,d]=iso.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1+n,1));const last=new Date(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth()+1,0)).getUTCDate();return isoOf(new Date(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth(),Math.min(d,last))))};
+async function pcEntries(from,to){if(S.demo)return getDay;const k=from+"|"+to;if(PC.cache[k])return PC.cache[k];const rows=await api("fleet_entries",{p_from:from,p_to:to})||[];const m={};
+  rows.forEach(r=>{const d=Object.assign({},r.data);delete d.by;delete d.at;const key=r.vehicle_id+"|"+r.day.slice(0,7);(m[key]=m[key]||{})[r.day.slice(8)]=d});return PC.cache[k]=getDayFrom(m)}
+function pcAgg(from,to,gd){const c=cfg(),t=localToday();const vs=scopeVehicles();const A=vs.reduce((X,v)=>addAgg(X,aggVehicle(c,v,from,to,gd,t)),emptyAgg(c.reasons.length));
+  const ext=S.f.vehicle!=="الكل"?null:carrierSum(from,to,S.f.branch);const per=vs.map(v=>{const x=aggVehicle(c,v,from,to,gd,t);return {v,adj:ratio(x.a,x.t-x.ext),t:x.t}});
+  return {from,to,A,ach:ratio(A.a,A.t),adj:ratio(A.a,A.t-A.ext),ext,per}}
+function pcPeriods(){const f=S.f.from,t=S.f.to,L=diffDays(f,t)+1;
+  if(PC.mode==="prev")return [[addDays(f,-L),addDays(f,-1)]];if(PC.mode==="month")return [[addMonthsIso(f,-1),addMonthsIso(t,-1)]];if(PC.mode==="year")return [[addMonthsIso(f,-12),addMonthsIso(t,-12)]];
+  if(PC.mode==="custom")return PC.cf&&PC.ct&&PC.cf<=PC.ct?[[PC.cf,PC.ct]]:[];
+  const T=localToday();if(PC.mode==="m6"){const out=[];for(let i=5;i>=0;i--){const s=addMonthsIso(T.slice(0,7)+"-01",-i);const e=i?addDays(addMonthsIso(s,1),-1):T;out.push([s,e])}return out}
+  const out=[];const wd=new Date(T+"T12:00:00Z").getUTCDay();const sat=addDays(T,-((wd+1)%7));for(let i=7;i>=0;i--){const s=addDays(sat,-7*i);out.push([s,i?addDays(s,6):T])}return out}
+async function pcRun(){const box=$("#pc-out");if(!box)return;PC.busy=true;box.innerHTML=`<div class="empty">جاري الحساب…</div>`;
+  try{const trend=PC.mode==="m6"||PC.mode==="w8";const ps=pcPeriods();if(!ps.length){box.innerHTML=`<div class="empty">اختر فترة المقارنة.</div>`;return}
+    const span=[trend?ps[0][0]:[S.f.from,ps[0][0]].sort()[0],trend?ps[ps.length-1][1]:[S.f.to,ps[0][1]].sort().pop()];
+    const gd=await pcEntries(span[0],span[1]);
+    if(trend){const R=ps.map(([a,b])=>pcAgg(a,b,gd));box.innerHTML=pcTrendHtml(R);pcTrendChart(R)}
+    else{const cur=pcAgg(S.f.from,S.f.to,gd),prv=pcAgg(ps[0][0],ps[0][1],gd);box.innerHTML=pcPairHtml(cur,prv)}}
+  catch(e){box.innerHTML=`<div class="empty">${esc(errMsg(e))}</div>`}finally{PC.busy=false}}
+const pcCh=(c,p,good="up",isPct=false)=>{if(c==null||p==null)return `<td>—</td><td>—</td>`;const d=c-p;const r=isPct?null:(p?d/p:null);const better=good==="up"?d>0:d<0;const cls=d===0?"":better?"up":"down";
+  return `<td class="${cls}">${d===0?"0":(d>0?"▲ ":"▼ ")+(isPct?Math.abs(d*100).toFixed(1)+" نقطة":fmt(Math.abs(d),1))}</td><td class="${cls}">${isPct?"—":r==null?"—":(r>0?"+":"")+(r*100).toFixed(0)+"%"}</td>`};
+function pcPairHtml(C,P){const c=cfg();const rowsK=[["المستهدف (رد)",C.A.t,P.A.t,"up"],["المحقق (رد)",C.A.a,P.A.a,"up"],["نسبة التحقيق",C.ach,P.ach,"up",1],["التحقيق المعدّل ★",C.adj,P.adj,"up",1],["عجز غير مبرر (رد)",C.A.gap,P.A.gap,"down"],["المفقود لأسباب خارجية",C.A.ext,P.A.ext,"down"],["المفقود لأسباب داخلية",C.A.int,P.A.int,"down"],["أيام عمل بدون تسجيل",C.A.missing,P.A.missing,"down"],...(C.ext!=null?[["الناقل الخارجي (رد)",C.ext,P.ext,"down"]]:[])];
+  const reasons=c.reasons.map((r,i)=>[r.name,C.A.rec[i],P.A.rec[i],"down"]).filter(x=>x[1]||x[2]);
+  const fv=(v,isP)=>v==null?"—":isP?pct(v):fmt(v,1);
+  const tr=x=>`<tr><td class="txt">${esc(x[0])}</td><td><b>${fv(x[1],x[4])}</b></td><td>${fv(x[2],x[4])}</td>${pcCh(x[1],x[2],x[3],!!x[4])}</tr>`;
+  const mv=C.per.map(r=>{const p=P.per.find(x=>x.v.id===r.v.id);return {v:r.v,c:r.adj,p:p?p.adj:null}}).filter(x=>x.c!=null&&x.p!=null).map(x=>({...x,d:x.c-x.p})).sort((a,b)=>b.d-a.d);
+  const up=mv.filter(x=>x.d>0).slice(0,5),dn=mv.filter(x=>x.d<0).slice(-5).reverse();
+  return `<p class="small muted">الحالية: ${fd(C.from)} ← ${fd(C.to)} · المقارنة: ${fd(P.from)} ← ${fd(P.to)}. الأخضر تحسّن والأحمر تراجع (للعجز والمفقود: النزول تحسّن).</p>
+   <div class="tbl-wrap"><table><thead><tr><th class="txt">المؤشر</th><th>الفترة الحالية</th><th>فترة المقارنة</th><th>الفرق</th><th>معدل التغيير</th></tr></thead><tbody>${rowsK.map(tr).join("")}
+   ${reasons.length?`<tr><td class="txt" colspan="5"><b>أسباب عدم التحقيق (رد)</b></td></tr>${reasons.map(tr).join("")}`:""}</tbody></table></div>
+   ${mv.length?`<div class="grid2" style="margin-top:10px"><div><h3 style="font-size:14px">أكثر السيارات تحسناً</h3>${up.length?`<table><tbody>${up.map(x=>`<tr><td class="txt">${esc(vehLabel(x.v))}</td><td>${pct(x.p,0)} ← <b>${pct(x.c,0)}</b></td><td class="up">▲ ${(x.d*100).toFixed(0)} نقطة</td></tr>`).join("")}</tbody></table>`:`<p class="small muted">لا يوجد</p>`}</div>
+    <div><h3 style="font-size:14px">أكثر السيارات تراجعاً</h3>${dn.length?`<table><tbody>${dn.map(x=>`<tr><td class="txt">${esc(vehLabel(x.v))}</td><td>${pct(x.p,0)} ← <b>${pct(x.c,0)}</b></td><td class="down">▼ ${(Math.abs(x.d)*100).toFixed(0)} نقطة</td></tr>`).join("")}</tbody></table>`:`<p class="small muted">لا يوجد</p>`}</div></div>`:""}`}
+function pcTrendHtml(R){const lab=(r)=>PC.mode==="m6"?r.from.slice(0,7):`${fd(r.from)}`;
+  return `<div class="chart tall"><canvas id="pc-ch"></canvas></div><div class="tbl-wrap"><table><thead><tr><th class="txt">الفترة</th><th>المستهدف</th><th>المحقق</th><th>نسبة التحقيق</th><th>التحقيق المعدّل</th><th>التغيير عن السابقة</th><th>عجز غير مبرر</th><th>أيام بدون تسجيل</th></tr></thead><tbody>
+   ${R.map((r,i)=>{const p=R[i-1];const d=p&&r.adj!=null&&p.adj!=null?r.adj-p.adj:null;return `<tr><td class="txt">${lab(r)}${r.to===localToday()?' <span class="small muted">(حتى اليوم)</span>':""}</td><td>${fmt(r.A.t)}</td><td>${fmt(r.A.a)}</td><td>${pct(r.ach)}</td><td><b>${pct(r.adj)}</b></td><td class="${d==null?"":d>=0?"up":"down"}">${d==null?"—":(d>=0?"▲ ":"▼ ")+Math.abs(d*100).toFixed(1)+" نقطة"}</td><td>${fmt(r.A.gap,1)}</td><td>${r.A.missing}</td></tr>`}).join("")}</tbody></table></div>`}
+function pcTrendChart(R){try{S.charts.pc&&S.charts.pc.destroy()}catch(e){}const el=$("#pc-ch");if(!el||!window.Chart)return;const lab=r=>PC.mode==="m6"?r.from.slice(0,7):fd(r.from);
+  S.charts.pc=new Chart(el,{data:{labels:R.map(lab),datasets:[{type:"bar",label:"المحقق (رد)",data:R.map(r=>r.A.a),backgroundColor:"rgba(56,172,87,.35)",yAxisID:"y1"},{type:"line",label:"التحقيق المعدّل %",data:R.map(r=>r.adj==null?null:+(r.adj*100).toFixed(1)),borderColor:"#051D48",backgroundColor:"#051D48",tension:.25,yAxisID:"y"},{type:"line",label:"نسبة التحقيق %",data:R.map(r=>r.ach==null?null:+(r.ach*100).toFixed(1)),borderColor:"#38AC57",borderDash:[5,4],tension:.25,yAxisID:"y"}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{y:{beginAtZero:true,suggestedMax:100,ticks:{callback:v=>v+"%"}},y1:{beginAtZero:true,position:"right",grid:{drawOnChartArea:false}}}}})}
+{const _rd=renderDashboard;renderDashboard=function(){_rd.apply(this,arguments);const el=$("#v-dashboard");if(!el||!S.vehLoaded)return;
+  el.insertAdjacentHTML("beforeend",`<div class="panel" id="pc-panel"><h2><span class="step">8</span>مقارنة الفترات <span class="q">معدل التغيير في المؤشرات — نفس الفرع والسيارة من الفلتر</span></h2>
+   <div class="filters"><label class="f">قارن بـ<select id="pc-mode">${PC_MODES.map(([k,l])=>`<option value="${k}" ${PC.mode===k?"selected":""}>${l}</option>`).join("")}</select></label>
+    ${PC.mode==="custom"?`<label class="f">من<input type="date" id="pc-cf" value="${PC.cf}"></label><label class="f">إلى<input type="date" id="pc-ct" value="${PC.ct}"></label>`:""}</div><div id="pc-out"></div></div>`);
+  pcRun()}}
+document.addEventListener("change",e=>{if(e.target.id==="pc-mode"){PC.mode=e.target.value;renderDashboard()}else if(e.target.id==="pc-cf"||e.target.id==="pc-ct"){PC.cf=$("#pc-cf").value;PC.ct=$("#pc-ct").value;pcRun()}});
+
 /* ===== Top menu in groups: each group is one button that opens its pages ===== */
 const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","costs","docs","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
 (function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
