@@ -3786,6 +3786,103 @@ document.addEventListener('input',e=>{const a=e.target;if(a&&a.dataset&&a.datase
 
 document.addEventListener('change',async e=>{const a=e.target;if(!a||!a.dataset||a.dataset.act!=='arStart'||!isLead())return;const cur=S.settings.find(x=>x.id==='arcfg')||{};try{await save('settings',{...cur,id:'arcfg',start:a.value||''});toast(L('تم — أُعيد حساب الأرصدة','Saved — balances recalculated'))}catch(err){handleErr(err)}});
 
+/* ============ Pipeline: add customers from open quotations, open sales orders or the customer list (grouped per customer, scoped to the rep) ============ */
+const PLP_SRC={quotes:()=>L('عروض الأسعار المفتوحة','Open quotations'),orders:()=>L('أوامر البيع المفتوحة','Open sales orders'),clients:()=>L('جميع العملاء','All customers')};
+const PLP_SEC={opps:()=>'Opportunity',risks:()=>L('Risk — مخاطرة','Risk'),backlog3:()=>L('Back log — خلال 3 أشهر','Backlog — 3 months'),backlogLater:()=>L('متوقع بعد 3 أشهر','After 3 months')};
+let PLP=null;
+const plpKey=(cid,name)=>cid||('n:'+normTxt(name));
+/* everything known about a customer that helps pick a realistic amount */
+function plpStats(rep,month){
+  const ix=I();const st=new Map();const get=(cid,code,name)=>{const k=cid||('c:'+normCode(code));let o=st.get(k);if(!o){const c=cid?byId('clients',cid):null;o={key:k,cid:cid||'',code:c?.code||code||'',name:c?.name||name||'—',kind:c?.kind||'customer',repId:c?.repId||'',q:0,qn:0,qd:'',o:0,on:0,od:'',ar:0,c3:0,lastPay:''};st.set(k,o)}return o};
+  const m0=month+'-01',from3=addDays(m0,-92);
+  ix.quotes.forEach(q=>{if(!(q.st==='open'||q.st==='pending'))return;const c=q.cid?byId('clients',q.cid):null;if((q.rep||c?.repId)!==rep)return;const o=get(q.cid,q.code,q.cname);o.q+=q.value;o.qn++;if(q.date>o.qd)o.qd=q.date});
+  S.orders.forEach(x=>{if(!(x.status==='open'||x.status==='partial'))return;const c=x.clientId?byId('clients',x.clientId):(I().custByCode.get(normCode(x.clientCode))||null);if((x.repId||c?.repId)!==rep)return;const o=get(c?.id,x.clientCode,c?.name||x.cname);o.o+=+x.value||0;o.on++;if((x.date||'')>o.od)o.od=x.date||''});
+  return {st,get,from3,m0};
+}
+function plpRows(src,rep,month){
+  const {st,get,from3,m0}=plpStats(rep,month);
+  if(src==='clients')S.clients.forEach(c=>{if(c.repId===rep)get(c.id,c.code,c.name)});
+  const ix=I();const byCid=new Map([...st.values()].filter(o=>o.cid).map(o=>[o.cid,o]));
+  ix.coll.forEach(r=>{const o=r.cid&&byCid.get(r.cid);if(!o)return;if(r.d>=from3&&r.d<m0)o.c3+=r.amt;if(r.d>o.lastPay)o.lastPay=r.d});
+  if(typeof clientAR==='function'&&S.invoices.length)byCid.forEach(o=>{o.ar=clientAR(o.cid).tot});
+  let rows=[...st.values()];
+  if(src==='quotes')rows=rows.filter(o=>o.qn);else if(src==='orders')rows=rows.filter(o=>o.on);
+  return rows.map(o=>({...o,total:src==='quotes'?o.q:src==='orders'?o.o:0,n:src==='quotes'?o.qn:src==='orders'?o.on:0,last:src==='quotes'?o.qd:src==='orders'?o.od:o.lastPay}))
+    .sort((a,b)=>b.total-a.total||b.ar-a.ar||b.c3-a.c3||String(a.name).localeCompare(String(b.name),'ar'));
+}
+/* the amount suggested for each section */
+function plpDefault(sec,src,o,inclVat){const v=plVat();const k=inclVat?1:v;
+  if(sec==='opps')return src!=='clients'&&o.total?Math.round(o.total*k):o.ar>0?Math.round(o.ar):o.c3>0?Math.round(o.c3/3):'';
+  if(sec==='backlog3'||sec==='backlogLater')return o.total?Math.round(o.total*k):'';return ''}
+function plpOpen(sec){
+  const {rep,month,doc}=plCurrent();if(!rep)return;PLP={sec,rep,month,src:sec==='opps'?'orders':'quotes',q:'',sel:new Map(),inclVat:true,prob:'',lim:200};
+  if(sec!=='opps'&&!plpRows('quotes',rep,month).length)PLP.src='clients';else if(sec==='opps'&&!plpRows('orders',rep,month).length)PLP.src=plpRows('quotes',rep,month).length?'quotes':'clients';
+  plpPaint()}
+function plpPaint(){
+  const P=PLP;const {doc}=plCurrent();const have=new Set((doc[P.sec]||[]).map(x=>plpKey(plCustId(x.name,x.cid),x.name)));
+  const all=plpRows(P.src,P.rep,P.month);const q=normTxt(P.q);const rows=all.filter(o=>!q||normTxt(o.name+' '+o.code).includes(q));
+  const cnt={quotes:plpRows('quotes',P.rep,P.month).length,orders:plpRows('orders',P.rep,P.month).length,clients:S.clients.filter(c=>c.repId===P.rep).length};
+  const isOpp=P.sec==='opps',isRisk=P.sec==='risks',isBl=P.sec.startsWith('backlog');
+  const r=byId('team',P.rep);
+  openModal(L('إضافة إلى ','Add to ')+PLP_SEC[P.sec]()+' — '+(r?.name||''),`
+   <div class="tabs">${Object.keys(PLP_SRC).map(k=>`<button class="tab ${P.src===k?'on':''}" data-act="plpSrc" data-v="${k}">${PLP_SRC[k]()} <span class="small muted">${num(cnt[k])}</span></button>`).join('')}</div>
+   <div class="toolbar"><input type="search" id="plp_q" placeholder="${L('بحث باسم أو كود العميل','Search customer')}" value="${esc(P.q)}" style="flex:1;min-width:180px">
+    ${P.src!=='clients'&&!isRisk?`<label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="plp_vat" ${P.inclVat?'checked':''}> ${L('قيم المصدر شاملة الضريبة','Source values include VAT')}</label>`:''}
+    ${isOpp?`<label class="small" style="display:flex;gap:6px;align-items:center">${L('نسبة التحصيل للمحدد','Probability for selected')} <input type="number" id="plp_all" min="0" max="100" style="width:70px" value="${esc(P.prob)}" placeholder="%"><button class="btn s" data-act="plpAll">${L('تطبيق','Apply')}</button></label>`:''}</div>
+   <div class="small muted" style="margin:4px 0 8px">${L('كل عميل في سطر واحد بإجمالي مستنداته المفتوحة. تظهر لك عملاء هذا المندوب فقط.','One line per customer with the total of their open documents. Only this rep’s customers are listed.')}
+    ${isOpp?L(' المبلغ المقترح: إجمالي المستندات، وإن لم يوجد فرصيد العميل المفتوح، وإلا متوسط تحصيله الشهري لآخر 3 أشهر — عدّله قبل الإضافة.',' Suggested amount: document total, else open balance, else 3-month average collection — edit before adding.'):''}</div>
+   <div class="tw" style="max-height:52vh;overflow:auto"><table><thead><tr><th><input type="checkbox" id="plp_chkall" aria-label="${L('تحديد الكل','Select all')}"></th><th>${L('العميل','Customer')}</th>
+    ${P.src!=='clients'?`<th class="n">${L('عدد المستندات','Docs')}</th><th class="n">${L('الإجمالي','Total')}</th><th>${L('آخر تاريخ','Latest')}</th>`:`<th>${L('النوع','Type')}</th><th class="n">${L('عروض مفتوحة','Open quotes')}</th><th class="n">${L('أوامر مفتوحة','Open orders')}</th>`}
+    <th class="n">${L('الرصيد المفتوح','Open balance')}</th><th class="n">${L('متوسط تحصيل شهري','Avg monthly coll.')}</th>
+    ${isOpp?`<th class="n">${L('المبلغ بالضريبة','Amount incl. VAT')}</th><th class="n">${L('نسبة التحصيل %','Probability %')}</th>`:isBl?`<th class="n">${L('قيمة المشروع','Project value')}</th>`:`<th>${L('السبب','Reason')}</th>`}</tr></thead><tbody>
+    ${rows.slice(0,P.lim).map(o=>{const k=plpKey(o.cid,o.name);const added=have.has(k);const s=P.sel.get(o.key);const def=plpDefault(P.sec,P.src,o,P.inclVat);
+      return `<tr class="${added?'muted':''}"><td>${added?pill(L('مضاف','Added'),'ok'):`<input type="checkbox" class="plp_ck" data-k="${esc(o.key)}" ${s?'checked':''}>`}</td>
+      <td><b>${esc(o.name)}</b><div class="small muted">${esc(o.code||'')}</div></td>
+      ${P.src!=='clients'?`<td class="n">${o.n}</td><td class="n"><b>${num(Math.round(o.total))}</b></td><td class="nw">${o.last?fdate(o.last):'—'}</td>`:`<td>${o.kind==='lead'?pill('Lead','info'):pill(L('عميل','Customer'),'')}</td><td class="n">${o.q?num(Math.round(o.q)):'—'}</td><td class="n">${o.o?num(Math.round(o.o)):'—'}</td>`}
+      <td class="n">${o.ar?num(Math.round(o.ar)):'—'}</td><td class="n">${o.c3?num(Math.round(o.c3/3)):'—'}</td>
+      ${added?`<td colspan="${isOpp?2:1}"></td>`:isOpp?`<td><input class="plp_amt" data-k="${esc(o.key)}" inputmode="decimal" style="width:110px" value="${esc(s?.amount??def)}"></td><td><input class="plp_prob" data-k="${esc(o.key)}" type="number" min="0" max="100" style="width:70px" value="${esc(s?.prob??'')}" placeholder="%"></td>`
+        :isBl?`<td><input class="plp_amt" data-k="${esc(o.key)}" inputmode="decimal" style="width:110px" value="${esc(s?.amount??def)}"></td>`:`<td><input class="plp_reason" data-k="${esc(o.key)}" style="min-width:200px" value="${esc(s?.reason??'')}" placeholder="${L('السعر، الكريديت، الشهادات، التوصيل…','Price, credit, certificates…')}"></td>`}</tr>`}).join('')||`<tr><td colspan="9" class="empty">${P.src==='clients'?L('ما فيه عملاء مربوطين بهذا المندوب','No customers linked to this rep'):L('ما فيه مستندات مفتوحة لعملاء هذا المندوب','No open documents for this rep’s customers')}</td></tr>`}
+    </tbody></table></div>${rows.length>P.lim?`<button class="btn s" data-act="plpMore">${L('عرض المزيد','Show more')} (${rows.length-P.lim})</button>`:''}
+   <div id="plp_err" class="flag"></div>
+   <div class="formbar"><span class="small muted" id="plp_n" style="margin-inline-end:auto">${P.sel.size} ${L('محدد','selected')}</span><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="plpAdd">${L('إضافة المحدد','Add selected')}</button></div>`,
+   {mount:b=>{
+     const sync=el=>{const k=el.dataset.k;const s=P.sel.get(k);if(!s)return;if(el.classList.contains('plp_amt'))s.amount=el.value;if(el.classList.contains('plp_prob'))s.prob=el.value;if(el.classList.contains('plp_reason'))s.reason=el.value};
+     const ensure=k=>{if(!P.sel.has(k)){const row=b.querySelector(`.plp_ck[data-k="${CSS.escape(k)}"]`);if(row)row.checked=true;const tr=row?.closest('tr');P.sel.set(k,{amount:tr?.querySelector('.plp_amt')?.value,prob:tr?.querySelector('.plp_prob')?.value,reason:tr?.querySelector('.plp_reason')?.value});b.querySelector('#plp_n').textContent=P.sel.size+' '+L('محدد','selected')}};
+     b.addEventListener('change',e=>{const t=e.target;
+       if(t.classList.contains('plp_ck')){const k=t.dataset.k;if(t.checked){const tr=t.closest('tr');P.sel.set(k,{amount:tr.querySelector('.plp_amt')?.value,prob:tr.querySelector('.plp_prob')?.value,reason:tr.querySelector('.plp_reason')?.value})}else P.sel.delete(k);b.querySelector('#plp_n').textContent=P.sel.size+' '+L('محدد','selected')}
+       else if(t.id==='plp_chkall'){b.querySelectorAll('.plp_ck').forEach(c=>{c.checked=t.checked;c.dispatchEvent(new Event('change',{bubbles:true}))})}
+       else if(t.id==='plp_vat'){P.inclVat=t.checked;P.sel.forEach(s=>{delete s.amount});plpPaint()}});
+     b.addEventListener('input',e=>{const t=e.target;if(t.dataset.k&&!t.classList.contains('plp_ck')){ensure(t.dataset.k);sync(t)}
+       if(t.id==='plp_q'){clearTimeout(t._t);t._t=setTimeout(()=>{P.q=t.value;plpPaint();const n=document.getElementById('plp_q');if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}},300)}
+       if(t.id==='plp_all')P.prob=t.value});
+   }});
+}
+function plpAdd(){
+  const P=PLP;if(!P)return;const err=m=>{const e=document.getElementById('plp_err');if(e)e.textContent=m};
+  if(!P.sel.size)return err(L('حدد عميل واحد على الأقل','Select at least one customer'));
+  const all=new Map([...plpRows('quotes',P.rep,P.month),...plpRows('orders',P.rep,P.month),...plpRows('clients',P.rep,P.month)].map(o=>[o.key,o]));
+  const out=[];const bad=[];const ix=I();
+  P.sel.forEach((s,k)=>{const o=all.get(k);if(!o)return;const amt=parseNum(s.amount);
+    if(P.sec==='opps'){const pr=parseNum(s.prob);if(!(amt>0))bad.push(o.name+': '+L('المبلغ','amount'));else if(pr==null||isNaN(pr)||pr<0||pr>100)bad.push(o.name+': '+L('نسبة التحصيل','probability'));
+      else{const paidBefore=o.cid&&ix.coll.some(r=>r.cid===o.cid&&r.d<P.month+'-01');out.push({name:o.name,cid:o.cid||'',status:o.kind==='lead'||!paidBefore?'new':'old',size:'',amount:amt,prob:pr,actual:''})}}
+    else if(P.sec==='risks')out.push({name:o.name,cid:o.cid||'',reason:String(s.reason||'').trim()});
+    else out.push({name:o.name,cid:o.cid||'',value:amt>0?amt:''})});
+  if(bad.length)return err(L('ناقص: ','Missing: ')+bad.slice(0,6).join('، ')+(bad.length>6?' …':''));
+  const {doc}=plCurrent();doc[P.sec]=[...(doc[P.sec]||[]).filter(x=>String(x.name||'').trim()),...out];PL.dirty=true;closeModal();PLP=null;render();
+  toast(L(`أُضيف ${out.length} — اضغط «حفظ» لتثبيتها`,`Added ${out.length} — press Save to keep them`))}
+
+/* buttons in each section + collections shown clearly in the actual column */
+{const _v=plSheetView;plSheetView=function(){let h=_v();const {rep}=plCurrent();if(!rep||!plCanEdit(rep))return h;
+  ['opps','risks','backlog3','backlogLater'].forEach(sec=>{const a=`<button class="btn s" data-act="plAdd" data-s="${sec}">`;h=h.replace(a,`<button class="btn s p" data-act="plpOpen" data-s="${sec}">⇣ ${L('اختيار من العروض والأوامر والعملاء','Pick from quotes, orders, customers')}</button>`+a)});
+  return h}}
+{const _c=plCalc;plCalc=function(doc){const c=_c(doc);c.rows.forEach(x=>{x.autoNote=!x.manual&&x.auto>0});return c}}
+{const _v2=plSheetView;plSheetView=function(){let h=_v2();const c=plCalc(PL.doc||{opps:[]});
+  c.rows.forEach((x,i)=>{if(x.autoNote)h=h.replace(new RegExp(`(<input id="pl_opps_${i}_actual"[^>]*>)`),`$1<div class="small up" title="${L('محسوب تلقائياً من سندات التحصيل خلال الشهر — اكتب رقم لو تبي تعدّله يدوياً','Auto from collection vouchers this month — type a number to override')}">${L('تلقائي من التحصيل','auto from collections')}: ${plNum(x.auto)}</div>`)});
+  const n=c.rows.filter(x=>x.autoNote).length;if(n)h=h.replace(`<span class="sub">${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`,`<span class="sub"><b class="up">${L(`${n} عميل تعبّأ فعليهم من ملف التحصيل`,`${n} customers filled from collections`)}</b> · ${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`);
+  return h}}
+Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
+  plpAll:()=>{const v=document.getElementById('plp_all')?.value;if(v===''||v==null)return;PLP.prob=v;document.querySelectorAll('#mbody .plp_ck:checked').forEach(c=>{const tr=c.closest('tr');const p=tr.querySelector('.plp_prob');if(p){p.value=v;const s=PLP.sel.get(c.dataset.k);if(s)s.prob=v}})}});
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
