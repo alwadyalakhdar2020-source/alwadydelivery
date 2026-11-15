@@ -30,7 +30,7 @@ function monthly(month, empIds) {
 }
 VIEWS.attendance = () => {
   const manage = can('att.manage') || can('leave.manage'); const team = can('team.view');
-  const items = [['mine', 'حضوري'], ...(manage || team ? [['records', 'سجل الحضور'], ['monthly', 'التقرير الشهري']] : []), ...(manage ? [['balances', 'أرصدة الإجازات'], ['shifts', 'الورديات'], ['policy', 'سياسة الاحتساب']] : [])];
+  const items = [['mine', 'حضوري'], ...(manage || team ? [['records', 'سجل الحضور'], ['monthly', 'التقرير الشهري']] : []), ...(manage ? [['balances', 'أرصدة الإجازات'], ['shifts', 'الورديات'], ['roster', 'جدول الورديات'], ['policy', 'سياسة الاحتساب'], ['policy2', 'سياسات الاستئذان والتعويض والتناوب']] : [])];
   const t = tabs('att', items, manage || team ? 'records' : 'mine'); const month = S.f.attMonth || monthISO();
   const scope = manage ? D.employees.list.filter(e => e.status !== 'terminated' && inScope(e.id)).map(e => e.id) : [...teamIds(S.meId)];
   const monthSel = `<input type="month" data-fv="attMonth" value="${month}" aria-label="الشهر">`;
@@ -39,6 +39,7 @@ VIEWS.attendance = () => {
     const m = monthly(month, [S.meId])[0]; const recs = D.attendance.list.filter(a => a.empId === S.meId && a.date?.startsWith(month));
     body = `<div class="toolbar">${monthSel}<button class="btn sm" data-act="new-req-effect" data-e="attendanceFix">طلب تصحيح حضور</button><button class="btn sm" data-act="new-req-effect" data-e="leave">طلب إجازة</button><button class="btn sm" data-act="new-req-effect" data-e="permission">طلب استئذان</button></div>
     <div class="grid g4" style="margin-bottom:14px">${kpi('أيام العمل حتى اليوم', m.work)}${kpi('أيام الحضور', m.present)}${kpi('إجازات', m.leave)}${kpi('غياب بدون سجل', m.absent, 'أيام عمل بلا سجل حضور ولا إجازة معتمدة', m.absent)}${kpi('مرات التأخير', m.late, m.lateMin + ' دقيقة إجمالًا')}${kpi('ساعات إضافية', m.ot, 'تحسب بعد ' + (SET().otThresholdMin ?? 30) + ' دقيقة من نهاية الوردية')}</div>${attTable(recs, false)}`;
+    if (typeof rosterMine === 'function') body += rosterMine(month);
   } else if (t.cur === 'records') {
     const ef = S.f.attEmp || ''; let rows = D.attendance.list.filter(a => a.date?.startsWith(month) && scope.includes(a.empId)); if (ef) rows = rows.filter(a => a.empId === ef);
     if (S.f.attOnly === 'late') rows = rows.filter(r => attCalc(r).late);
@@ -53,6 +54,8 @@ VIEWS.attendance = () => {
     body = dataTable('bal', [{ k: 'nameAr', l: 'الموظف' }, ...lts.map(l => ({ k: 'lt_' + l.id, l: l.name + ' (متاح)', s: e => balanceOf(e.id, l.id).available, v: e => { const b = balanceOf(e.id, l.id); return `<span class="num">${b.available}</span> <span class="small muted">من ${b.entitled + b.carried + b.adj}</span>`; } })), { k: 'x', l: '', nosort: true, v: e => `<button class="btn sm ghost" data-act="bal-edit" data-id="${e.id}">تسوية</button>` }], rows);
   } else if (t.cur === 'shifts') {
     body = `<div class="toolbar"><button class="btn sm pri" data-act="shift-edit">${ic('plus')} وردية جديدة</button></div>` + dataTable('shifts', [{ k: 'name', l: 'الوردية' }, { k: 'start', l: 'البداية', v: s => `<span class="num">${esc(s.start)}</span>` }, { k: 'end', l: 'النهاية', v: s => `<span class="num">${esc(s.end)}</span>` }, { k: 'grace', l: 'سماحية التأخير (د)', v: s => `<span class="num">${s.grace ?? 0}</span>` }, { k: 'n', l: 'عدد الموظفين', s: s => D.employees.list.filter(e => e.shiftId === s.id).length, v: s => `<span class="num">${D.employees.list.filter(e => e.shiftId === s.id).length}</span>` }, { k: 'x', l: '', nosort: true, v: s => `<button class="btn sm ghost" data-act="shift-edit" data-id="${s.id}">تعديل</button>` }], D.shifts.list, { search: false });
+  } else if (t.cur === 'roster' && typeof rosterView === 'function') { body = rosterView(month, scope);
+  } else if (t.cur === 'policy2' && typeof policy2View === 'function') { body = policy2View();
   } else if (t.cur === 'policy') {
     const st = SET();
     body = `<div class="note warn" style="margin-bottom:12px">هذه القيم إعدادات افتراضية قابلة للتغيير، ولم تُعتمد بعد كسياسة رسمية للشركة. راجعها مع الموارد البشرية ونظام العمل السعودي قبل التشغيل الفعلي.</div>

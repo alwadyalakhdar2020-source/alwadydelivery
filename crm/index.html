@@ -337,7 +337,7 @@ const stageName=id=>{const s=OPP_STAGES.find(x=>x[0]===id);return s?L(s[1],s[2])
 const projStage=id=>{const s=PROJ_STAGES.find(x=>x[0]===id);return s?L(s[1],PROJ_EN[id]):id};
 
 /* ============ Store ============ */
-const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets'];
+const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets','tasks'];
 const S={impUndo:[]};COLS.forEach(c=>S[c]=[]);
 let db=null,downloads=null,mode='init',loaded=new Set(),dataVer=0;
 let viewAs=ls('viewAs')||'';
@@ -672,7 +672,7 @@ function pipeSt(q){
 function I(){
   if(IDX&&IDX.v===dataVer)return IDX;
   const C=cfg();const t=TODAY();
-  const custByCode=new Map();S.clients.forEach(c=>{if(c.code)custByCode.set(normCode(c.code),c)});
+  const custByCode=new Map();S.clients.forEach(c=>{if(c.code)custByCode.set(normCode(c.code),c);(c.aliasCodes||[]).forEach(a=>{const k=normCode(a);if(!custByCode.has(k))custByCode.set(k,c)})});
   const impSt=new Map(S.imports.map(i=>[i.id,i]));
   const coll=[];
   // one row per voucher: a later import of the same voucher number replaces the earlier one (re-import updates, never duplicates)
@@ -2378,7 +2378,7 @@ function field(f,val){
   else if(f.t==='check')inp=`<div class="chk"><label><input type="checkbox" id="${id}" name="${f.k}" ${val?'checked':''} ${ro}> ${f.cl||''}</label></div>`;
   else if(f.t==='multi')inp=`<div class="chk">${f.opts.map(([v,l])=>`<label><input type="checkbox" name="${f.k}" value="${esc(v)}" ${(val||[]).includes(v)?'checked':''}> ${esc(l)}</label>`).join('')}</div>`;
   else if(f.t==='rows'){FORM.rows[f.k]=(val||[]).map(x=>({...x}));inp=`<div class="rows" id="rows_${f.k}"></div><button type="button" class="btn s" data-act="addRow" data-k="${f.k}">+ ${f.add||L('إضافة','Add')}</button>`}
-  else inp=`<input id="${id}" name="${f.k}" type="${f.t==='num'?'number':f.t==='date'?'date':'text'}" ${f.t==='num'?'step="any"':''} value="${esc(val??'')}" ${ro} ${f.ph?`placeholder="${esc(f.ph)}"`:''}>`;
+  else inp=`<input id="${id}" name="${f.k}" type="${f.t==='num'?'number':f.t==='date'?'date':f.t==='time'?'time':'text'}" ${f.t==='num'?'step="any"':''} value="${esc(val??'')}" ${ro} ${f.ph?`placeholder="${esc(f.ph)}"`:''}>`;
   return `<div class="fld ${f.full||['area','rows','multi'].includes(f.t)?'full':''}"><label for="${id}">${f.l}${req}</label>${inp}${f.hint?`<span class="small muted">${f.hint}</span>`:''}</div>`;
 }
 function renderRows(k){
@@ -3973,6 +3973,228 @@ V.recs=()=>{let L0;try{L0=computeRecs()}catch(e){console.warn(e);return `<div cl
    <div class="rc-sum" style="margin-top:8px"><span>🔴 عاجل: <b>${n(1)}</b></span><span>🟠 مهم: <b>${n(2)}</b></span><span>🔵 تحسين: <b>${n(3)}</b></span></div></div>
    ${L0.length?L0.map(recCard).join(''):`<div class="card empty">${L('ما فيه توصيات حالياً: كل المؤشرات ضمن الحدود.','No recommendations right now.')}</div>`}`};
 NAV.splice(NAV.findIndex(n=>n[0]==='alerts')+1,0,['recs','bell',()=>L('التوصيات','Recommendations'),ALL]);
+
+/* ===== Tasks, calls & meetings + calendar (week / month / agenda), reminders, recurrence, .ics export =====
+   Stored in crm_store col 'tasks' with repId = the owner, so the existing row rules scope them like visits and quotes. */
+const TASK_KINDS={task:['مهمة','Task','📝'],call:['اتصال','Call','📞'],meeting:['اجتماع','Meeting','🤝'],followup:['متابعة','Follow-up','🔁']};
+const TASK_REPEAT={none:['بدون تكرار','None'],daily:['يومياً','Daily'],weekly:['أسبوعياً','Weekly'],monthly:['شهرياً','Monthly']};
+const TASK_REMIND=[['','بدون تذكير'],['0','وقت الموعد'],['15','قبل 15 دقيقة'],['30','قبل 30 دقيقة'],['60','قبل ساعة'],['1440','قبل يوم']];
+const tkAll=()=>vis(S.tasks||[]);
+const tkOpen=t=>t.status!=='done'&&t.status!=='cancelled';
+const tkLate=t=>tkOpen(t)&&(t.date<TODAY()||(t.date===TODAY()&&t.time&&t.time<new Date().toTimeString().slice(0,5)));
+function tkNext(t){const d=new Date(t.date+'T12:00:00');if(t.repeat==='daily')d.setDate(d.getDate()+1);else if(t.repeat==='weekly')d.setDate(d.getDate()+7);else if(t.repeat==='monthly')d.setMonth(d.getMonth()+1);else return null;
+  const n=d.toISOString().slice(0,10);return t.until&&n>t.until?null:n}
+function editTask(id,preset){
+  const t=id?byId('tasks',id):{kind:'call',status:'open',date:TODAY(),time:'',repId:role()==='rep'?me().id:(me().id||''),repeat:'none',remind:'15',...(preset||{})};if(!t)return;
+  const owners=S.team.filter(x=>x.id===me().id||inScope({repId:x.id})).map(x=>[x.id,x.name]);if(me().id&&!owners.some(o=>o[0]===me().id))owners.unshift([me().id,me().name||L('أنا','Me')]);
+  openForm({title:id?L('مهمة / موعد','Task / appointment'):L('مهمة أو موعد جديد','New task / appointment'),data:{...t,remind:t.remind??''},fields:[
+    {k:'kind',l:L('النوع','Type'),t:'sel',req:1,opts:Object.entries(TASK_KINDS).map(([k,v])=>[k,v[2]+' '+L(v[0],v[1])]),empty:null},
+    {k:'title',l:L('العنوان','Subject'),req:1,full:1,ph:L('مثال: متابعة عرض السعر 1045','e.g. follow up quote 1045')},
+    {k:'clientId',l:L('العميل','Customer'),t:'sel',opts:clientOpts()},
+    {k:'repId',l:L('المسؤول','Owner'),t:'sel',req:1,opts:owners},
+    {k:'date',l:L('التاريخ','Date'),t:'date',req:1},{k:'time',l:L('الوقت','Time'),t:'time'},
+    {k:'remind',l:L('التذكير','Reminder'),t:'sel',opts:TASK_REMIND,empty:null},
+    {k:'repeat',l:L('التكرار','Repeat'),t:'sel',opts:Object.entries(TASK_REPEAT).map(([k,v])=>[k,L(v[0],v[1])]),empty:null},
+    {k:'until',l:L('يتكرر لين','Repeat until'),t:'date',hint:L('اتركه فاضي لو التكرار مستمر','Leave empty for no end')},
+    {k:'notes',l:L('ملاحظات','Notes'),t:'area'},
+    ...(id?[{k:'result',l:L('النتيجة (بعد التنفيذ)','Outcome'),t:'area'}]:[])],
+   extra:id?`<div class="toolbar" style="margin-bottom:8px">${tkOpen(t)?`<button type="button" class="btn p s" data-act="tkDone" data-id="${t.id}">✓ ${L('تم التنفيذ','Mark done')}</button>`:pill(L('منجزة','Done'),'ok')}<button type="button" class="btn s" data-act="tkIcs" data-id="${t.id}">${L('إضافة لتقويم الجوال','Add to phone calendar')}</button></div>`:'',
+   onSave:async v=>{if(v.repeat!=='none'&&v.until&&v.until<v.date)formErr(L('تاريخ نهاية التكرار قبل تاريخ المهمة','Repeat end is before the date'));
+     const c=v.clientId?byId('clients',v.clientId):null;await save('tasks',{...t,...v,cname:c?.name||'',id:t.id})},
+   del:id&&(t.repId===me().id||isLead())?()=>remove('tasks',id):null});
+}
+async function tkComplete(id){const t=byId('tasks',id);if(!t)return;const now=new Date().toISOString();
+  const r=document.querySelector('#theform [name=result]');const res=r?r.value.trim():t.result||'';
+  await save('tasks',{...t,status:'done',doneAt:now,result:res});
+  const n=tkNext(t);if(n){const {id:_,doneAt,result,status,createdAt,createdBy,updatedAt,...rest}=t;await save('tasks',{...rest,status:'open',date:n,seriesOf:t.seriesOf||t.id})}
+  if(t.clientId&&(t.kind==='call'||t.kind==='meeting'))await save('comms',{id:uid('cm-'),clientId:t.clientId,repId:t.repId,channel:t.kind==='call'?'call':'meeting',dir:'out',at:now,summary:t.title+(res?' — '+res:''),needsReply:false},{silent:true}).catch(()=>{});
+  closeModal();toast(n?L('تم — وانضافت المرة الجاية بتاريخ ','Done — next on ')+fdate(n):L('تم التنفيذ','Done'))}
+function tkIcsText(list){const z=s=>String(s||'').replace(/[\\,;]/g,m=>'\\'+m).replace(/\n/g,'\\n');const dt=(d,t)=>d.replace(/-/g,'')+(t?'T'+t.replace(':','')+'00':'');
+  const ev=list.map(t=>{const end=t.time?(()=>{const [h,m]=t.time.split(':').map(Number);const e=h*60+m+30;return String(Math.floor(e/60)%24).padStart(2,'0')+':'+String(e%60).padStart(2,'0')})():null;
+    const rr=t.repeat&&t.repeat!=='none'?`\r\nRRULE:FREQ=${t.repeat.toUpperCase()}${t.until?';UNTIL='+t.until.replace(/-/g,'')+'T235959Z':''}`:'';
+    const al=t.remind!==''&&t.remind!=null?`\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:${z(t.title)}\r\nTRIGGER:-PT${+t.remind}M\r\nEND:VALARM`:'';
+    return `BEGIN:VEVENT\r\nUID:${t.id}@alwady-crm\r\nDTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').slice(0,15)}Z\r\n${t.time?`DTSTART;TZID=Asia/Riyadh:${dt(t.date,t.time)}\r\nDTEND;TZID=Asia/Riyadh:${dt(t.date,end)}`:`DTSTART;VALUE=DATE:${dt(t.date)}`}${rr}\r\nSUMMARY:${z((TASK_KINDS[t.kind]?.[0]||'')+': '+t.title)}\r\nDESCRIPTION:${z((t.clientId?cName(t.clientId)+'\n':'')+(t.notes||''))}${al}\r\nEND:VEVENT`}).join('\r\n');
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//AlWady//CRM//AR\r\n${ev}\r\nEND:VCALENDAR`}
+function tkIcs(list,name){const b=new Blob([tkIcsText(list)],{type:'text/calendar'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name||'tasks.ics';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+/* reminders: in-app toast + browser notification while the CRM is open */
+const TK_SEEN=new Set(JSON.parse(localStorage.getItem('tkSeen')||'[]'));
+function tkTick(){try{if(!S.tasks)return;const now=Date.now();const mine=(S.tasks||[]).filter(t=>t.repId===me().id&&tkOpen(t)&&t.remind!==''&&t.remind!=null&&t.date);
+  mine.forEach(t=>{const at=new Date(t.date+'T'+(t.time||'08:00')+':00').getTime();const fire=at-(+t.remind||0)*60000;const k=t.id+'|'+t.date+'|'+t.time;
+    if(now>=fire&&now<at+3600000&&!TK_SEEN.has(k)){TK_SEEN.add(k);localStorage.setItem('tkSeen',JSON.stringify([...TK_SEEN].slice(-300)));
+      const msg=`${TASK_KINDS[t.kind]?.[2]||''} ${t.title}${t.clientId?' — '+cName(t.clientId):''} · ${t.time||''}`;toast(L('تذكير: ','Reminder: ')+msg);
+      try{if('Notification' in window&&Notification.permission==='granted')new Notification(L('تذكير موعد','Reminder'),{body:msg})}catch(e){}}})}catch(e){}}
+setInterval(tkTick,60000);setTimeout(tkTick,4000);
+/* calendar page */
+const TK_DOW=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+function calItems(from,to){const rep=fv('calRep','');const kd=fv('calKind','');const out=[];
+  tkAll().forEach(t=>{if(t.date<from||t.date>to||(rep&&t.repId!==rep)||(kd&&kd!=='visit'&&t.kind!==kd)||kd==='visit')return;out.push({d:t.date,tm:t.time||'',ic:TASK_KINDS[t.kind]?.[2]||'•',tx:t.title+(t.clientId?' · '+cName(t.clientId):''),open:'task',id:t.id,done:!tkOpen(t),late:tkLate(t),rep:t.repId})});
+  if(!kd||kd==='visit')vis(S.visits).forEach(v=>{if(v.date<from||v.date>to||(rep&&v.repId!==rep)||v.status==='cancelled')return;out.push({d:v.date,tm:v.time||'',ic:'📍',tx:L('زيارة: ','Visit: ')+cName(v.clientId),open:'visit',id:v.id,done:v.status==='done',late:v.status==='planned'&&v.date<TODAY(),rep:v.repId})});
+  return out.sort((a,b)=>(a.d+a.tm).localeCompare(b.d+b.tm))}
+const calChip=x=>`<div class="cal-it ${x.done?'done':''} ${x.late?'late':''}" data-${x.open==='task'?'act="tkOpen"':'open="visit"'} data-id="${esc(x.id)}" title="${esc(x.tx)}">${x.tm?`<b>${x.tm}</b> `:''}${x.ic} ${esc(x.tx)}</div>`;
+V.calendar=()=>{
+  const t=TODAY();const mode=fv('calMode','week');const anchor=fv('calD',t);const reps=visibleReps();
+  const css=`<style>.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.cal-d{border:1px solid var(--line,#e3e6ea);border-radius:8px;min-height:110px;padding:4px;background:var(--card,#fff)}.cal-d.today{outline:2px solid var(--c1,#1F6FB2)}.cal-d.out{opacity:.45}.cal-h{font-size:12px;font-weight:700;display:flex;justify-content:space-between;margin-bottom:3px}.cal-it{font-size:12px;padding:2px 4px;border-radius:5px;background:#eef4fb;margin:2px 0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cal-it.done{opacity:.55;text-decoration:line-through}.cal-it.late{background:#fde8e7}.cal-dw{font-size:12px;text-align:center;opacity:.7}@media(max-width:760px){.cal{grid-template-columns:1fr}.cal-dw{display:none}.cal-d{min-height:auto}}</style>`;
+  let from,to,days=[];
+  if(mode==='month'){const m0=anchor.slice(0,8)+'01';const d0=new Date(m0+'T12:00:00');const s=addDays(m0,-d0.getDay());const last=new Date(d0.getFullYear(),d0.getMonth()+1,0).getDate();const m1=anchor.slice(0,8)+String(last).padStart(2,'0');const e=addDays(m1,6-new Date(m1+'T12:00:00').getDay());from=s;to=e}
+  else{const d0=new Date(anchor+'T12:00:00');from=addDays(anchor,-d0.getDay());to=addDays(from,6)}
+  for(let d=from;d<=to;d=addDays(d,1))days.push(d);
+  const items=calItems(from,to);const by={};items.forEach(x=>(by[x.d]=by[x.d]||[]).push(x));
+  const mine=tkAll().filter(x=>!fv('calRep','')||x.repId===fv('calRep',''));const late=mine.filter(tkLate),today=mine.filter(x=>tkOpen(x)&&x.date===t&&!tkLate(x)),soon=mine.filter(x=>tkOpen(x)&&x.date>t&&x.date<=addDays(t,7));
+  const step=mode==='month'?(()=>{const d=new Date(anchor+'T12:00:00');return n=>{const x=new Date(d.getFullYear(),d.getMonth()+n,1,12);return x.toISOString().slice(0,10)}})():n=>addDays(anchor,7*n);
+  const lst=(a,emp)=>a.length?`<div class="list">${a.slice(0,30).map(x=>`<div class="li" data-act="tkOpen" data-id="${x.id}"><div class="main"><div class="t">${TASK_KINDS[x.kind]?.[2]||''} ${esc(x.title)}</div><div class="m">${fdate(x.date)}${x.time?' '+x.time:''}${x.clientId?' · '+esc(cName(x.clientId)):''}${isLead()?' · '+esc(tName(x.repId)):''}</div></div></div>`).join('')}</div>`:`<div class="muted small">${emp}</div>`;
+  const upcoming=mine.filter(x=>tkOpen(x)&&x.date>=t);
+  return css+`<div class="toolbar"><button class="btn p" data-act="tkNew">+ ${L('مهمة أو موعد','Task / appointment')}</button>
+    ${['week','month'].map(k=>`<button class="chip ${mode===k?'on':''}" data-act="filt" data-k="calMode" data-v="${k}">${k==='week'?L('أسبوع','Week'):L('شهر','Month')}</button>`).join('')}
+    <button class="btn s" data-act="filt" data-k="calD" data-v="${step(-1)}">‹</button><button class="btn s" data-act="filt" data-k="calD" data-v="${t}">${L('اليوم','Today')}</button><button class="btn s" data-act="filt" data-k="calD" data-v="${step(1)}">›</button>
+    <b>${mode==='month'?monthLabel(anchor.slice(0,7)):fdate(from)+' ← '+fdate(to)}</b><span class="grow"></span>
+    ${isLead()?`<select data-act="filtSel" data-k="calRep">${opt(reps.map(r=>[r.id,r.name]),fv('calRep',''),L('كل الفريق','Whole team'))}</select>`:''}
+    <select data-act="filtSel" data-k="calKind">${opt([...Object.entries(TASK_KINDS).map(([k,v])=>[k,L(v[0],v[1])]),['visit',L('الزيارات','Visits')]],fv('calKind',''),L('كل الأنواع','All types'))}</select>
+    ${'Notification' in window&&Notification.permission==='default'?`<button class="btn s" data-act="tkNotif">${L('تفعيل تنبيهات المتصفح','Enable notifications')}</button>`:''}
+    <button class="btn s" data-act="tkIcsAll" ${upcoming.length?'':'disabled'}>${L('تصدير للتقويم (ics)','Export .ics')}</button></div>
+   <div class="kpis k4">${kpiTile(L('متأخرة','Overdue'),num(late.length))}${kpiTile(L('اليوم','Today'),num(today.length))}${kpiTile(L('خلال 7 أيام','Next 7 days'),num(soon.length))}${kpiTile(L('منجزة هذا الشهر','Done this month'),num(mine.filter(x=>x.status==='done'&&(x.doneAt||'').slice(0,7)===t.slice(0,7)).length))}</div>
+   <div class="card"><div class="cal">${TK_DOW.map(d=>`<div class="cal-dw">${d}</div>`).join('')}${days.map(d=>`<div class="cal-d ${d===t?'today':''} ${mode==='month'&&d.slice(0,7)!==anchor.slice(0,7)?'out':''}"><div class="cal-h"><span>${+d.slice(8)}${mode==='week'?' '+TK_DOW[new Date(d+'T12:00:00').getDay()]:''}</span><a href="#" data-act="tkNew" data-d="${d}">+</a></div>${(by[d]||[]).slice(0,mode==='month'?4:20).map(calChip).join('')}${mode==='month'&&(by[d]||[]).length>4?`<div class="small muted">+${by[d].length-4}</div>`:''}</div>`).join('')}</div></div>
+   <div class="grid g2"><div class="card"><h2>${L('متأخرة','Overdue')} <span class="sub">${late.length}</span></h2>${lst(late.sort((a,b)=>a.date.localeCompare(b.date)),L('ما فيه مهام متأخرة','Nothing overdue'))}</div>
+    <div class="card"><h2>${L('اليوم والأيام الجاية','Today & upcoming')}</h2>${lst([...today,...soon].sort((a,b)=>(a.date+(a.time||'')).localeCompare(b.date+(b.time||''))),L('ما فيه مهام قادمة','Nothing upcoming'))}</div></div>`};
+Object.assign(ACT,{tkNew:d=>editTask(null,{...(d.d?{date:d.d}:{}),...(d.c?{clientId:d.c}:{})}),tkOpen:d=>editTask(d.id),tkDone:d=>tkComplete(d.id),
+  tkIcs:d=>{const t=byId('tasks',d.id);if(t)tkIcs([t],'task.ics')},tkIcsAll:()=>tkIcs(tkAll().filter(x=>tkOpen(x)&&x.date>=TODAY()&&(!fv('calRep','')||x.repId===fv('calRep',''))),'crm-tasks.ics'),
+  tkNotif:async()=>{try{await Notification.requestPermission()}catch(e){}render()}});
+NAV.splice(NAV.findIndex(n=>n[0]==='plan'),0,['calendar','plan',()=>L('المهام والتقويم','Tasks & calendar'),ALL]);
+/* client drawer: tasks section */
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const mb=document.getElementById('mbody');if(!mb||!byId('clients',id))return;
+  const ts=tkAll().filter(t=>t.clientId===id).sort((a,b)=>(tkOpen(b)-tkOpen(a))||a.date.localeCompare(b.date)).slice(0,10);
+  const h=sec(L('المهام والمواعيد','Tasks & appointments'),`<button class="btn s" data-act="tkNew" data-c="${id}">+</button>`,ts.length?`<div class="list">${ts.map(t=>`<div class="li" data-act="tkOpen" data-id="${t.id}"><div class="main"><div class="t">${TASK_KINDS[t.kind]?.[2]||''} ${esc(t.title)}</div><div class="m">${fdate(t.date)}${t.time?' '+t.time:''} · ${esc(tName(t.repId))}</div></div><div class="end">${tkOpen(t)?(tkLate(t)?pill(L('متأخرة','Overdue'),'bad'):pill(L('مفتوحة','Open'),'info')):pill(L('منجزة','Done'),'ok')}</div></div>`).join('')}</div>`:`<div class="muted small">${L('ما فيه مهام','No tasks')}</div>`);
+  const first=mb.querySelector('.sec');if(first)first.insertAdjacentHTML('beforebegin',h);else mb.insertAdjacentHTML('beforeend',h)}}
+
+/* ===== Leads: scoring rules (points per criterion, editable) + automatic assignment rules (enforced by a database trigger on insert) ===== */
+const isLeadRec=c=>c&&(c.kind==='lead'||c.status==='prospect');
+const SCORE_DEF={type:{consultant:20,developer:20,gov:15,contractor:10,distributor:10},potential:{high:25,medium:10,low:0},phone:5,email:5,loc:5,openQuote:25,bigQuote:15,visit30:15,comm30:10,project:15,idle60:-15,hot:60,warm:30};
+const scoreCfg=()=>{const s=S.settings.find(x=>x.id==='score')||{};return {...SCORE_DEF,...s,type:{...SCORE_DEF.type,...(s.type||{})},potential:{...SCORE_DEF.potential,...(s.potential||{})}}};
+const assignCfg=()=>S.settings.find(x=>x.id==='assign')||{id:'assign',on:false,rules:[]};
+function leadScore(c){const C=scoreCfg(),t=TODAY(),ix=I();const parts=[];const add=(l,p)=>{if(p)parts.push([l,p])};
+  add(L('النشاط: ','Type: ')+(CLIENT_TYPES[c.type]?L(CLIENT_TYPES[c.type][0],CLIENT_TYPES[c.type][1]):'—'),+C.type[c.type]||0);
+  if(c.potential)add(L('إمكانية التطوير: ','Potential: ')+(POTENTIAL[c.potential]?.[0]||''),+C.potential[c.potential]||0);
+  if(c.phone)add(L('رقم جوال','Phone'),+C.phone);if(c.email)add(L('بريد','Email'),+C.email);if(c.lat!=null&&c.lat!=='')add(L('الموقع على الخريطة','Location'),+C.loc);
+  const oq=ix.quotes.filter(q=>q.cid===c.id&&(q.st==='open'||q.st==='pending'));if(oq.length){add(L('عرض سعر مفتوح','Open quote'),+C.openQuote);if(oq.some(q=>q.value>=cfg().largeQuote))add(L('عرض كبير','Large quote'),+C.bigQuote)}
+  if(S.visits.some(v=>v.clientId===c.id&&v.status==='done'&&v.date>=addDays(t,-30)))add(L('زيارة خلال 30 يوم','Visit in 30 days'),+C.visit30);
+  if(S.comms.some(m=>m.clientId===c.id&&(m.at||'').slice(0,10)>=addDays(t,-30)))add(L('تواصل خلال 30 يوم','Contact in 30 days'),+C.comm30);
+  if(S.projects.some(p=>[p.ownerId,p.consultantId,p.contractorId].includes(c.id)))add(L('مرتبط بمشروع','Linked project'),+C.project);
+  const la=lastActivity(c.id)||(c.createdAt||'').slice(0,10);if(la&&la<addDays(t,-60))add(L('بدون نشاط 60 يوم','Idle 60 days'),+C.idle60);
+  const sc=parts.reduce((s,x)=>s+x[1],0);return {sc,parts,band:sc>=C.hot?'hot':sc>=C.warm?'warm':'cold'}}
+const LD_BAND={hot:['ساخن','Hot','bad'],warm:['دافئ','Warm','warn'],cold:['بارد','Cold','']};
+const ldPill=s=>`<span class="pill ${LD_BAND[s.band][2]}" title="${esc(s.parts.map(p=>p[0]+' '+(p[1]>0?'+':'')+p[1]).join(' · '))}">${s.sc} · ${L(LD_BAND[s.band][0],LD_BAND[s.band][1])}</span>`;
+V.leads=()=>{
+  const q=normTxt(fv('ldQ',''));const bd=fv('ldBand','');const rp=fv('ldRep','');const un=fv('ldUn','');
+  const base=vis(S.clients).filter(isLeadRec).map(c=>({c,s:leadScore(c)}));
+  const rows=base.filter(x=>(!q||normTxt(x.c.name+' '+(x.c.code||'')+' '+(x.c.phone||'')).includes(q))&&(!bd||x.s.band===bd)&&(!rp||x.c.repId===rp)&&(!un||!x.c.repId)).sort((a,b)=>b.s.sc-a.s.sc);
+  const cnt=k=>base.filter(x=>x.s.band===k).length;const unas=base.filter(x=>!x.c.repId).length;const lim=fv('ldLim',150);const A=assignCfg();
+  return `<div class="toolbar"><input type="search" placeholder="${L('بحث بالاسم أو الكود أو الجوال','Search')}" value="${esc(fv('ldQ',''))}" data-act="filtIn" data-k="ldQ">
+    ${[['',L('الكل','All')],['hot',L('ساخن','Hot')],['warm',L('دافئ','Warm')],['cold',L('بارد','Cold')]].map(([k,l])=>`<button class="chip ${bd===k?'on':''}" data-act="filt" data-k="ldBand" data-v="${k}">${l}</button>`).join('')}
+    ${isLead()?`<select data-act="filtSel" data-k="ldRep">${opt(visibleReps().map(r=>[r.id,r.name]),rp,L('كل المندوبين','All reps'))}</select><button class="chip ${un?'on':''}" data-act="filt" data-k="ldUn" data-v="${un?'':'1'}">${L('غير مسندين','Unassigned')} (${unas})</button>`:''}
+    <span class="grow"></span>${isMgr()?`<button class="btn s" data-act="ldCfg">${L('قواعد التوزيع والنقاط','Rules & scoring')}</button>`:''}${isLead()&&unas&&A.on?`<button class="btn p s" data-act="ldRun">${L('وزّع غير المسندين الآن','Assign unassigned now')}</button>`:''}</div>
+   <div class="kpis k4">${kpiTile(L('العملاء المحتملون','Leads'),num(base.length))}${kpiTile(L('ساخن','Hot'),num(cnt('hot')),`${L('من','≥')} ${scoreCfg().hot} ${L('نقطة','pts')}`)}${kpiTile(L('دافئ','Warm'),num(cnt('warm')))}${kpiTile(L('غير مسندين لمندوب','Unassigned'),num(unas),A.on?L('التوزيع التلقائي مفعّل','Auto-assign on'):L('التوزيع التلقائي موقوف','Auto-assign off'))}</div>
+   <div class="card">${table([{l:L('العميل المحتمل','Lead'),f:x=>`<a href="#" data-open="client" data-id="${x.c.id}">${esc(x.c.name)}</a> <span class="small muted">${esc(x.c.code||'')}</span>`},
+     {l:L('النقاط','Score'),f:x=>ldPill(x.s)},{l:L('النشاط','Type'),f:x=>esc(CLIENT_TYPES[x.c.type]?L(CLIENT_TYPES[x.c.type][0],CLIENT_TYPES[x.c.type][1]):'—')},
+     {l:L('المنطقة','Region'),f:x=>esc((REGIONS.find(r=>r.id===x.c.region)||{}).ar||'—')},{l:L('المندوب','Rep'),f:x=>x.c.repId?esc(tName(x.c.repId))+(x.c.assignedBy==='rule'?` <span class="small muted">(${L('تلقائي','auto')})</span>`:''):`<span class="flag">${L('غير مسند','Unassigned')}</span>`},
+     {l:L('آخر نشاط','Last activity'),c:'nw',f:x=>fdate(lastActivity(x.c.id))}],rows.slice(0,lim).map(x=>({...x,id:null})))}
+   ${rows.length>lim?`<button class="btn" data-act="more" data-k="ldLim" data-n="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}
+   <p class="small muted">${L('مرّر على النقاط لعرض تفصيلها. المعايير والنقاط وحدود ساخن ودافئ تتعدّل من «قواعد التوزيع والنقاط».','Hover a score to see its breakdown.')}</p></div>`};
+function ldCfgOpen(){const C=scoreCfg(),A=assignCfg();const reps=S.team.filter(t=>t.role==='rep');const tps=[['',L('أي نشاط','Any type')],...Object.entries(CLIENT_TYPES).map(([k,v])=>[k,L(v[0],v[1])])];
+  const ruleRow=(r,i)=>`<tr data-rr="${i}"><td><select name="rg">${opt([['',L('أي منطقة','Any region')],...REGIONS.map(x=>[x.id,L(x.ar,x.en)])],r.region||'',null)}</select></td><td><select name="tp">${opt(tps,r.type||'',null)}</select></td>
+    <td><div class="chk" style="max-height:110px;overflow:auto">${reps.map(p=>`<label><input type="checkbox" name="rp" value="${p.id}" ${(r.reps||[]).includes(p.id)?'checked':''}> ${esc(p.name)}</label>`).join('')}</div></td>
+    <td><select name="md">${opt([['rr',L('بالدور','Round robin')],['load',L('الأقل عملاء محتملين','Least loaded')]],r.mode||'rr',null)}</select></td><td><button type="button" class="btn s d" data-act="ldRuleDel" data-i="${i}">×</button></td></tr>`;
+  const n=(k,v,l)=>`<label class="fl">${l}<input type="number" step="1" data-sc="${k}" value="${v}"></label>`;
+  openModal(L('قواعد التوزيع والنقاط','Assignment & scoring rules'),`<div class="card"><h2>${L('التوزيع التلقائي للعملاء المحتملين','Automatic lead assignment')}</h2>
+    <label class="chk"><input type="checkbox" id="as_on" ${A.on?'checked':''}> ${L('مفعّل: أي عميل محتمل جديد ينضاف بدون مندوب يُسند تلقائياً حسب أول قاعدة مطابقة (القاعدة المحددة بالنشاط قبل العامة)','On: new leads without a rep are assigned by the first matching rule')}</label>
+    <div class="tbl"><table><thead><tr><th>${L('المنطقة','Region')}</th><th>${L('النشاط','Type')}</th><th>${L('المندوبين','Reps')}</th><th>${L('الطريقة','Mode')}</th><th></th></tr></thead><tbody id="as_rules">${(A.rules||[]).map(ruleRow).join('')}</tbody></table></div>
+    <button type="button" class="btn s" data-act="ldRuleAdd">+ ${L('قاعدة','Rule')}</button><p class="small muted">${L('التوزيع يتنفّذ في قاعدة البيانات نفسها، فيشمل الإضافة من التطبيق والاستيراد من Excel، ويوصل للمندوب إشعار.','Enforced in the database for app and Excel imports; the rep is notified.')}</p></div>
+   <div class="card"><h2>${L('نقاط تقييم العميل المحتمل','Lead scoring points')}</h2><div class="fgrid">
+    ${Object.entries(CLIENT_TYPES).map(([k,v])=>n('type.'+k,C.type[k]??0,L('النشاط: ','Type: ')+L(v[0],v[1]))).join('')}
+    ${Object.entries(POTENTIAL).map(([k,v])=>n('potential.'+k,C.potential[k]??0,L('إمكانية التطوير: ','Potential: ')+L(v[0],v[1]))).join('')}
+    ${n('phone',C.phone,L('له رقم جوال','Has phone'))}${n('email',C.email,L('له بريد','Has email'))}${n('loc',C.loc,L('موقعه على الخريطة','Has location'))}
+    ${n('openQuote',C.openQuote,L('عنده عرض سعر مفتوح','Open quote'))}${n('bigQuote',C.bigQuote,L('العرض المفتوح كبير','Large open quote'))}${n('visit30',C.visit30,L('زيارة خلال 30 يوم','Visit in 30 days'))}
+    ${n('comm30',C.comm30,L('تواصل خلال 30 يوم','Contact in 30 days'))}${n('project',C.project,L('مرتبط بمشروع','Linked project'))}${n('idle60',C.idle60,L('بدون نشاط 60 يوم (بالسالب)','Idle 60 days (negative)'))}
+    ${n('hot',C.hot,L('حد «ساخن» (من)','Hot from'))}${n('warm',C.warm,L('حد «دافئ» (من)','Warm from'))}</div></div>
+   <div id="ld_e" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="ldCfgSave">${L('حفظ','Save')}</button></div>`);
+  window.__ldRow=ruleRow}
+function ldReadRules(){return [...document.querySelectorAll('#as_rules tr')].map(tr=>({region:tr.querySelector('[name=rg]').value,type:tr.querySelector('[name=tp]').value,reps:[...tr.querySelectorAll('[name=rp]:checked')].map(i=>i.value),mode:tr.querySelector('[name=md]').value,next:0}))}
+Object.assign(ACT,{ldCfg:()=>ldCfgOpen(),
+  ldRuleAdd:()=>{const tb=document.getElementById('as_rules');tb.insertAdjacentHTML('beforeend',window.__ldRow({},tb.children.length))},
+  ldRuleDel:d=>{const tr=document.querySelector(`#as_rules tr[data-rr="${d.i}"]`);if(tr)tr.remove()},
+  ldCfgSave:async()=>{const rules=ldReadRules();if(rules.some(r=>!r.reps.length)){document.getElementById('ld_e').textContent=L('كل قاعدة لازم يكون فيها مندوب واحد على الأقل','Each rule needs at least one rep');return}
+    const prev=assignCfg();rules.forEach((r,i)=>{const p=(prev.rules||[]).find(x=>x.region===r.region&&x.type===r.type);if(p&&JSON.stringify(p.reps)===JSON.stringify(r.reps))r.next=p.next||0});
+    const sc={...scoreCfg(),id:'score'};document.querySelectorAll('[data-sc]').forEach(i=>{const [a,b]=i.dataset.sc.split('.');const v=+i.value||0;if(b)sc[a]={...sc[a],[b]:v};else sc[a]=v});
+    try{await save('settings',{...prev,id:'assign',on:document.getElementById('as_on').checked,rules});await save('settings',sc);closeModal();toast(L('تم الحفظ','Saved'))}catch(e){}},
+  ldRun:async()=>{const A=assignCfg();const L0=vis(S.clients).filter(c=>isLeadRec(c)&&!c.repId);let n=0;const rules=JSON.parse(JSON.stringify(A.rules||[]));
+    for(const c of L0){let r=rules.find(x=>x.region===(c.region||'')&&x.type===(c.type||'')&&x.reps.length)||rules.find(x=>(x.region===''||x.region===(c.region||''))&&!x.type&&x.reps.length);if(!r)continue;
+      let pick;if(r.mode==='load'){const ld=id=>S.clients.filter(x=>x.repId===id&&isLeadRec(x)).length;pick=[...r.reps].sort((a,b)=>ld(a)-ld(b))[0]}else{pick=r.reps[(r.next||0)%r.reps.length];r.next=((r.next||0)+1)%r.reps.length}
+      await save('clients',{...c,repId:pick,assignedBy:'rule',assignedAt:new Date().toISOString()},{reason:L('توزيع تلقائي','Auto-assign')});n++}
+    await save('settings',{...A,rules});toast(L('تم توزيع ','Assigned ')+n)}});
+NAV.splice(NAV.findIndex(n=>n[0]==='clients')+1,0,['leads','users',()=>L('العملاء المحتملون','Leads'),ALL]);
+/* score badge in the customer drawer */
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||!isLeadRec(c))return;const s=leadScore(c);
+  mb.insertAdjacentHTML('afterbegin',`<div class="banner info"><span class="sp"><b>${L('تقييم العميل المحتمل','Lead score')}:</b> ${ldPill(s)} <span class="small">${esc(s.parts.map(p=>p[0]+' '+(p[1]>0?'+':'')+p[1]).join(' · '))}</span></span></div>`)}}
+/* rep can leave the rep empty for leads when auto-assign is on (leads only) */
+{const _ec=editClient;editClient=(id,preset)=>{_ec(id,preset);if(id||!assignCfg().on||!isLead())return;const f=FORM.fields.find(x=>x.k==='repId');if(f){f.req=0;const lab=document.querySelector('label[for=f_repId]');if(lab){lab.querySelector('.req')?.remove();lab.insertAdjacentHTML('beforeend',` <span class="small muted">(${L('لو الحالة «محتمل» اتركه فاضي ويتوزع تلقائياً','leave empty for a prospect to auto-assign')})</span>`)}const os=FORM.onSave;FORM.onSave=v=>{if(!v.repId&&v.status!=='prospect')formErr(L('اختر المندوب، أو خلّ الحالة «محتمل» عشان يتوزع تلقائياً','Pick a rep, or set status to prospect for auto-assignment'));return os(v)}}}}
+
+/* ===== Opportunities kanban (drag between stages) + duplicate customers: detect and merge ===== */
+V.oppboard=()=>{
+  const rp=fv('obRep','');const q=normTxt(fv('obQ',''));
+  const rows=vis(S.opps).filter(o=>(!rp||o.repId===rp)&&(!q||normTxt((o.title||'')+' '+cName(o.clientId)).includes(q)));
+  const css=`<style>.kb{display:grid;grid-template-columns:repeat(${OPP_STAGES.length},minmax(210px,1fr));gap:8px;overflow-x:auto;padding-bottom:6px}.kb-col{background:var(--bg2,#f4f6f8);border-radius:10px;padding:6px;min-height:240px}.kb-col.over{outline:2px dashed var(--c1,#1F6FB2)}.kb-h{font-weight:700;font-size:13px;display:flex;justify-content:space-between;gap:6px;margin-bottom:6px}.kb-h small{font-weight:400;opacity:.7}.kb-c{background:var(--card,#fff);border:1px solid var(--line,#e3e6ea);border-radius:8px;padding:7px;margin-bottom:6px;cursor:grab;font-size:13px}.kb-c.late{border-inline-start:3px solid #B42318}.kb-c .m{font-size:12px;opacity:.75;margin-top:2px}</style>`;
+  const t=TODAY();
+  const col=st=>{const L0=rows.filter(o=>(o.stage||'inquiry')===st[0]).sort((a,b)=>(+b.value||0)-(+a.value||0));const v=L0.reduce((s,o)=>s+(+o.value||0),0),w=L0.reduce((s,o)=>s+(+o.value||0)*(+o.prob||st[3]||0)/100,0);
+    return `<div class="kb-col" data-stage="${st[0]}"><div class="kb-h"><span>${L(st[1],st[2])} (${L0.length})</span><small>${smoney(v)}${st[0]!=='lost'&&st[0]!=='order'?' · '+L('مرجّح ','wtd ')+smoney(w):''}</small></div>
+     ${L0.slice(0,80).map(o=>`<div class="kb-c ${o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage)?'late':''}" draggable="true" data-oid="${o.id}" data-open="opp" data-id="${o.id}"><b>${esc(o.title||'—')}</b><div class="m">${esc(cName(o.clientId))}</div><div class="m">${money(+o.value||0)} · ${+o.prob||0}%${o.expectedClose?' · '+fdate(o.expectedClose):''}${isLead()?' · '+esc(tName(o.repId)):''}</div>${o.nextStep?`<div class="m">↪ ${esc(o.nextStep)}${o.nextDate?' ('+fdate(o.nextDate)+')':''}</div>`:''}</div>`).join('')}
+     ${L0.length>80?`<div class="small muted">+${L0.length-80}</div>`:''}</div>`};
+  const open=rows.filter(o=>!['order','lost'].includes(o.stage));
+  return css+`<div class="toolbar"><button class="btn p" data-act="newOpp">+ ${L('فرصة','Deal')}</button><input type="search" placeholder="${L('بحث بالفرصة أو العميل','Search')}" value="${esc(fv('obQ',''))}" data-act="filtIn" data-k="obQ">
+    ${isLead()?`<select data-act="filtSel" data-k="obRep">${opt(visibleReps().map(r=>[r.id,r.name]),rp,L('كل المندوبين','All reps'))}</select>`:''}<span class="grow"></span>
+    <span class="small muted">${L('اسحب البطاقة لمرحلة ثانية لتغيير مرحلتها','Drag a card to change its stage')}</span></div>
+   <div class="kpis k3">${kpiTile(L('فرص مفتوحة','Open deals'),num(open.length))}${kpiTile(L('قيمتها','Value'),smoney(open.reduce((s,o)=>s+(+o.value||0),0)))}${kpiTile(L('القيمة المرجّحة بالاحتمال','Weighted value'),smoney(open.reduce((s,o)=>s+(+o.value||0)*(+o.prob||0)/100,0)))}</div>
+   <div class="kb">${OPP_STAGES.map(col).join('')}</div>`};
+let KB_DRAG=null;
+document.addEventListener('dragstart',e=>{const c=e.target.closest&&e.target.closest('.kb-c');if(!c)return;KB_DRAG=c.dataset.oid;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',KB_DRAG)}catch(x){}});
+document.addEventListener('dragover',e=>{const c=e.target.closest&&e.target.closest('.kb-col');if(!c||!KB_DRAG)return;e.preventDefault();document.querySelectorAll('.kb-col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
+document.addEventListener('drop',async e=>{const c=e.target.closest&&e.target.closest('.kb-col');document.querySelectorAll('.kb-col.over').forEach(x=>x.classList.remove('over'));if(!c||!KB_DRAG)return;e.preventDefault();
+  const o=byId('opps',KB_DRAG);KB_DRAG=null;const st=c.dataset.stage;if(!o||o.stage===st)return;
+  if(!isLead()&&o.repId!==me().id){toast(L('ما تقدر تعدّل فرصة مندوب ثاني','You can only move your own deals'));return}
+  const s=OPP_STAGES.find(x=>x[0]===st);const upd={...o,stage:st,prob:s?s[3]:o.prob};
+  if(st==='lost'){const r=prompt(L('سبب خسارة الفرصة؟','Why was the deal lost?'),o.lostReason||'');if(r===null)return;upd.lostReason=r.trim()}
+  try{await save('opps',upd,{reason:L('نقل من لوحة الفرص','Moved on board')});toast(L('انتقلت إلى ','Moved to ')+stageName(st))}catch(x){}});
+document.addEventListener('dragend',()=>{KB_DRAG=null;document.querySelectorAll('.kb-col.over').forEach(x=>x.classList.remove('over'))});
+NAV.splice(NAV.findIndex(n=>n[0]==='opps')+1,0,['oppboard','funnel',()=>L('لوحة الفرص (كانبان)','Deals board'),ALL]);
+
+/* ---- duplicates ---- */
+const DUP_WORDS=/(^|\s)(مؤسسة|شركة|مكتب|مصنع|محل|مجموعة|للمقاولات|المقاولات|مقاولات|التجارية|للتجارة|تجارة|العامة|المحدودة|ذات|مسؤولية|est|co|company|ltd|llc|trading|contracting)(?=\s|$)/gi;
+const dupName=s=>normTxt(String(s||'').replace(DUP_WORDS,' ').replace(DUP_WORDS,' ')).replace(/[^\p{L}\p{N}]/gu,'').replace(/^ال/,'');
+function findDups(){const by=new Map();const add=(k,c,why)=>{if(!k)return;let g=by.get(k);if(!g){g={why,list:[]};by.set(k,g)}if(!g.list.includes(c))g.list.push(c)};
+  vis(S.clients).forEach(c=>{const n=dupName(c.name);if(n.length>=4)add('n:'+n,c,L('نفس الاسم','Same name'));const p=waPhone(c.phone);if(p)add('p:'+p,c,L('نفس الجوال','Same phone'));const k=normCode(c.code).replace(/[^A-Z0-9]/gi,'');if(k)add('k:'+k.toUpperCase(),c,L('نفس الكود','Same code'))});
+  const seen=new Set(),out=[];[...by.values()].filter(g=>g.list.length>1).forEach(g=>{const key=g.list.map(c=>c.id).sort().join('|');if(seen.has(key))return;seen.add(key);out.push(g)});return out}
+const refCount=id=>['projects','opps','quotes','samples','visits','complaints','comms','tasks','orders','invoices'].reduce((s,col)=>s+(S[col]||[]).filter(x=>x.clientId===id||x.ownerId===id||x.consultantId===id||x.contractorId===id).length,0)+(I().collByCust.get(id)||[]).length;
+V.dups=()=>{if(!isMgr())return `<div class="card empty">${L('هذه الصفحة لمدير المبيعات','Sales manager only')}</div>`;
+  const G=findDups();const lim=fv('dpLim',40);
+  return `<div class="banner info"><span class="sp">${L('عملاء متشابهين بالاسم (بعد تجاهل كلمات مثل مؤسسة وشركة) أو الجوال أو الكود. اختر السجل الأساسي ثم «دمج»: تنتقل كل العروض والزيارات والفرص والفواتير والتحصيل والمهام للسجل الأساسي، ويُحفظ كود المكرر كاسم بديل عشان يتطابق التحصيل الجاي، ثم يُحذف المكرر ويتسجل في سجل التدقيق.','Similar customers by name, phone or code. Choose the master and merge.')}</span></div>
+   <div class="kpis k2">${kpiTile(L('مجموعات مشتبه بتكرارها','Suspected groups'),num(G.length))}${kpiTile(L('سجلات داخلها','Records'),num(G.reduce((s,g)=>s+g.list.length,0)))}</div>
+   ${G.slice(0,lim).map((g,gi)=>`<div class="card"><h2>${esc(g.why)} <span class="sub">${g.list.length} ${L('سجلات','records')}</span></h2>${table([{l:L('أساسي','Master'),f:c=>`<input type="radio" name="dm${gi}" value="${c.id}" ${c.id===g.list.slice().sort((a,b)=>refCount(b.id)-refCount(a.id))[0].id?'checked':''}>`},
+      {l:L('العميل','Customer'),f:c=>`<a href="#" data-open="client" data-id="${c.id}">${esc(c.name)}</a>`},{l:L('الكود','Code'),f:c=>esc(c.code||'')},{l:L('الجوال','Phone'),f:c=>esc(c.phone||'')},{l:L('المندوب','Rep'),f:c=>esc(tName(c.repId))},{l:L('سجلات مرتبطة','Linked records'),c:'n',f:c=>num(refCount(c.id))}],g.list.map(c=>({...c,id:c.id,_noopen:1})))}
+     <div class="formbar"><span class="grow"></span><button class="btn s" data-act="dupIgnore" data-k="${esc(g.list.map(c=>c.id).sort().join('|'))}">${L('ليسوا مكررين','Not duplicates')}</button><button class="btn p s" data-act="dupMerge" data-g="${gi}">${L('دمج في الأساسي','Merge into master')}</button></div></div>`).join('')}
+   ${G.length>lim?`<button class="btn" data-act="more" data-k="dpLim" data-n="${lim+40}">${L('عرض المزيد','Show more')} (${G.length-lim})</button>`:''}${G.length?'':`<div class="card empty">${L('ما فيه عملاء مكررين','No duplicates found')}</div>`}`};
+{const _f=findDups;findDups=()=>{const ig=new Set((S.settings.find(x=>x.id==='dupIgnore')||{}).keys||[]);return _f().filter(g=>!ig.has(g.list.map(c=>c.id).sort().join('|')))}}
+async function mergeClients(masterId,ids){const m0=byId('clients',masterId);if(!m0)return;let m=JSON.parse(JSON.stringify(m0));if(!m)return;const dups=ids.filter(x=>x!==masterId).map(x=>byId('clients',x)).filter(Boolean);
+  const keys=['clientId','ownerId','consultantId','contractorId'];let moved=0;
+  for(const d of dups){
+    for(const col of ['projects','opps','quotes','samples','visits','complaints','comms','tasks','orders','invoices']){for(const x of (S[col]||[]).filter(r=>keys.some(k=>r[k]===d.id))){const u={...x};keys.forEach(k=>{if(u[k]===d.id)u[k]=m.id});if(col==='invoices'&&u.clientCode===d.code)u.clientCode=m.code;await save(col,u,{reason:L('دمج عميل مكرر','Duplicate merge'),keepImport:true});moved++}}
+    for(const a of (S.attachments||[]).filter(a=>a.parentCol==='clients'&&a.parentId===d.id)){await save('attachments',{...a,parentId:m.id});moved++}
+    const fill={};['phone','email','contact','district','lat','lng','category','notes'].forEach(k=>{if((m[k]==null||m[k]==='')&&d[k]!=null&&d[k]!=='')fill[k]=d[k]});
+    const al=[...new Set([...(m.aliasCodes||[]),...(d.aliasCodes||[]),...(d.code&&normCode(d.code)!==normCode(m.code)?[d.code]:[])])];
+    m={...m,...fill,aliasCodes:al,mergedFrom:[...(m.mergedFrom||[]),{id:d.id,code:d.code||'',name:d.name,at:new Date().toISOString()}]};
+    await save('clients',{...m},{reason:L('دمج: ','Merge: ')+d.name});await remove('clients',d.id,L('دُمج في ','Merged into ')+m.name)}
+  toast(L(`تم الدمج — انتقل ${moved} سجل`,`Merged — ${moved} records moved`))}
+Object.assign(ACT,{
+  dupMerge:async d=>{const G=findDups();const g=G[+d.g];if(!g)return;const sel=document.querySelector(`input[name="dm${d.g}"]:checked`);if(!sel)return toast(L('اختر السجل الأساسي','Pick the master'));
+    const m=byId('clients',sel.value);if(!confirm(L(`دمج ${g.list.length-1} سجل في «${m.name}»؟ لا يمكن التراجع إلا يدوياً.`,`Merge into ${m.name}?`)))return;await mergeClients(sel.value,g.list.map(c=>c.id))},
+  dupIgnore:async d=>{const s=S.settings.find(x=>x.id==='dupIgnore')||{id:'dupIgnore',keys:[]};await save('settings',{...s,keys:[...new Set([...(s.keys||[]),d.k])]});toast(L('تم — ما راح تظهر مرة ثانية','Hidden'))}});
+NAV.splice(NAV.findIndex(n=>n[0]==='integrity')+1,0,['dups','users',()=>L('العملاء المكررون','Duplicate customers'),()=>isMgr()]);
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
