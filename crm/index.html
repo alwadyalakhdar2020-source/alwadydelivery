@@ -4196,6 +4196,188 @@ Object.assign(ACT,{
   dupIgnore:async d=>{const s=S.settings.find(x=>x.id==='dupIgnore')||{id:'dupIgnore',keys:[]};await save('settings',{...s,keys:[...new Set([...(s.keys||[]),d.k])]});toast(L('تم — ما راح تظهر مرة ثانية','Hidden'))}});
 NAV.splice(NAV.findIndex(n=>n[0]==='integrity')+1,0,['dups','users',()=>L('العملاء المكررون','Duplicate customers'),()=>isMgr()]);
 
+/* ===== Credit-limit exception approval (اعتماد استثناءات التوريد) — UI only. Every rule, route and permission is enforced by the
+   database functions ce_* (see migration ce_module_*). This screen only collects input and shows what the server returns. ===== */
+const CE_REASONS={limit_exhausted:'استنفاد الحد الائتماني بالكامل',transfer_unposted:'وجود حوالة بنكية لم تُسجل في حساب العميل',transfer_pending:'انتظار إصدار أو تحويل حوالة بنكية جديدة',site_stop:'احتمال توقف موقع العميل نتيجة عدم التوريد'};
+const CE_ST={draft:['مسودة',''],pending_sup:['بانتظار مراجعة المشرف','warn'],pending_sm:['بانتظار موافقة مدير المبيعات','warn'],pending_gm:['بانتظار موافقة المدير العام','warn'],returned:['معاد لاستكمال البيانات','info'],
+  approved:['معتمد','ok'],rejected:['مرفوض','bad'],expired:['منتهي الصلاحية',''],cancelled:['ملغى',''],executed:['تم تنفيذ التوريد','info'],settled:['تمت تسوية الاستثناء','ok']};
+const CE_ACT={create:'إنشاء',save_draft:'حفظ مسودة',submit:'إرسال',submit_blocked:'محاولة إرسال مرفوضة',sup_forward:'توصية المشرف ورفع الطلب',sup_return:'إعادة من المشرف',approve:'موافقة',reject:'رفض',return:'إعادة لاستكمال البيانات',
+  rerouted_gm:'تحويل للمدير العام بعد تحديث الرصيد',approve_blocked:'محاولة موافقة مرفوضة',decide_denied:'محاولة قرار بدون صلاحية',self_approval_blocked:'محاولة اعتماد الطلب الذاتي',cancel:'إلغاء',execute:'تنفيذ التوريد',execute_blocked:'محاولة تنفيذ مرفوضة',expire:'انتهاء الصلاحية',settle:'تسوية',settings:'تعديل الإعدادات'};
+const CEX={rows:null,cfg:null,notes:[],names:{},busy:false,at:0,me:{sm:false,gm:false}};
+const ceSt=s=>pill(CE_ST[s]?.[0]||s,CE_ST[s]?.[1]||'');
+const ceName=id=>id?(byId('team',id)?.name||CEX.names[id]||'—'):'—';
+async function ceLoad(force){if(CEX.busy||(!force&&CEX.rows&&Date.now()-CEX.at<30000))return;CEX.busy=true;
+  try{const sb=window.__sb;const [r,c,n,p]=await Promise.all([sb.from('ce_requests').select('*').order('created_at',{ascending:false}).limit(2000),sb.from('ce_settings').select('*').eq('id',1).maybeSingle(),
+      sb.from('ce_notes').select('*').order('at',{ascending:false}).limit(100),sb.from('profiles').select('id,full_name,role,active')]);
+    if(r.error)throw r.error;CEX.rows=r.data||[];CEX.cfg=c.data||null;CEX.notes=n.data||[];(p.data||[]).forEach(x=>CEX.names[x.id]=x.full_name);CEX.profiles=(p.data||[]).filter(x=>x.active);
+    const uid=me().id;CEX.me={sm:!!CEX.cfg&&(CEX.cfg.sm_ids||[]).includes(uid),gm:!!CEX.cfg&&(CEX.cfg.gm_ids||[]).includes(uid)};CEX.at=Date.now();CEX.err=null}
+  catch(e){CEX.err=e.message||String(e);CEX.rows=CEX.rows||[]}CEX.busy=false;render()}
+const ceMine=r=>{const u=me().id;return (r.status==='pending_sup'&&r.sup_id===u)||(r.status==='pending_sm'&&CEX.me.sm&&r.created_by!==u&&r.rep_id!==u)||(r.status==='pending_gm'&&CEX.me.gm&&r.created_by!==u&&r.rep_id!==u)||(r.status==='returned'&&r.created_by===u)||(r.status==='draft'&&r.created_by===u)};
+V.credex=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
+  if(!CEX.rows){ceLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const tab=fv('ceTab','queue');const lead=CEX.me.sm||CEX.me.gm||isMgr();const unread=CEX.notes.filter(n=>!n.read).length;
+  const tabs=[['queue',L('بانتظار إجراء مني','My queue')+` (${CEX.rows.filter(ceMine).length})`],['list',L('كل الطلبات','All requests')],['hist',L('سجل العملاء','Customer history')],...(lead?[['dash',L('لوحة المتابعة','Dashboard')]]:[]),['notes',L('الإشعارات','Notifications')+(unread?` (${unread})`:'')],...(isAdmin()||WADY_PERM?.admin?[['cfg',L('الإعدادات','Settings')]]:[]),['help',L('دليل الوحدة','Guide')]];
+  let h=`<div class="toolbar"><button class="btn p" data-act="ceNew">+ ${L('طلب استثناء توريد','New exception request')}</button><button class="btn s" data-act="ceRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
+   ${CEX.cfg?`<span class="small muted">${L('سقف مدير المبيعات','Sales mgr ceiling')}: ${money(CEX.cfg.threshold)} · ${L('الحد الشهري لكل عميل','Monthly per customer')}: ${CEX.cfg.monthly_max} · ${L('صلاحية الموافقة','Validity')}: ${CEX.cfg.validity_days} ${L('أيام عمل','working days')}</span>`:''}</div>
+   ${CEX.err?`<div class="banner bad"><span class="sp">${esc(CEX.err)}</span></div>`:''}
+   <div class="tabs">${tabs.map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="ceTab" data-v="${k}">${l}</button>`).join('')}</div>`;
+  if(tab==='queue')return h+ceTable(CEX.rows.filter(ceMine),L('ما فيه طلبات تنتظر إجراء منك','Nothing waiting for you'));
+  if(tab==='list')return h+ceFilters()+ceTable(ceFiltered(),L('ما فيه طلبات','No requests'));
+  if(tab==='hist')return h+ceHistory();
+  if(tab==='dash'&&lead)return h+ceFilters()+ceDash();
+  if(tab==='notes')return h+`<div class="card">${CEX.notes.length?`<div class="list">${CEX.notes.map(n=>`<div class="li" data-act="ceNote" data-id="${n.id}" data-r="${n.req_id||''}"><div class="main"><div class="t">${n.read?'':'● '}${esc(n.title)}</div><div class="m">${esc(n.body||'')} · ${fdt(n.at)}</div></div></div>`).join('')}</div>`:`<div class="muted">${L('ما فيه إشعارات','No notifications')}</div>`}</div>`;
+  if(tab==='cfg')return h+ceCfgView();
+  if(tab==='help')return h+ceHelp();
+  return h};
+function ceFilters(){const reps=visibleReps();return `<div class="fbar"><label class="fl">${L('بحث بالعميل أو الكود أو الرقم','Search')}<input type="search" value="${esc(fv('ceQ',''))}" data-act="filtIn" data-k="ceQ"></label>
+  <label class="fl">${L('الحالة','Status')}<select data-act="filtSel" data-k="ceS">${opt(Object.entries(CE_ST).map(([k,v])=>[k,v[0]]),fv('ceS',''),L('الكل','All'))}</select></label>
+  ${isLead()||CEX.me.sm||CEX.me.gm?`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="ceRep">${opt(reps.map(r=>[r.id,r.name]),fv('ceRep',''),L('الكل','All'))}</select></label><label class="fl">${L('المنطقة','Region')}<select data-act="filtSel" data-k="ceReg">${opt(REGIONS.map(r=>[r.id,r.ar]),fv('ceReg',''),L('الكل','All'))}</select></label>`:''}
+  <label class="fl">${L('من','From')}<input type="date" value="${fv('ceF','')}" data-act="filtIn" data-k="ceF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${fv('ceT','')}" data-act="filtIn" data-k="ceT"></label></div>`}
+function ceFiltered(){const q=normTxt(fv('ceQ',''));const s=fv('ceS',''),rp=fv('ceRep',''),rg=fv('ceReg',''),f=fv('ceF',''),t=fv('ceT','');
+  return CEX.rows.filter(r=>(!q||normTxt(`${r.client_name} ${r.client_code} EX-${r.no} ${r.so_no||''}`).includes(q))&&(!s||r.status===s)&&(!rp||r.rep_id===rp)&&(!rg||r.region===rg)&&(!f||r.created_at.slice(0,10)>=f)&&(!t||r.created_at.slice(0,10)<=t))}
+function ceTable(rows,emp){if(!rows.length)return `<div class="card empty">${emp}</div>`;
+  return `<div class="card">${table([{l:L('الرقم','No.'),f:r=>`<a href="#" data-act="ceOpen" data-id="${r._id}"><b>EX-${r.no}</b></a>`},{l:L('العميل','Customer'),f:r=>`${esc(r.client_name||'')} <span class="small muted">${esc(r.client_code)}</span>`},
+    {l:L('المندوب','Rep'),f:r=>esc(ceName(r.rep_id))},{l:L('قيمة التوريد','Supply'),c:'n',f:r=>money(r.amount)},{l:L('التجاوز','Over'),c:'n',f:r=>r.over_amount!=null?money(r.over_amount):'—'},
+    {l:L('المسار','Route'),f:r=>r.route==='gm'?L('المدير العام','GM'):r.route==='sm'?L('مدير المبيعات','Sales mgr'):'—'},{l:L('الحالة','Status'),f:r=>ceSt(r.status)+(r.status==='approved'&&r.valid_until?` <span class="small muted">${L('حتى','until')} ${fdate(r.valid_until)}</span>`:'')},
+    {l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.created_at.slice(0,10))}],rows.slice(0,500).map(r=>({...r,id:null,_id:r.id})))}</div>`}
+/* ---- new / edit request ---- */
+let CE_FORM=null;
+function ceOpenForm(req){const clients=vis(S.clients).filter(c=>!isLead()||true).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  CE_FORM={id:req?.id||null,client_id:req?.client_id||'',files:req?.attachments||[]};
+  openModal(req?L('تعديل طلب الاستثناء EX-','Edit EX-')+req.no:L('طلب استثناء توريد جديد','New exception request'),`<form id="ceform" novalidate>
+   <div class="fgrid"><div class="fld full"><label>${L('العميل','Customer')} <span class="req">*</span></label>${req?`<b>${esc(req.client_name)} — ${esc(req.client_code)}</b>`:`<input list="ce_cl" id="ce_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="ce_cl">${clients.slice(0,4000).map(c=>`<option value="${esc(c.code)} — ${esc(c.name)}">`).join('')}</datalist>`}</div>
+    <div class="fld"><label>${L('قيمة التوريد المطلوب (ريال)','Requested supply (SAR)')} <span class="req">*</span></label><input type="number" step="any" id="ce_amount" value="${req?.amount??''}"></div>
+    <div class="fld"><label>${L('رقم أمر البيع أو طلب التوريد (إن وجد)','Sales order no. (if any)')}</label><input id="ce_so" value="${esc(req?.so_no||'')}"></div></div>
+   <div id="ce_snap" class="card" style="margin:8px 0"><div class="muted small">${L('اختر العميل واكتب القيمة، والنظام يحسب الأرقام من بيانات SAP.','Pick the customer and amount; figures come from SAP data.')}</div></div>
+   <div class="fgrid"><div class="fld full"><label>${L('سبب طلب الاستثناء','Reason')} <span class="req">*</span></label><select id="ce_reason">${opt(Object.entries(CE_REASONS),req?.reason||'',L('— اختر —','— choose —'))}</select></div>
+    <div class="fld full"><label>${L('المبررات التجارية','Business justification')} <span class="req">*</span></label><textarea id="ce_just">${esc(req?.justification||'')}</textarea></div>
+    <div class="fld full"><label>${L('أهمية التوريد للعميل أو المشروع','Importance for customer / project')} <span class="req">*</span></label><textarea id="ce_imp">${esc(req?.importance||'')}</textarea></div>
+    <div class="fld"><label>${L('موعد السداد المتوقع','Expected payment date')} <span class="req">*</span></label><input type="date" id="ce_pay" value="${req?.expected_payment||''}"></div>
+    <div class="fld"><label>${L('المرفقات (صورة الحوالة، خطاب العميل) — حتى 3 ملفات','Attachments (up to 3)')}</label><input type="file" id="ce_files" multiple accept="image/*,application/pdf"><div id="ce_flist" class="small muted"></div></div></div>
+   ${req?.status==='returned'?`<div class="banner warn"><span class="sp">${L('ملاحظة الإعادة: ','Returned: ')}${esc(req.decision_note||req.sup_note||'')}</span></div>`:''}
+   <div id="ce_err" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button type="button" class="btn" data-act="ceSave" data-s="0">${L('حفظ كمسودة','Save draft')}</button><button type="button" class="btn p" data-act="ceSave" data-s="1">${L('إرسال للمراجعة','Submit')}</button></div></form>`);
+  if(req){CE_FORM.client_id=req.client_id;ceSnap()}ceFilesPaint();
+  const cl=document.getElementById('ce_client');if(cl)cl.addEventListener('change',()=>{const code=cl.value.split(' — ')[0].trim();const c=S.clients.find(x=>normCode(x.code)===normCode(code));CE_FORM.client_id=c?c.id:'';ceSnap()});
+  let t=null;document.getElementById('ce_amount').addEventListener('input',()=>{clearTimeout(t);t=setTimeout(ceSnap,450)});
+  document.getElementById('ce_files').addEventListener('change',async e=>{for(const f of [...e.target.files]){if(CE_FORM.files.length>=3)break;if(f.size>2.5e6){toast(L('حجم الملف أكبر من 2.5 ميجا: ','File over 2.5MB: ')+f.name);continue}
+    const d=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(f)});CE_FORM.files.push({name:f.name,type:f.type,data:d})}e.target.value='';ceFilesPaint()})}
+function ceFilesPaint(){const el=document.getElementById('ce_flist');if(el)el.innerHTML=CE_FORM.files.map((f,i)=>`${esc(f.name)} <a href="#" data-act="ceFileDel" data-i="${i}">×</a>`).join(' · ')}
+async function ceSnap(){const box=document.getElementById('ce_snap');if(!box)return;if(!CE_FORM.client_id){box.innerHTML=`<div class="muted small">${L('اختر العميل من القائمة','Choose a customer')}</div>`;return}
+  const amt=document.getElementById('ce_amount').value;box.innerHTML=`<div class="muted small">${L('جاري الحساب من بيانات SAP…','Calculating…')}</div>`;
+  const {data,error}=await window.__sb.rpc('ce_snapshot',{p_client_id:CE_FORM.client_id,p_amount:amt===''?null:+amt,p_exclude:CE_FORM.id});
+  if(error){box.innerHTML=`<div class="flag">${esc(error.message)}</div>`;return}if(!data.ok){box.innerHTML=`<div class="flag">${esc((data.errors||[]).join(' · '))}</div>`;return}
+  const k=(l,v)=>`<div><span class="small muted">${l}</span><div><b>${v}</b></div></div>`;
+  box.innerHTML=`<div class="grid g4" style="gap:8px">${k(L('العميل','Customer'),esc(data.name)+' · '+esc(data.code))}${k(L('المنطقة','Region'),esc((REGIONS.find(r=>r.id===data.region)||{}).ar||data.region||'—'))}${k(L('المندوب','Rep'),esc(data.rep_name||'—'))}${k(L('المشرف','Supervisor'),esc(data.sup_name||'—'))}
+    ${k(L('الحد الائتماني المعتمد','Credit limit'),data.credit_limit==null?`<span class="flag">${L('غير مسجل','Not on file')}</span>`:money(data.credit_limit))}${k(L('الرصيد الحالي','Current balance'),data.balance_ok?money(data.balance):'—')}
+    ${k(L('إجمالي المديونية بعد التوريد','Total after supply'),data.total_after!=null?money(data.total_after):'—')}${k(L('التجاوز عن الحد','Over the limit'),data.over!=null?`<span class="${data.over>0?'flag':''}">${money(data.over)}</span>`:'—')}
+    ${k(L('الاستثناءات هذا الشهر','Used this month'),`${data.month_used} / ${data.monthly_max}`)}${k(L('الاستثناء السابق','Previous exception'),data.unsettled.length?data.unsettled.map(u=>`EX-${u.no} (${CE_ST[u.status][0]})`).join('، '):L('لا يوجد غير مسوّى','None open'))}
+    ${k(L('جهة الموافقة','Approver'),data.route==='gm'?L('المدير العام','General manager'):data.route==='sm'?L('مدير المبيعات','Sales manager'):'—')}${k(L('تاريخ بيانات SAP','SAP data as of'),data.data_at?fdt(data.data_at):'—')}</div>
+    ${!data.balance_ok?`<div class="banner bad" style="margin-top:8px"><span class="sp">${esc(data.balance_msg)}</span></div>`:''}${(data.rule_errors||[]).length?`<div class="banner bad" style="margin-top:8px"><span class="sp">${data.rule_errors.map(esc).join('<br>')}</span></div>`:''}
+    ${data.over!=null&&data.over<=0?`<div class="banner info" style="margin-top:8px"><span class="sp">${L('التوريد ضمن الحد الائتماني، فما يحتاج استثناء.','Within the limit; no exception needed.')}</span></div>`:''}`}
+async function ceSaveForm(submit){const err=document.getElementById('ce_err');err.textContent='';if(!CE_FORM.client_id){err.textContent=L('اختر العميل','Choose a customer');return}
+  const p={id:CE_FORM.id,client_id:CE_FORM.client_id,amount:document.getElementById('ce_amount').value,so_no:document.getElementById('ce_so').value,reason:document.getElementById('ce_reason').value,
+    justification:document.getElementById('ce_just').value,importance:document.getElementById('ce_imp').value,expected_payment:document.getElementById('ce_pay').value,attachments:CE_FORM.files};
+  BUSY=true;const {data,error}=await window.__sb.rpc('ce_save',{p,p_submit:!!submit});BUSY=false;
+  if(error){err.textContent=error.message;return}if(data.id)CE_FORM.id=data.id;
+  if(!data.ok){err.innerHTML=(data.errors||[]).map(esc).join('<br>');ceLoad(true);return}
+  closeModal();toast(submit?L('تم إرسال الطلب EX-','Submitted EX-')+data.no:L('تم حفظ المسودة EX-','Draft saved EX-')+data.no);ceLoad(true)}
+/* ---- request detail + actions ---- */
+async function ceOpen(id){const r=CEX.rows.find(x=>x.id===id);if(!r)return;const {data:log}=await window.__sb.from('ce_log').select('*').eq('req_id',id).order('id');const u=me().id;
+  const kv=(l,v)=>`<dt>${l}</dt><dd>${v}</dd>`;const canSup=r.status==='pending_sup'&&r.sup_id===u;const canDec=((r.status==='pending_sm'&&CEX.me.sm)||(r.status==='pending_gm'&&CEX.me.gm))&&r.created_by!==u&&r.rep_id!==u;
+  const days=Array.from({length:CEX.cfg?.validity_days||3},(_,i)=>[String(i+1),`${i+1} ${L('يوم عمل','working day(s)')}`]).reverse();
+  openModal(`EX-${r.no} — ${r.client_name||''}`,`<div class="toolbar">${ceSt(r.status)}<span class="grow"></span>${r.status==='draft'||r.status==='returned'?r.created_by===u?`<button class="btn s" data-act="ceEdit" data-id="${r.id}">${L('تعديل وإرسال','Edit & submit')}</button>`:'':''}
+     ${['draft','pending_sup','pending_sm','pending_gm','returned'].includes(r.status)&&r.created_by===u||r.status==='approved'&&(r.created_by===u||CEX.me.gm||(r.route==='sm'&&CEX.me.sm))?`<button class="btn s d" data-act="ceCancel" data-id="${r.id}">${r.status==='approved'?L('إلغاء الموافقة رسمياً','Revoke approval'):L('إلغاء الطلب','Cancel')}</button>`:''}</div>
+   <dl class="kv card">${kv(L('العميل','Customer'),`${esc(r.client_name||'')} — ${esc(r.client_code)}`)}${kv(L('المندوب / المشرف','Rep / supervisor'),`${esc(ceName(r.rep_id))} / ${esc(ceName(r.sup_id))}`)}
+    ${kv(L('الحد الائتماني','Limit'),r.credit_limit!=null?money(r.credit_limit):'—')}${kv(L('الرصيد الحالي','Balance'),r.balance!=null?money(r.balance):'—')}${kv(L('قيمة التوريد','Supply'),money(r.amount))}
+    ${kv(L('المديونية بعد التوريد','Total after'),r.total_after!=null?money(r.total_after):'—')}${kv(L('التجاوز','Over'),r.over_amount!=null?`<b>${money(r.over_amount)}</b>`:'—')}${kv(L('جهة الموافقة','Approver'),r.route==='gm'?L('المدير العام','GM'):r.route==='sm'?L('مدير المبيعات','Sales mgr'):'—')}
+    ${kv(L('السبب','Reason'),esc(CE_REASONS[r.reason]||'—'))}${kv(L('المبررات','Justification'),esc(r.justification||'—'))}${kv(L('الأهمية','Importance'),esc(r.importance||'—'))}${kv(L('موعد السداد المتوقع','Expected payment'),fdate(r.expected_payment))}
+    ${kv(L('أمر البيع','Sales order'),esc(r.exec_so||r.so_no||'—'))}${kv(L('بيانات SAP بتاريخ','SAP data as of'),r.data_at?fdt(r.data_at):'—')}${kv(L('توصية المشرف','Supervisor'),esc(r.sup_note||'—'))}${kv(L('قرار الاعتماد','Decision'),esc(r.decision_note||'—')+(r.decided_by?` — ${esc(ceName(r.decided_by))}`:''))}
+    ${r.valid_until?kv(L('صالحة حتى','Valid until'),fdate(r.valid_until)):''}${r.exec_amount?kv(L('التوريد المنفذ','Executed'),`${money(r.exec_amount)} · ${fdt(r.executed_at)}`):''}${r.settle_note?kv(L('التسوية','Settlement'),esc(r.settle_note)):''}${r.cancel_note?kv(L('سبب الإلغاء','Cancel reason'),esc(r.cancel_note)):''}
+    ${(r.attachments||[]).length?kv(L('المرفقات','Attachments'),(r.attachments||[]).map((f,i)=>`<a href="#" data-act="ceFile" data-id="${r.id}" data-i="${i}">${esc(f.name)}</a>`).join(' · ')):''}</dl>
+   ${canSup?`<div class="card"><h2>${L('مراجعة المشرف (توصية فقط، بدون صلاحية موافقة أو رفض)','Supervisor review (recommendation only)')}</h2><textarea id="ce_note" placeholder="${L('توصيتك','Your recommendation')}"></textarea><div class="formbar"><button class="btn" data-act="ceSup" data-id="${r.id}" data-a="return">${L('إعادة للمندوب','Return')}</button><span class="grow"></span><button class="btn p" data-act="ceSup" data-id="${r.id}" data-a="forward">${L('رفع لصاحب الصلاحية','Forward')}</button></div></div>`:''}
+   ${canDec?`<div class="card"><h2>${L('القرار','Decision')}</h2><textarea id="ce_note" placeholder="${L('ملاحظة (إلزامية للرفض والإعادة)','Note (required to reject or return)')}"></textarea><label class="fl">${L('مدة صلاحية الموافقة','Approval validity')}<select id="ce_days">${opt(days,String(CEX.cfg?.validity_days||3),null)}</select></label>
+     <div class="formbar"><button class="btn d" data-act="ceDec" data-id="${r.id}" data-a="reject">${L('رفض','Reject')}</button><button class="btn" data-act="ceDec" data-id="${r.id}" data-a="return">${L('إعادة لاستكمال البيانات','Return')}</button><span class="grow"></span><button class="btn p" data-act="ceDec" data-id="${r.id}" data-a="approve">${L('موافقة','Approve')}</button></div><div id="ce_err" class="flag"></div></div>`:''}
+   ${r.status==='approved'?`<div class="card"><h2>${L('تسجيل تنفيذ التوريد','Record the supply')}</h2><div class="fgrid"><div class="fld"><label>${L('رقم أمر البيع','Sales order no.')}</label><input id="ce_xso" value="${esc(r.so_no||'')}"></div><div class="fld"><label>${L('قيمة التوريد الفعلية','Actual value')}</label><input type="number" step="any" id="ce_xamt" value="${r.amount}"></div></div>
+     <div class="formbar"><span class="grow"></span><button class="btn p" data-act="ceExec" data-no="${r.no}" data-c="${esc(r.client_code)}">${L('تأكيد التنفيذ','Confirm')}</button></div><div id="ce_xerr" class="flag"></div></div>`:''}
+   <div class="card"><h2>${L('سجل التدقيق','Audit trail')}</h2><div class="list">${(log||[]).map(l=>`<div class="li"><div class="main"><div class="t">${esc(CE_ACT[l.action]||l.action)}${l.to_status&&l.to_status!==l.from_status?' → '+esc(CE_ST[l.to_status]?.[0]||l.to_status):''}</div><div class="m">${fdt(l.at)} · ${esc(ceName(l.by))}${l.note?' · '+esc(l.note):''}</div></div></div>`).join('')}</div></div>`)}
+async function ceRpc(fn,args,errId){const {data,error}=await window.__sb.rpc(fn,args);const el=errId&&document.getElementById(errId);
+  if(error){el?el.textContent=error.message:toast(error.message);return null}if(!data.ok){const m=(data.errors||[]).join(' · ');if(el)el.innerHTML=(data.errors||[]).map(esc).join('<br>');else toast(m);if(data.rerouted)ceLoad(true);return null}return data}
+/* ---- customer history ---- */
+function ceHistory(){const q=normTxt(fv('ceHQ',''));const by=new Map();const mk=TODAY().slice(0,7);
+  CEX.rows.forEach(r=>{let o=by.get(r.client_code);if(!o){o={code:r.client_code,name:r.client_name,rep:r.rep_id,n:0,month:0,over:0,appr:0,rej:0,unexec:0,settled:0,unsettled:0};by.set(r.client_code,o)}
+    o.n++;if(r.month_key===mk&&r.approved_at&&!(r.status==='cancelled'&&!r.executed_at))o.month++;if(r.was_approved&&r.status!=='cancelled'){o.appr++;o.over+=+r.over_amount||0}if(r.status==='rejected')o.rej++;if(r.status==='expired')o.unexec++;if(r.status==='settled')o.settled++;if(['approved','executed'].includes(r.status))o.unsettled++});
+  const rows=[...by.values()].filter(o=>!q||normTxt(o.name+' '+o.code+' '+ceName(o.rep)).includes(q)).sort((a,b)=>b.n-a.n);
+  return `<div class="toolbar"><input type="search" placeholder="${L('بحث بالعميل أو الكود أو المندوب','Search')}" value="${esc(fv('ceHQ',''))}" data-act="filtIn" data-k="ceHQ"></div><div class="card">${rows.length?table([{l:L('العميل','Customer'),f:o=>`<a href="#" data-act="ceHist" data-c="${esc(o.code)}">${esc(o.name||'')}</a> <span class="small muted">${esc(o.code)}</span>`},{l:L('المندوب','Rep'),f:o=>esc(ceName(o.rep))},
+    {l:L('الإجمالي','Total'),c:'n',f:o=>num(o.n)},{l:L('هذا الشهر','This month'),c:'n',f:o=>num(o.month)},{l:L('قيمة التجاوزات المعتمدة','Approved overs'),c:'n',f:o=>money(o.over)},{l:L('معتمدة','Approved'),c:'n',f:o=>num(o.appr)},{l:L('مرفوضة','Rejected'),c:'n',f:o=>num(o.rej)},
+    {l:L('لم تُنفذ (انتهت)','Not executed'),c:'n',f:o=>num(o.unexec)},{l:L('مسوّاة','Settled'),c:'n',f:o=>num(o.settled)},{l:L('غير مسوّاة','Unsettled'),c:'n',f:o=>o.unsettled?`<b class="flag">${o.unsettled}</b>`:'0'}],rows.map(o=>({...o,id:null}))):`<div class="muted">${L('ما فيه سجل','No history')}</div>`}</div>`}
+/* ---- management dashboard ---- */
+function ceDash(){const R=ceFiltered();const T=TODAY();const appr=R.filter(r=>r.was_approved&&r.status!=='cancelled');
+  const hrs=appr.filter(r=>r.decided_at).map(r=>(new Date(r.decided_at)-new Date(r.created_at))/36e5);const avg=hrs.length?hrs.reduce((a,b)=>a+b,0)/hrs.length:null;
+  const late=R.filter(r=>r.status==='executed'&&r.expected_payment&&r.expected_payment<T);
+  const grp=(k,lab)=>{const m={};R.forEach(r=>{const x=r[k];m[x]=(m[x]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([x,n])=>[lab(x),n])};
+  const bar=(rows)=>{const mx=Math.max(1,...rows.map(r=>r[1]));return rows.map(([l,n])=>`<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="flex:0 0 46%" class="small">${esc(l)}</span><i style="display:block;height:10px;border-radius:4px;background:var(--c1,#1F6FB2);width:${n/mx*50}%"></i><b class="small">${n}</b></div>`).join('')||`<div class="muted small">—</div>`};
+  return `<div class="kpis k5">${kpiTile(L('طلبات الفترة','Requests'),num(R.length),L('حسب الفلتر (الافتراضي كل الفترات)','by filter'))}${kpiTile(L('معلقة','Pending'),num(R.filter(r=>r.status.startsWith('pending')).length))}${kpiTile(L('معتمدة','Approved'),num(appr.length))}${kpiTile(L('مرفوضة','Rejected'),num(R.filter(r=>r.status==='rejected').length))}
+   ${kpiTile(L('إجمالي التجاوزات المعتمدة','Approved overs'),smoney(appr.reduce((s,r)=>s+(+r.over_amount||0),0)))}</div>
+   <div class="kpis k3">${kpiTile(L('متوسط زمن الموافقة','Avg time to decision'),avg==null?'—':(avg<48?Math.round(avg)+' '+L('ساعة','h'):(avg/24).toFixed(1)+' '+L('يوم','d')))}${kpiTile(L('متأخرة عن موعد التسوية','Late settlement'),num(late.length))}${kpiTile(L('غير مسوّاة','Unsettled'),num(R.filter(r=>['approved','executed'].includes(r.status)).length))}</div>
+   <div class="grid g2"><div class="card"><h2>${L('أكثر العملاء استخداماً للاستثناءات','Top customers')}</h2>${bar(grp('client_name',x=>x||'—'))}</div><div class="card"><h2>${L('أكثر المندوبين تقديماً للطلبات','Top reps')}</h2>${bar(grp('rep_id',x=>ceName(x)))}</div>
+    <div class="card"><h2>${L('توزيع أسباب الطلبات','Reasons')}</h2>${bar(grp('reason',x=>CE_REASONS[x]||'—'))}</div><div class="card"><h2>${L('الاستثناءات المتأخرة عن التسوية','Late settlement')}</h2>${late.length?late.map(r=>`<div class="small"><a href="#" data-act="ceOpen" data-id="${r.id}">EX-${r.no}</a> ${esc(r.client_name||'')} — ${L('موعد السداد','due')} ${fdate(r.expected_payment)}</div>`).join(''):`<div class="muted small">${L('لا يوجد','None')}</div>`}</div></div>`}
+/* ---- settings (system admin) ---- */
+function ceCfgView(){const c=CEX.cfg||{};const ps=(CEX.profiles||[]).filter(p=>p.id!==me().id).sort((a,b)=>(a.full_name||'').localeCompare(b.full_name||'','ar'));
+  const chk=(k,arr)=>`<div class="chk" style="max-height:180px;overflow:auto">${ps.map(p=>`<label><input type="checkbox" name="${k}" value="${p.id}" ${(arr||[]).includes(p.id)?'checked':''}> ${esc(p.full_name||'')}</label>`).join('')}</div>`;
+  return `<div class="card"><h2>${L('إعدادات اعتماد الاستثناءات','Exception settings')}</h2><div class="banner info"><span class="sp">${L('مدير النظام يعدّل الإعدادات الفنية ويحدد أصحاب الصلاحية، لكنه ما يقدر يضيف نفسه كمعتمد (الخادم يرفض ذلك). كل تعديل يتسجل في سجل التدقيق.','The admin cannot add himself as an approver; every change is audited.')}</span></div>
+   <div class="fgrid"><div class="fld"><label>${L('سقف صلاحية مدير المبيعات (ريال تجاوز)','Sales manager ceiling (SAR over)')}</label><input type="number" id="cc_th" value="${c.threshold??20000}"></div>
+    <div class="fld"><label>${L('الحد الأقصى للاستثناءات لكل عميل في الشهر','Max per customer per month')}</label><input type="number" id="cc_mm" value="${c.monthly_max??2}"></div>
+    <div class="fld"><label>${L('مدة صلاحية الموافقة (أيام عمل)','Approval validity (working days)')}</label><input type="number" id="cc_vd" value="${c.validity_days??3}"></div>
+    <div class="fld"><label>${L('أقصى عمر لكشف فواتير SAP (ساعات)','Max SAP data age (hours)')}</label><input type="number" id="cc_age" value="${c.max_data_age_hours??24}"></div>
+    <div class="fld full"><label>${L('أيام العطلة الأسبوعية (لحساب أيام العمل)','Weekend days')}</label><div class="chk">${['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'].map((d,i)=>`<label><input type="checkbox" name="cc_wk" value="${i}" ${(c.weekend||[5,6]).includes(i)?'checked':''}> ${d}</label>`).join('')}</div></div>
+    <div class="fld full"><label>${L('مدير المبيعات (يعتمد ضمن السقف)','Sales manager(s)')}</label>${chk('cc_sm',c.sm_ids)}</div>
+    <div class="fld full"><label>${L('المدير العام (يعتمد فوق السقف)','General manager(s)')}</label>${chk('cc_gm',c.gm_ids)}</div>
+    <div class="fld full"><label class="chk"><input type="checkbox" id="cc_ed" ${c.enforce_dispatch?'checked':''}> ${L('منع جدولة توصيل لعميل متجاوز حده بدون استثناء ساري مربوط بأمر البيع (فعّله بعد رفع الحدود الائتمانية والفواتير)','Block dispatch for over-limit customers without a valid exception')}</label></div></div>
+   <div id="cc_err" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn p" data-act="ceCfgSave">${L('حفظ','Save')}</button></div></div>
+   <p class="small muted">${L('أصحاب الصلاحية يحتاجون صفحة «استثناءات التوريد» في صلاحيات CRM عشان يفتحون الشاشة.','Approvers need the CRM page permission to open this screen.')}</p>`}
+Object.assign(ACT,{ceNew:()=>ceOpenForm(null),ceRe:()=>ceLoad(true),ceOpen:d=>ceOpen(d.id),ceSave:d=>ceSaveForm(d.s==='1'),ceFileDel:d=>{CE_FORM.files.splice(+d.i,1);ceFilesPaint()},
+  ceEdit:d=>{const r=CEX.rows.find(x=>x.id===d.id);closeModal();setTimeout(()=>ceOpenForm(r),50)},
+  ceFile:d=>{const r=CEX.rows.find(x=>x.id===d.id);const f=r&&(r.attachments||[])[+d.i];if(!f)return;const a=document.createElement('a');a.href=f.data;a.download=f.name;a.click()},
+  ceSup:async d=>{const n=document.getElementById('ce_note').value;if(await ceRpc('ce_sup',{p_id:d.id,p_action:d.a,p_note:n})){closeModal();toast(L('تم','Done'));ceLoad(true)}},
+  ceDec:async d=>{const n=document.getElementById('ce_note').value;const days=+document.getElementById('ce_days').value;if(d.a==='approve'&&!confirm(L('تأكيد الموافقة على الاستثناء؟','Approve this exception?')))return;
+    if(await ceRpc('ce_decide',{p_id:d.id,p_action:d.a,p_note:n,p_days:days},'ce_err')){closeModal();toast(L('تم تسجيل القرار','Decision saved'));ceLoad(true)}},
+  ceCancel:async d=>{const n=prompt(L('سبب الإلغاء؟','Reason?'));if(!n)return;if(await ceRpc('ce_cancel',{p_id:d.id,p_note:n})){closeModal();toast(L('تم الإلغاء','Cancelled'));ceLoad(true)}},
+  ceExec:async d=>{const so=document.getElementById('ce_xso').value,amt=+document.getElementById('ce_xamt').value;if(await ceRpc('ce_execute',{p_no:+d.no,p_client_code:d.c,p_so:so,p_amount:amt},'ce_xerr')){closeModal();toast(L('تم تسجيل التنفيذ','Recorded'));ceLoad(true)}},
+  ceNote:async d=>{await window.__sb.from('ce_notes').update({read:true}).eq('id',+d.id);const n=CEX.notes.find(x=>String(x.id)===d.id);if(n)n.read=true;if(d.r)ceOpen(d.r);else render()},
+  ceHist:d=>{F.ceTab='list';F.ceQ=d.c;render()},
+  ceCfgSave:async()=>{const g=n=>[...document.querySelectorAll(`input[name="${n}"]:checked`)].map(i=>i.value);
+    const p={threshold:+document.getElementById('cc_th').value,monthly_max:+document.getElementById('cc_mm').value,validity_days:+document.getElementById('cc_vd').value,max_data_age_hours:+document.getElementById('cc_age').value,
+      weekend:g('cc_wk').map(Number),sm_ids:g('cc_sm'),gm_ids:g('cc_gm'),enforce_dispatch:document.getElementById('cc_ed').checked};
+    if(await ceRpc('ce_settings_save',{p},'cc_err')){toast(L('تم الحفظ','Saved'));ceLoad(true)}}});
+/* table rows open the request */
+document.addEventListener('click',e=>{const tr=e.target.closest('tr');if(!tr||route!=='credex'||e.target.closest('a,button,input'))return;const a=tr.querySelector('[data-act=ceOpen]');if(a)ceOpen(a.dataset.id)});
+NAV.splice(NAV.findIndex(n=>n[0]==='aging')+1,0,['credex','shield',()=>L('استثناءات التوريد الائتماني','Credit exceptions'),()=>wadyLvl('crm','credex')>=1||wadyLvl('crm','clients')>=1||CEX.me.sm||CEX.me.gm]);
+/* customer drawer: exception status */
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const mb=document.getElementById('mbody');const c=byId('clients',id);if(!mb||!c||!CEX.rows)return;const code=normCode(c.code).replace(/\s+/g,'');
+  const rs=CEX.rows.filter(r=>r.client_code===code);if(!rs.length)return;const mk=TODAY().slice(0,7);const open=rs.filter(r=>['approved','executed'].includes(r.status));
+  mb.insertAdjacentHTML('afterbegin',`<div class="banner ${open.length?'warn':'info'}"><span class="sp">${L('استثناءات التوريد','Credit exceptions')}: ${rs.filter(r=>r.month_key===mk&&r.approved_at&&!(r.status==='cancelled'&&!r.executed_at)).length} ${L('هذا الشهر','this month')} · ${open.length?L('غير مسوّى: ','Open: ')+open.map(r=>'EX-'+r.no).join('، '):L('لا يوجد غير مسوّى','none open')}</span></div>`)}}
+/* new pages added in the Zoho phase follow the screen permissions of the closest existing page */
+{const MAP={recs:'alerts',calendar:'plan',leads:'clients',oppboard:'opps',dups:'integrity'};NAV.forEach(n=>{if(MAP[n[0]]){const f=n[3];n[3]=()=>wadyLvl('crm',MAP[n[0]])>=1&&f()}})}
+setTimeout(()=>{if(window.__sb)ceLoad()},3000);
+
+function ceHelp(){const c=CEX.cfg||{};const th=money(c.threshold??20000);return `<div class="card" style="line-height:1.9"><h2>كيف تشتغل الوحدة</h2>
+ <ol><li><b>المندوب</b> يفتح «طلب استثناء توريد»، يختار العميل ويكتب قيمة التوريد. النظام يجيب الحد الائتماني والرصيد من آخر كشف SAP ويحسب: المديونية بعد التوريد = الرصيد + قيمة التوريد، والتجاوز = المديونية بعد التوريد − الحد.</li>
+ <li>يكمل السبب (قائمة إلزامية) والمبررات والأهمية وموعد السداد، ويرفق الحوالة أو خطاب العميل، ويرسل.</li>
+ <li><b>المشرف</b> يراجع ويكتب توصيته ويرفع الطلب، أو يعيده للمندوب. ما يملك موافقة ولا رفض.</li>
+ <li>النظام يحدد المعتمد آلياً: التجاوز حتى ${th} ← <b>مدير المبيعات</b>، وأكثر من ${th} ← <b>المدير العام</b>. وقت القرار يُعاد حساب الرصيد، ولو صار التجاوز أكبر من سقف مدير المبيعات يتحول الطلب تلقائياً للمدير العام.</li>
+ <li>المعتمد: موافقة (مع مدة صلاحية حتى ${c.validity_days??3} أيام عمل) أو رفض أو إعادة لاستكمال البيانات.</li>
+ <li>بعد التوريد يُسجّل «تنفيذ التوريد» برقم أمر البيع وقيمته، والقيمة لازم ما تزيد عن المعتمد. لو فعّلت منع التوريد، جدولة التوصيل لعميل متجاوز حده تتوقف لين يكون له استثناء ساري، وتُسجل كتنفيذ تلقائياً.</li>
+ <li>الاستثناء يتسوّى تلقائياً لما يرجع رصيد العميل ضمن حده حسب كشف SAP، ولو تأخر عن موعد السداد يوصل تنبيه للمندوب والمشرف ومدير المبيعات.</li></ol>
+ <h2>القواعد اللي يطبقها الخادم (ما يقدر أحد يتجاوزها من الشاشة أو من الـ API)</h2>
+ <ul><li>بحد أقصى ${c.monthly_max??2} استثناء معتمد لكل عميل في الشهر الميلادي. يُحسب عند الموافقة، والمرفوض ما يُحسب، والمعتمد اللي ما تنفذ يُحسب إلا لو أُلغي رسمياً قبل استخدامه.</li>
+ <li>ما يُقبل طلب جديد للعميل وعنده استثناء غير مسوّى، أو طلب آخر مفتوح (منع التقسيم).</li>
+ <li>ما أحد يعتمد طلب هو مقدمه أو مندوبه، حتى لو عنده أكثر من دور.</li>
+ <li>الموافقة المنتهية والموافقة لعميل آخر أو لأمر بيع آخر أو بقيمة أعلى ما تُستخدم.</li>
+ <li>لو كشف فواتير SAP غير موجود أو أقدم من ${c.max_data_age_hours??24} ساعة، أو الحد الائتماني غير مسجل، يُمنع الإرسال والاعتماد برسالة واضحة.</li>
+ <li>كل تغيير حالة يتسجل في سجل تدقيق ما يُعدّل ولا يُحذف.</li></ul>
+ <h2>تعديل الإعدادات</h2><p>من تبويب «الإعدادات» (لمدير النظام): سقف مدير المبيعات، والحد الشهري، ومدة الصلاحية، وأقصى عمر لبيانات SAP، وأيام العطلة، وأسماء مدير المبيعات والمدير العام، ومنع جدولة التوصيل. مدير النظام ما يقدر يضيف نفسه معتمداً، والمعتمدين يحتاجون صفحة «استثناءات التوريد الائتماني» في صلاحيات CRM.</p>
+ <h2>مصدر البيانات</h2><p>الحد الائتماني وكود العميل من ملف العملاء المستورد من SAP. الرصيد من كشف الفواتير المفتوحة والمغلقة والتحصيل والإشعارات الدائنة (نفس حساب «أعمار الديون»). أول ما يكتمل الربط المباشر مع SAP Service Layer تنتقل القراءة له بدون تغيير في الشاشات.</p></div>`}
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};

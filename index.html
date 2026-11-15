@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-<head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>الوادي الأخضر — منصة الأعمال</title>
+<title>منصة الوادي الأخضر</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="brand/icon-180.png"><link rel="manifest" href="brand/manifest.webmanifest"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
 <style>
@@ -425,7 +425,7 @@ const icon=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const PAGES={
   crm:{name:'CRM — المبيعات والإنتاج',groups:[
     ['التحليل والأداء',[['dash','لوحة المبيعات'],['pipeline','البايب لاين الشهري'],['regions','الأداء الإقليمي'],['reps','أداء المندوبين'],['alerts','التنبيهات والإجراءات'],['reports','التقارير'],['kpis','مؤشرات أداء المندوبين'],['decline','العملاء المتراجعون']]],
-    ['العملاء والمبيعات',[['clients','العملاء'],['custmap','خريطة العملاء'],['items','الأصناف'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['collections','التحصيل'],['aging','أعمار الديون'],['opps','فرص البيع'],['projects','المشاريع'],['samples','العينات والاعتمادات']]],
+    ['العملاء والمبيعات',[['clients','العملاء'],['custmap','خريطة العملاء'],['items','الأصناف'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['collections','التحصيل'],['aging','أعمار الديون'],['credex','استثناءات التوريد الائتماني'],['opps','فرص البيع'],['projects','المشاريع'],['samples','العينات والاعتمادات']]],
     ['العمل الميداني',[['field','لوحة الميدان'],['plan','خطة الزيارات'],['visits','الزيارات الميدانية'],['complaints','الشكاوى'],['comms','الاتصالات']]],
     ['البيانات والإدارة',[['imports','مركز استيراد Excel'],['integrity','سلامة البيانات'],['kpi','إعدادات المؤشرات'],['team','المستخدمون والفريق'],['audit','سجل التدقيق'],['data','الربط مع SAP']]],
     ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية (الخطة والملخص والسجل)'],['prod_actual','الإنتاج الفعلي وتحليل التوقفات'],['prod_stock','المخزون والطلبات'],['prod_qc','الجودة والمختبر'],['prod_maint','الصيانة الوقائية'],['prod_pr','طلبات الشراء']]],
@@ -445,7 +445,7 @@ const appLvl=app=>isAppAdmin(app)?3:Math.max(0,...Object.values((S.pages||{})[ap
 const lvlName=n=>['N/A','Viewer','Auditor','Editor'][n]||'N/A';
 // role templates to fill the matrix quickly (the admin can still change any page)
 const PAGE_TEMPLATES={
-  crm:{rep:{dash:'view',pipeline:'edit',reps:'view',alerts:'edit',reports:'view',clients:'edit',items:'view',quotes:'edit',orders:'view',collections:'view',opps:'edit',projects:'edit',samples:'edit',field:'view',plan:'edit',visits:'edit',complaints:'edit',comms:'edit',team:'view',data:'view',prod:'view',kpis:'view',decline:'view',custmap:'view',aging:'view'},
+  crm:{rep:{dash:'view',pipeline:'edit',reps:'view',alerts:'edit',reports:'view',clients:'edit',items:'view',quotes:'edit',orders:'view',collections:'view',opps:'edit',projects:'edit',samples:'edit',field:'view',plan:'edit',visits:'edit',complaints:'edit',comms:'edit',team:'view',data:'view',prod:'view',kpis:'view',decline:'view',custmap:'view',aging:'view',credex:'edit'},
        sup:'rep+',mgr:'all-edit',auditor:'all-audit',viewer:'all-view'},
   fleet:{dispatcher:{ops:'edit',orders:'edit',plan:'edit',reserve:'edit',maint:'edit',dreports:'view',dashboard:'view',entry:'edit',vehicle:'edit',costs:'edit',docs:'edit',drivers:'edit',carrier:'edit',report:'view',places:'view',log:'audit'},rep:{orders:'edit',log:'view'},sales_sup:{orders:'edit',reserve:'view',dreports:'view',log:'view'},fadmin:'all-edit',auditor:'all-audit',viewer:'all-view'},
   hr:{auditor:'all-audit',viewer:'all-view',manager:'all-edit'}
