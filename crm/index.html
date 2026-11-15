@@ -2,7 +2,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
@@ -1743,7 +1743,7 @@ async function exportReportPdf(){
   const {def,P,rows}=reportData(fv('rep','repPerf'));
   if(rows.length>1500){toast(L('التقرير كبير على PDF. صدّره Excel أو ضيّق التصفية.','Too large for PDF. Use Excel or narrow the filters.'));return}
   toast(L('جارٍ تجهيز ملف PDF…','Preparing PDF…'));
-  try{await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js')}catch(e){toast(L('تعذّر تحميل أداة PDF. استخدم تصدير Excel.','PDF tools failed to load. Use Excel export.'));return}
+  try{await loadScript('https://cdn.jsdelivr.net/npm/jspdf@3.0.2/dist/jspdf.umd.min.js');await loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js')}catch(e){toast(L('تعذّر تحميل أداة PDF. استخدم تصدير Excel.','PDF tools failed to load. Use Excel export.'));return}
   const pdf=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const host=document.createElement('div');host.style.cssText=`position:fixed;left:-12000px;top:0;width:1120px;background:#fff;color:#051D48;font-family:Tajawal,Tahoma,sans-serif;direction:${lang==='ar'?'rtl':'ltr'};padding:28px;font-size:13px;line-height:1.5`;
   document.body.appendChild(host);

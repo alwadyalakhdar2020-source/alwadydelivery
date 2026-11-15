@@ -1084,7 +1084,7 @@ function renderSetup(){
 }
 function updateBackupInfo(){ const el=$("#b-info"); if(!el) return; const lb=S.lastBackup;
   el.textContent=!S.db?"غير متاح في وضع المعاينة.":lb&&lb.at?`آخر نسخة: ${fd(lb.at.slice(0,10))} — ${fmt(lb.rows)} سطر توريد${lb.from?` (من ${fd(lb.from)} إلى ${fd(lb.to)})`:""}.`:"لم تُنزّل أي نسخة احتياطية بعد."; }
-function loadXLSX(){ if(window.XLSX) return Promise.resolve(); return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload=()=>res(); s.onerror=()=>rej(new Error("xlsx")); document.head.appendChild(s); }); }
+function loadXLSX(){ if(window.XLSX) return Promise.resolve(); return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"; s.onload=()=>res(); s.onerror=()=>rej(new Error("xlsx")); document.head.appendChild(s); }); }
 async function fetchAllEntries(){ const out={}; let last=null;
   for(let g=0; g<30; g++){ const base=S.db.collection("entries"); const q=(last?base.where("month",">=",last):base).orderBy("month").limit(1000);
     const snap=await q.get(); let added=0; snap.docs.forEach(d=>{ if(!out[d.id]){ out[d.id]=d.data(); added++; } });

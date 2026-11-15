@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 <!--wady-brand--><script src="brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="brand/icon-180.png"><link rel="manifest" href="brand/manifest.webmanifest"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
 <style>
@@ -2662,7 +2662,7 @@ V.exec=()=>{if(!isAdmin())return '<div class="card empty">لمدير النظا�
 
 /* ---------- user activity ---------- */
 const UA={data:null,busy:false,flt:''};
-async function uaLoad(){UA.busy=true;try{const {data,error}=await sb.rpc('user_activity');if(error)throw error;UA.data=data||[]}catch(e){toast(errText(e));UA.data=[]}finally{UA.busy=false;render()}}
+async function uaLoad(){UA.busy=true;try{const [r,l]=await Promise.all([sb.rpc('user_activity'),sb.rpc('login_activity',{p_days:14})]);if(r.error)throw r.error;UA.data=r.data||[];UA.logins=l.error?null:(l.data||[])}catch(e){toast(errText(e));UA.data=[]}finally{UA.busy=false;render()}}
 const daysAgo=ts=>ts?Math.floor((Date.now()-new Date(ts))/864e5):null;
 V.activity=()=>{if(!isAdmin())return '<div class="card empty">لمدير النظام فقط.</div>';if(!UA.data){if(!UA.busy){UA.busy=true;setTimeout(uaLoad,0)}return '<div class="card empty">جارٍ التحميل…</div>'}
   const st=u=>!u.active?'off':u.last_seen==null?'never':daysAgo(u.last_seen)>14?'idle':'ok';const ST={ok:['نشط','ok'],idle:['خامل +14 يوم','warn'],never:['ما دخل أبداً','bad'],off:['موقوف','']};
@@ -2710,6 +2710,15 @@ document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.
   if(t.dataset&&t.dataset.act==='tkDone'&&t.checked){sb.rpc('task_save',{p:{id:t.dataset.id,status:'done'}}).then(({error})=>{if(error)return toast(errText(error));toast('تم ✓');TK.at=0;tkLoad()})}});
 Object.assign(ACT,{exPer:d=>{EX.per=d.v;render()},exReload:()=>{EX.key='';render()},uaFlt:d=>{UA.flt=d.v;render()},bkTake:async()=>{toast('جارٍ أخذ نسخة…');const {error}=await sb.rpc('backup_take',{p_label:'يدوية'});if(error)return toast(errText(error));toast('تم أخذ النسخة');BK.list=null;render()},
   bkXlsx:d=>bkXlsx(d.id),tkNew:()=>tkNew(),tkDel:async d=>{if(!confirm('حذف المهمة؟'))return;const {error}=await sb.rpc('task_save',{p:{id:d.id,del:true}});if(error)return toast(errText(error));TK.at=0;tkLoad()}});
+
+/* failed sign-ins (last 14 days): repeated failures lock the username for 15 minutes */
+{const _a=V.activity;V.activity=()=>{const h=_a();if(!isAdmin()||!UA.data)return h;const L=UA.logins;if(L==null)return h;
+  const sus=L.filter(x=>x.fails>=3||!x.exists);
+  const card=`<div class="card"><h2>محاولات الدخول الفاشلة <span class="sub">آخر 14 يوم · 5 محاولات خاطئة خلال 15 دقيقة تقفل الحساب مؤقتاً ويوصلك إشعار</span></h2>
+   ${L.length?`<div class="tw"><table><thead><tr><th>اسم المستخدم</th><th class="n">محاولات فاشلة</th><th class="n">دخول ناجح</th><th>آخر محاولة فاشلة</th><th class="n">عناوين IP مختلفة</th><th>الحالة</th></tr></thead><tbody>
+   ${L.slice(0,100).map(x=>`<tr><td><b dir="ltr">${esc(x.username||'—')}</b>${x.exists?'':' <span class="small flag">غير موجود</span>'}</td><td class="n">${x.fails>=5?`<b class="flag">${x.fails}</b>`:x.fails}</td><td class="n">${x.ok||0}</td><td class="nw">${fdt(x.last_fail)}</td><td class="n">${x.ips||0}</td><td>${x.locked?pill('مقفل مؤقتاً','bad'):x.fails>=3||!x.exists?pill('مشبوه','warn'):pill('عادي','ok')}</td></tr>`).join('')}</tbody></table></div>
+   ${sus.length?`<div class="small muted" style="margin-top:6px">«غير موجود» = أحد يجرب أسماء مستخدمين مو مسجلة. لو تكررت من نفس الحساب كثير، غيّر كلمة مروره.</div>`:''}`:'<div class="empty">ما فيه محاولات فاشلة.</div>'}</div>`;
+  return h+card}}
 
 /* ===== Import columns: which columns are required and which go into the template, per import screen =====
    Stored in public.import_cols (screen → {field:{req,tpl}}). Fields the system needs (match keys, dates…) stay required. */

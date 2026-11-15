@@ -39,7 +39,7 @@ function pwPolicy(pw, username) {
   if (username && pw.toLowerCase().includes(username)) return LX('كلمة المرور لا يصح أن تحتوي على اسم المستخدم', 'The password must not contain the username');
   return '';
 }
-const tempPolicy = pw => String(pw || '').length < 6 ? LX('كلمة المرور المؤقتة 6 أحرف على الأقل، أو اتركها فارغة لتوليدها تلقائيًا', 'Temporary password needs 6+ characters, or leave it blank to generate one') : '';
+const tempPolicy = pw => { pw = String(pw || ''); return pw.length < 8 || !/[0-9]/.test(pw) || !/[A-Za-z\u0600-\u06FF]/.test(pw) ? LX('كلمة المرور المؤقتة 8 أحرف على الأقل وفيها حروف وأرقام، أو اتركها فارغة لتوليدها تلقائيًا', 'Temporary password needs 8+ characters with letters and digits, or leave it blank to generate one') : ''; };
 function usernameError(u, exceptEmpId) {
   if (!USER_RE.test(u)) return LX('اسم المستخدم: حروف إنجليزية صغيرة وأرقام و . _ - من 3 إلى 32 حرفًا', 'Username: lowercase English letters, digits and . _ - (3 to 32 characters)');
   const o = credByUser(u); if (o && o.empId !== exceptEmpId) return LX('اسم المستخدم مستخدم لموظف آخر', 'The username belongs to another employee');
@@ -229,7 +229,7 @@ const _colSpecBase = colSpec;
 colSpec = function (kind, c) {
   const s = _colSpecBase(kind, c);
   if (c[0] === 'username') { s.fmt = 'اسم مستخدم'; s.ex = 'حروف إنجليزية صغيرة وأرقام و . _ - (من 3 إلى 32)، فريد لكل موظف. مثال: t1001 أو ahmed.ali' + (kind === 'employees' ? '. اتركه فارغًا إن لم ترد إنشاء حساب دخول' : ''); }
-  if (c[0] === 'password') { s.fmt = 'نص (6 أحرف على الأقل)'; s.ex = 'اتركها فارغة ليولّد النظام كلمة مرور قوية تلقائيًا (موصى به). يُطلب تغييرها عند أول دخول، ولا تُحفظ إلا مشفّرة'; }
+  if (c[0] === 'password') { s.fmt = 'نص (8 أحرف على الأقل، حروف وأرقام)'; s.ex = 'اتركها فارغة ليولّد النظام كلمة مرور قوية تلقائيًا (موصى به). يُطلب تغييرها عند أول دخول، ولا تُحفظ إلا مشفّرة'; }
   if (kind === 'accounts' && c[0] === 'empNo') { s.fmt = 'رقم وظيفي'; s.ex = 'رقم موجود في النظام'; }
   return s;
 };
