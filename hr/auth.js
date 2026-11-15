@@ -11,7 +11,7 @@
    - Password hashes: PBKDF2-SHA256, random 16-byte salt per account, 100,000 iterations. Plain passwords are never stored.
    Enforcement is in the application: the creds/logins collections are writable at the "interact" sharing level. */
 const AUTH = { ITER: 100000, LOCK_N: 5, LOCK_MIN: 15 };
-const authCfg = () => ({ sessionPw: SET().auth?.sessionPw !== false, minLen: Math.max(6, Number(SET().auth?.minLen || 8)) });
+const authCfg = () => ({ sessionPw: SET().auth?.sessionPw !== false, minLen: Math.max(8, Number(SET().auth?.minLen || 8)) });
 const USER_RE = /^[a-z0-9._-]{3,32}$/;
 const normUser = u => String(u ?? '').trim().toLowerCase().replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 const credOf = empId => RAW.creds.map[empId];

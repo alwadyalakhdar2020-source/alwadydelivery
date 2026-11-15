@@ -1441,8 +1441,8 @@ async function ppReview(st,note){const {error}=await sb.rpc('review_prod_week',{
 
 /* ---------- views ---------- */
 V.prod=()=>{
-  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
-  for(let i=tabs.length-1;i>=0;i--)if(prodTabLvl(tabs[i][0])<1)tabs.splice(i,1);
+  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['recs','التوصيات'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
+  for(let i=tabs.length-1;i>=0;i--)if(tabs[i][0]==='recs'?!['plan','actual','qc','maint','pr'].some(k=>prodTabLvl(k)>0):prodTabLvl(tabs[i][0])<1)tabs.splice(i,1);
   if(!tabs.length)return `<div class="card empty">ما عندك صلاحية على شاشات الإنتاج.</div>`;
   if(!tabs.some(t=>t[0]===PP.tab))PP.tab=tabs[0][0];
   let h=`<div class="tabs noprint">${tabs.map(([k,l])=>`<button class="tab ${PP.tab===k?'on':''}" data-act="ppTab" data-v="${k}">${l}</button>`).join('')}</div>`;
@@ -1453,6 +1453,7 @@ V.prod=()=>{
   if(PP.tab==='qc')return h+ppQcView();
   if(PP.tab==='maint')return h+ppMaintView();
   if(PP.tab==='pr')return h+ppPrView();
+  if(PP.tab==='recs')return h+ppRecsView();
   if(PP.key!==PP.ws){if(!PP.loading){PP.loading=true;PP.key='…';setTimeout(ppLoad,0)}return h+`<div class="card empty">جارٍ التحميل…</div>`}
   if(!PP.doc)return h+`<div class="card empty">تعذّر تحميل الخطة. <button class="btn s" data-act="ppReload">إعادة المحاولة</button></div>`;
   if(PP.tab==='actual')return h+ppActualView();
@@ -2076,6 +2077,62 @@ Object.assign(ACT,{qcEdit:d=>qcEdit(d.id),qcSave:d=>qcSave(d.id),qcDel:async d=>
   prNew:()=>prNew(),prFlt:d=>{PR.flt=d.v;render()},prSt:d=>prSt(d.id,d.s),
   prSave:async()=>{const p={item:v_('pr_item'),qty:v_('pr_qty'),unit:v_('pr_unit'),est_cost:v_('pr_cost'),dept:v_('pr_dept'),urgency:v_('pr_urg'),needed_by:v_('pr_need'),reason:v_('pr_reason')};if(!p.item){document.getElementById('ops_e').textContent='اكتب الصنف المطلوب';return}if(await rpcSave('pr_save',p,'أُرسل الطلب لمدير المصنع')){PR.key='';render()}}});
 document.addEventListener('change',e=>{const a=e.target;if(a&&a.dataset&&a.dataset.act==='qcPer'){QC.from=document.getElementById('qc_from').value||QC.from;QC.to=document.getElementById('qc_to').value||QC.to;render()}});
+
+/* ===== Production recommendations (rule-based, no AI): plan vs actual, stops, QC, preventive maintenance, purchase requests.
+   Each section is evaluated only when the user can open that production tab; the server row rules apply to every query. ===== */
+const PRC={key:'',busy:false,d:null};
+const PRC_SEV={1:['عاجل','#B42318'],2:['مهم','#C27C00'],3:['تحسين','#1F6FB2']};
+const prcCss=`<style>.rc{background:var(--card,#fff);border:1px solid var(--line,#e3e6ea);border-radius:10px;padding:10px 12px;margin:8px 0}.rc-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rc-sev{color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700}.rc-own{margin-inline-start:auto;font-size:12px;opacity:.7}.rc-ev{margin:6px 0 2px}.rc details{margin-top:6px}.rc summary{cursor:pointer;font-size:13px;opacity:.85}.rc table{width:100%;font-size:13px;margin-top:4px}.rc td{padding:3px 6px;border-bottom:1px solid var(--line,#e3e6ea)}.rc-rule{margin-top:4px;font-size:12px;opacity:.65}.rc-sum{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 8px}</style>`;
+const prcCard=r=>{const [lab,col]=PRC_SEV[r.sev];return `<div class="rc" style="border-inline-start:4px solid ${col}"><div class="rc-h"><span class="rc-sev" style="background:${col}">${lab}</span><b>${esc(r.title)}</b><span class="rc-own">${esc(r.owner||'')}</span></div>
+ <div class="rc-ev">${r.ev}</div><div><b>المقترح:</b> ${r.act}</div>${r.list&&r.list.length?`<details><summary>التفاصيل (${r.list.length})</summary><table><tbody>${r.list.map(x=>`<tr>${x.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`:''}<div class="rc-rule">القاعدة: ${esc(r.rule)}</div></div>`};
+async function prcLoad(){PRC.busy=true;const t=TODAY(),d={};const q=async(k,fn)=>{try{d[k]=await fn()}catch(e){d[k]=null}};
+  try{await ppRefs()}catch(e){}
+  const jobs=[];
+  if(prodTabLvl('qc')>0)jobs.push(q('qc',()=>fetchAll(()=>sb.from('prod_qc').select('*').gte('day',addDays(t,-90)))));
+  if(prodTabLvl('maint')>0)jobs.push(q('assets',async()=>{const {data,error}=await sb.from('prod_assets').select('*');if(error)throw error;return data}),q('pm',()=>fetchAll(()=>sb.from('prod_maint').select('*').gte('day',addDays(t,-90)))));
+  if(prodTabLvl('pr')>0)jobs.push(q('pr',async()=>{const {data,error}=await sb.from('purchase_requests').select('*').in('status',['pending','approved','ordered']).limit(500);if(error)throw error;return data}));
+  if(prodTabLvl('actual')>0||prodTabLvl('plan')>0)jobs.push(q('plan',()=>fetchAll(()=>sb.from('prod_items_current').select('line_id,day,code,qty').gte('day',addDays(t,-14)).lt('day',t))),q('act',()=>fetchAll(()=>sb.from('prod_actuals').select('line_id,day,code,qty,stop_reason').gte('day',addDays(t,-14)).lt('day',t))));
+  await Promise.all(jobs);PRC.d=d;PRC.key=t;PRC.busy=false;render()}
+function prcBuild(){const d=PRC.d||{},t=TODAY(),out=[];const ln=id=>esc(lineName(id));
+  // plan vs actual (last 14 days, up to yesterday)
+  if(d.plan&&d.plan.length){const P={},A={},S={};d.plan.forEach(r=>{P[r.line_id]=(P[r.line_id]||0)+(+r.qty||0)});(d.act||[]).forEach(r=>{A[r.line_id]=(A[r.line_id]||0)+(+r.qty||0);if(r.stop_reason)S[r.stop_reason]=(S[r.stop_reason]||0)+1});
+    const lines=Object.keys(P).filter(k=>P[k]>0);const anyAct=(d.act||[]).length>0;
+    if(!anyAct) out.push({sev:2,owner:'مشرف الإنتاج',title:'فيه خطة إنتاج لآخر أسبوعين بدون أي إنتاج فعلي مسجّل',ev:`${lines.length} خط عليه خطة خلال آخر 14 يوم، وما انسجل له إنتاج فعلي.`,act:'سجّل الإنتاج الفعلي يومياً من تبويب «الإنتاج الفعلي» مع سبب التوقف لو فيه. بدونه ما نقدر نقيس التزام الخطة ولا نحلل التوقفات.',rule:'خطة لأيام سابقة بدون إنتاج فعلي مسجل'});
+    else{const low=lines.map(k=>({k,p:P[k],a:A[k]||0})).map(x=>({...x,r:x.a/x.p})).filter(x=>x.r<0.85).sort((a,b)=>a.r-b.r);
+      if(low.length) out.push({sev:low.some(x=>x.r<0.6)?1:2,owner:'مدير الإنتاج',title:`${low.length} خط إنتاج حقق أقل من 85% من خطته خلال آخر أسبوعين`,ev:'الفرق بين الخطة والفعلي يأخر التوريد ويسبب نقص مخزون.',act:'راجع أسباب التوقف لكل خط (القائمة وتبويب «تحليل التوقفات»). لو الخطة نفسها أعلى من الطاقة الفعلية، عدّلها عشان تصير التزامات التوريد واقعية.',rule:'الإنتاج الفعلي أقل من 85% من المخطط (عاجل تحت 60%)',list:low.map(x=>[ln(x.k),`المخطط ${num(x.p)}`,`الفعلي ${num(x.a)}`,`${Math.round(x.r*100)}%`])});
+      const st=Object.entries(S).sort((a,b)=>b[1]-a[1]);const tot=st.reduce((s,x)=>s+x[1],0);
+      if(tot>=4&&st[0][1]/tot>=0.4){const nm=st[0][0];const tip=/عطل|صيان|ماكين|قالب/.test(nm)?'ركّز على الصيانة الوقائية للماكينات والقوالب المسببة، وجهّز قطع غيار حرجة في المخزن.':/خام|مواد|أسمنت|ركام|رمل/.test(nm)?'نسّق مع المشتريات على حد أدنى لمخزون المواد الخام وتوريد مجدول.':/كهرب/.test(nm)?'راجع مصدر الكهرباء الاحتياطي وجدول الأحمال.':/عمال|عمالة|غياب/.test(nm)?'راجع توزيع العمالة والبدلاء على الورديات.':'عالج هذا السبب أولاً لأنه الأكثر تكراراً.';
+        out.push({sev:2,owner:'مدير الإنتاج',title:`«${nm}» سبب ${Math.round(st[0][1]/tot*100)}% من توقفات الإنتاج`,ev:`${st[0][1]} من ${tot} توقف مسجل خلال آخر أسبوعين.`,act:tip,rule:'سبب توقف واحد يمثل 40% أو أكثر (4 توقفات على الأقل)'})}}}
+  // QC
+  if(d.qc&&d.qc.length){const Q=d.qc.filter(r=>r.day>=addDays(t,-30));const fail=Q.filter(r=>r.result==='fail');
+    if(Q.length>=5&&fail.length/Q.length>=0.05){const why={strength:0,abs:0,dims:0,vis:0};fail.forEach(r=>{if(r.strength!=null&&r.strength_min!=null&&+r.strength<+r.strength_min)why.strength++;if(r.absorption!=null&&r.absorption_max!=null&&+r.absorption>+r.absorption_max)why.abs++;if(r.dims_ok===false)why.dims++;if(r.visual_ok===false)why.vis++});
+      const top=Object.entries(why).sort((a,b)=>b[1]-a[1])[0];const tip={strength:'المقاومة أقل من المطلوب: راجع نسبة الأسمنت والخلطة ومدة المعالجة (الرش والتغطية) قبل الفحص.',abs:'الامتصاص أعلى من الحد: راجع الدمك والاهتزاز ونسبة الماء والمعالجة.',dims:'الأبعاد غير مطابقة: افحص القوالب وتآكلها، ورتّب صيانتها أو استبدالها.',vis:'عيوب المظهر: راجع نظافة القوالب وزيت الفك وطريقة النقل والتكديس.'}[top[0]];
+      out.push({sev:fail.length/Q.length>=0.1?1:2,owner:'الجودة + الإنتاج',title:`نسبة عدم المطابقة في المختبر ${Math.round(fail.length/Q.length*100)}% خلال 30 يوم`,ev:`${fail.length} نتيجة غير مطابقة من ${Q.length} فحص.`,act:(top[1]?tip+' ':'')+'وأوقف تسليم الدفعات غير المطابقة لين يُعاد فحصها.',rule:'عدم المطابقة 5% أو أكثر من الفحوصات (عاجل من 10%)',
+        list:fail.map(r=>[fdate(r.day),ln(r.line_id),esc(r.item||r.code||''),esc(r.batch||''),esc(r.action||'')])})}
+    const byP={};d.qc.filter(r=>r.result==='fail').forEach(r=>{const k=(r.code||r.item||'—');byP[k]=(byP[k]||0)+1});const rep=Object.entries(byP).filter(x=>x[1]>=2);
+    if(rep.length) out.push({sev:2,owner:'الجودة',title:`${rep.length} منتج تكرر عدم مطابقته خلال 90 يوم`,ev:'التكرار على نفس المنتج يدل على سبب ثابت (خلطة أو قالب أو معالجة).',act:'افتح تحقيق سبب جذري لكل منتج في القائمة، وزد عدد العينات لدفعاته لين يستقر.',rule:'منتج له نتيجتين غير مطابقتين أو أكثر خلال 90 يوم',list:rep.map(([k,n])=>[esc(k),`${n} مرة`])})}
+  if(d.qc&&d.plan&&d.plan.length){const qcL=new Set(d.qc.filter(r=>r.day>=addDays(t,-14)).map(r=>r.line_id));const pl=[...new Set(d.plan.map(r=>r.line_id))].filter(k=>!qcL.has(k));
+    if(pl.length) out.push({sev:3,owner:'الجودة',title:`${pl.length} خط إنتاج اشتغل آخر أسبوعين بدون أي فحص مختبر مسجل`,ev:'المنتج اللي ما ينفحص ممكن يوصل للعميل وهو غير مطابق.',act:'حدد خطة عينات أسبوعية لكل خط ومنتج، وسجّل النتائج في «الجودة والمختبر».',rule:'خط عليه خطة إنتاج خلال 14 يوم وما له فحص مسجل',list:pl.map(k=>[ln(k)])})}
+  // preventive maintenance
+  if(d.assets&&d.assets.length){const A=d.assets.filter(a=>a.active!==false&&+a.every_days>0);const od=A.map(a=>({a,due:a.last_done?addDays(a.last_done,+a.every_days):null})).filter(x=>!x.due||x.due<t);
+    const late=od.filter(x=>x.due),never=od.filter(x=>!x.due);
+    if(late.length) out.push({sev:late.some(x=>dDiff(x.due,t)>7)?1:2,owner:'الصيانة',title:`${late.length} ماكينة أو قالب تجاوز موعد الصيانة الوقائية`,ev:'تأجيل الصيانة الوقائية يحوّلها لأعطال مفاجئة توقف الخط.',act:'جدولها هذا الأسبوع في أوقات التوقف المخططة، وسجّلها بعد التنفيذ عشان يتحدث الموعد الجاي.',rule:'تاريخ آخر صيانة + الدورة أقدم من اليوم (عاجل لو التأخير أكثر من 7 أيام)',list:late.map(x=>[esc(x.a.name),ln(x.a.line_id),`كانت مستحقة ${fdate(x.due)}`,`متأخرة ${dDiff(x.due,t)} يوم`])});
+    if(never.length) out.push({sev:3,owner:'الصيانة',title:`${never.length} ماكينة أو قالب بدون تاريخ آخر صيانة`,ev:'النظام ما يقدر يحسب موعد الصيانة الجاي.',act:'سجّل آخر صيانة معروفة لكل واحد منها.',rule:'دورة صيانة محددة بدون تاريخ آخر صيانة',list:never.map(x=>[esc(x.a.name),ln(x.a.line_id)])});
+    if(d.pm){const cor={};d.pm.filter(m=>m.kind==='corrective').forEach(m=>cor[m.asset_id]=(cor[m.asset_id]||0)+1);const rep=Object.entries(cor).filter(x=>x[1]>=3);
+      if(rep.length) out.push({sev:2,owner:'الصيانة',title:`${rep.length} ماكينة تعطلت 3 مرات أو أكثر خلال 90 يوم`,ev:'الأعطال المتكررة على نفس الماكينة توقف الخط وتستهلك قطع غيار.',act:'قصّر دورة الصيانة الوقائية لها، وافحص السبب الجذري. ولو استمر التكرار، ادرس الاستبدال أو العمرة.',rule:'3 إصلاحات (عطل) أو أكثر لنفس الماكينة خلال 90 يوم',list:rep.map(([id,n])=>[esc(d.assets.find(a=>a.id===id)?.name||'—'),`${n} عطل`])})}}
+  // purchase requests
+  if(d.pr&&d.pr.length){const pend=d.pr.filter(r=>r.status==='pending');const late=pend.filter(r=>(r.needed_by&&r.needed_by<t)||(r.urgency==='urgent'&&dDiff(String(r.created_at).slice(0,10),t)>=1)||dDiff(String(r.created_at).slice(0,10),t)>3);
+    if(late.length) out.push({sev:late.some(r=>r.needed_by&&r.needed_by<t||r.urgency==='urgent')?1:2,owner:'معتمد طلبات الشراء',title:`${late.length} طلب شراء متأخر في الاعتماد`,ev:'تأخر الاعتماد يأخر قطع الغيار والمواد، وممكن يوقف الإنتاج.',act:'اعتمد أو ارفض الطلبات من تبويب «طلبات الشراء». والعاجل خلال يوم واحد.',rule:'بانتظار الاعتماد أكثر من 3 أيام، أو عاجل أكثر من يوم، أو تجاوز تاريخ الحاجة',list:late.map(r=>[`#${r.no}`,esc(r.item||''),r.urgency==='urgent'?'<b style="color:#B42318">عاجل</b>':'',r.needed_by?`مطلوب قبل ${fdate(r.needed_by)}`:''])});
+    const ord=d.pr.filter(r=>(r.status==='approved'||r.status==='ordered')&&r.needed_by&&r.needed_by<t);
+    if(ord.length) out.push({sev:2,owner:'المشتريات',title:`${ord.length} طلب شراء معتمد وتجاوز تاريخ الحاجة وما استُلم`,ev:'الطلب اعتُمد لكن المادة ما وصلت في وقتها.',act:'تابع مع المورد على موعد التسليم، وحدّث حالة الطلب لـ«تم الاستلام» أول ما يوصل.',rule:'معتمد أو مطلوب من المورد، وتاريخ الحاجة قبل اليوم',list:ord.map(r=>[`#${r.no}`,esc(r.item||''),esc(PR_ST[r.status]?.[0]||r.status),`مطلوب قبل ${fdate(r.needed_by)}`])})}
+  return out.sort((a,b)=>a.sev-b.sev)}
+function ppRecsView(){if(PRC.key!==TODAY()){if(!PRC.busy)setTimeout(prcLoad,0);return `<div class="card empty">جارٍ حساب التوصيات…</div>`}
+  let L0;try{L0=prcBuild()}catch(e){console.warn(e);return `<div class="card empty">تعذّر حساب التوصيات</div>`}const n=s=>L0.filter(x=>x.sev===s).length;
+  const empty=Object.values(PRC.d||{}).every(v=>!v||!v.length);
+  return prcCss+`<div class="card"><h2>توصيات للتصحيح والتطوير<span class="sub">الإنتاج والجودة والصيانة وطلبات الشراء</span></h2><p class="small muted" style="margin:0">محسوبة تلقائياً من بيانات التبويبات اللي عندك صلاحية عليها. كل توصية مكتوب تحتها القاعدة اللي طلّعتها.</p>
+   <div class="rc-sum" style="margin-top:8px"><span>🔴 عاجل: <b>${n(1)}</b></span><span>🟠 مهم: <b>${n(2)}</b></span><span>🔵 تحسين: <b>${n(3)}</b></span><span class="grow"></span><button class="btn s" data-act="prcRe">تحديث</button></div></div>
+   ${L0.length?L0.map(prcCard).join(''):`<div class="card empty">${empty?'لسا ما فيه بيانات كافية (فحوصات، صيانة، طلبات شراء، إنتاج فعلي) عشان تطلع توصيات. أول ما تبدأ تتسجل تظهر هنا تلقائياً.':'ما فيه توصيات حالياً: كل المؤشرات ضمن الحدود.'}</div>`}`}
+ACT.prcRe=()=>{PRC.key='';render()};
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};

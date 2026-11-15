@@ -3883,6 +3883,97 @@ function plpAdd(){
 Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
   plpAll:()=>{const v=document.getElementById('plp_all')?.value;if(v===''||v==null)return;PLP.prob=v;document.querySelectorAll('#mbody .plp_ck:checked').forEach(c=>{const tr=c.closest('tr');const p=tr.querySelector('.plp_prob');if(p){p.value=v;const s=PLP.sel.get(c.dataset.k);if(s)s.prob=v}})}});
 
+/* ===== Rule-based recommendations (no AI): every card = rule + evidence numbers + suggested action + owner.
+   Uses the same scoped data the user already sees (vis / inScope), so a rep only gets recommendations about his own customers. ===== */
+const REC_SEV={1:['عاجل','#B42318'],2:['مهم','#C27C00'],3:['تحسين','#1F6FB2']};
+const recCss=`<style>.rc{background:var(--card,#fff);border:1px solid var(--line,#e3e6ea);border-radius:10px;padding:10px 12px;margin:8px 0}.rc-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rc-sev{color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700}.rc-own{margin-inline-start:auto;font-size:12px;opacity:.7}.rc-ev{margin:6px 0 2px}.rc details{margin-top:6px}.rc summary{cursor:pointer;font-size:13px;opacity:.85}.rc table{width:100%;font-size:13px;margin-top:4px}.rc td{padding:3px 6px;border-bottom:1px solid var(--line,#e3e6ea)}.rc-rule{margin-top:4px;font-size:12px;opacity:.65}.rc-sum{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 8px}</style>`;
+const recCard=r=>{const [lab,col]=REC_SEV[r.sev];return `<div class="rc" style="border-inline-start:4px solid ${col}"><div class="rc-h"><span class="rc-sev" style="background:${col}">${lab}</span><b>${esc(r.title)}</b><span class="rc-own">${esc(r.owner||'')}</span></div>
+ <div class="rc-ev">${r.ev}</div><div><b>المقترح:</b> ${r.act}</div>${r.list&&r.list.length?`<details><summary>التفاصيل (${r.list.length})</summary><table><tbody>${r.list.map(x=>`<tr>${x.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`:''}<div class="rc-rule">القاعدة: ${esc(r.rule)}</div></div>`};
+const recCl=(id,name)=>id?`<a href="#" data-open="client" data-id="${esc(id)}">${esc(name||cName(id))}</a>`:esc(name||'—');
+function computeRecs(){
+  const out=[];const t=TODAY();const ix=I();const lead=isLead();const C=cfg();
+  const scopeC=vis(S.clients);const inS=new Set(scopeC.map(c=>c.id));
+  // ---- receivables ----
+  let D=null;try{D=agData()}catch(e){}
+  if(D&&D.tot>0){
+    const sh90=D.b.b90p/D.tot;
+    if(sh90>=0.2){const top=D.rows.filter(o=>o.b90p>0).sort((a,b)=>b.b90p-a.b90p);
+      out.push({sev:1,owner:lead?'مدير المبيعات + المندوبين':'المندوب',title:`${Math.round(sh90*100)}% من المديونية متأخرة أكثر من 90 يوم`,
+        ev:`${money(D.b.b90p)} من إجمالي ${money(D.tot)} عند ${top.length} عميل.`,
+        act:'خطة تحصيل لكل عميل في القائمة: اتصال من المندوب هذا الأسبوع، وبعده خطاب رسمي من الإدارة للي ما يتجاوب، وإيقاف البيع الآجل له لين يسدد أو يتفق على جدول سداد.',
+        rule:'المتأخر أكثر من 90 يوم يمثل 20% أو أكثر من المديونية',list:top.slice(0,20).map(o=>[recCl(o.id,o.name),`+90: <b>${money(o.b90p)}</b>`,`الرصيد ${money(o.tot)}`,o.repId?esc(tName(o.repId)):'—'])})}
+    const over=D.rows.filter(o=>o.over);
+    if(over.length){const openQ=new Map();ix.quotes.forEach(q=>{if(q.cid&&(q.st==='open'||q.st==='pending'))openQ.set(q.cid,(openQ.get(q.cid)||0)+q.value)});
+      (S.orders||[]).forEach(x=>{if(x.clientId&&(x.status==='open'||x.status==='partial'))openQ.set(x.clientId,(openQ.get(x.clientId)||0)+(+x.value||0))});
+      const sel=over.filter(o=>openQ.get(o.id));
+      out.push({sev:sel.length?1:2,owner:'مدير المبيعات',title:`${over.length} عميل تجاوز حد الائتمان${sel.length?`، منهم ${sel.length} عليهم عروض أو أوامر بيع مفتوحة`:''}`,
+        ev:`مجموع التجاوز ${money(over.reduce((s,o)=>s+(o.tot-o.lim),0))}.`,
+        act:sel.length?'لا يُعتمد أمر بيع آجل جديد لهؤلاء قبل سداد جزء يرجّعهم تحت الحد، أو يكون البيع نقداً أو بدفعة مقدمة.':'تابع السداد قبل أي بيع آجل جديد، وراجع الحد لو العميل منتظم ويحتاج حد أعلى.',
+        rule:'رصيد العميل أكبر من حد الائتمان المسجّل',list:over.sort((a,b)=>(b.tot-b.lim)-(a.tot-a.lim)).slice(0,20).map(o=>[recCl(o.id,o.name),`الرصيد ${money(o.tot)}`,`الحد ${money(o.lim)}`,openQ.get(o.id)?`مفتوح له ${money(openQ.get(o.id))}`:''])})}
+    const noLim=D.rows.filter(o=>o.id&&!(o.lim>0));
+    if(isMgr()&&D.rows.length>=5&&noLim.length/D.rows.length>=0.3) out.push({sev:3,owner:'مدير المبيعات + المالية',title:`${noLim.length} عميل عليهم مديونية بدون حد ائتمان`,
+      ev:`${Math.round(noLim.length/D.rows.length*100)}% من العملاء المدينين ما لهم حد مسجّل، فالنظام ما يقدر ينبّه عند التجاوز.`,
+      act:'حدّد حد ائتمان ومدة سداد لكل عميل آجل، وارفعها من «مركز استيراد Excel» ← العملاء (عمود حد الائتمان ومدة السداد).',rule:'30% أو أكثر من العملاء المدينين بدون حد ائتمان'});
+    const noRem=D.rows.filter(o=>o.id&&o.od>0&&o.max>30&&!(lastRemind(o.id)>addDays(t,-30))).sort((a,b)=>b.od-a.od);
+    if(noRem.length) out.push({sev:2,owner:'المندوب',title:`${noRem.length} عميل متأخر أكثر من 30 يوم وما وصله تذكير هذا الشهر`,ev:`مجموع المتأخر عليهم ${money(noRem.reduce((s,o)=>s+o.od,0))}.`,
+      act:'أرسل لهم تذكير السداد من صفحة «أعمار الديون» (زر واتساب برسالة جاهزة)، وينحفظ التذكير تلقائياً في سجل اتصالات العميل.',rule:'متأخر أكثر من 30 يوم، وما فيه تذكير مسجل خلال آخر 30 يوم',
+      list:noRem.slice(0,20).map(o=>[recCl(o.id,o.name),`متأخر ${money(o.od)}`,`أقدمها ${o.max} يوم`,o.c?.phone?'':'<span style="color:#B42318">بدون جوال</span>'])});
+  }
+  // ---- concentration of collections (last 12 months) ----
+  const v12=[...ix.v12.entries()].filter(([id,v])=>inS.has(id)&&v>0).sort((a,b)=>b[1]-a[1]);const tot12=v12.reduce((s,x)=>s+x[1],0);
+  if(v12.length>=10&&tot12>0){const top5=v12.slice(0,5).reduce((s,x)=>s+x[1],0)/tot12;
+    if(top5>=0.5) out.push({sev:3,owner:lead?'مدير المبيعات':'المندوب',title:`5 عملاء يمثلون ${Math.round(top5*100)}% من التحصيل خلال 12 شهر`,ev:`الاعتماد على عدد قليل من العملاء يرفع المخاطرة لو تأخر أحدهم أو توقف.`,
+      act:'وسّع قاعدة العملاء: خصص جزء من خطة الزيارات الأسبوعية لعملاء محتملين وعملاء متوسطين قابلين للنمو.',rule:'أعلى 5 عملاء يمثلون 50% أو أكثر من تحصيل آخر 12 شهر',
+      list:v12.slice(0,5).map(([id,v])=>[recCl(id),money(v),`${Math.round(v/tot12*100)}%`])})}
+  // ---- dormant & strategic customers without contact ----
+  const dorm=scopeC.filter(c=>segmentOf(c.id,t)==='dormant').map(c=>({c,v:ix.v12.get(c.id)||0,lt:lastBefore(ix.tx.get(c.id),t)})).sort((a,b)=>b.v-a.v);
+  if(dorm.length>=3) out.push({sev:2,owner:'المندوب',title:`${dorm.length} عميل خامل ما تعامل معنا من ${C.activeDays} يوم أو أكثر`,ev:`عملاء كانوا يتعاملون وتوقفوا، وإرجاعهم أسهل من كسب عميل جديد.`,
+    act:'أضفهم لخطة زيارات الأسابيع الجاية، وابدأ بأعلاهم قيمة. سجّل سبب التوقف في الزيارة (سعر، جودة، توريد، انتهى المشروع) عشان تبان الصورة للإدارة.',rule:`آخر تعامل أقدم من ${C.activeDays} يوم وأحدث من ${C.lostDays} يوم`,
+    list:dorm.slice(0,25).map(x=>[recCl(x.c.id,x.c.name),`آخر تعامل ${fdate(x.lt)}`,x.v?`تحصيل 12 شهر ${money(x.v)}`:'',x.c.repId?esc(tName(x.c.repId)):'—'])});
+  const strat=scopeC.filter(c=>segmentOf(c.id,t)==='strategic').map(c=>({c,la:lastActivity(c.id)})).filter(x=>!x.la||daysBetween(x.la,t)>30);
+  if(strat.length) out.push({sev:2,owner:'المندوب',title:`${strat.length} عميل استراتيجي بدون زيارة أو تواصل من أكثر من 30 يوم`,ev:'أكبر العملاء قيمة يحتاجون تواصل منتظم عشان ما يروحون للمنافس.',
+    act:'جدول زيارة أو اتصال لكل واحد منهم خلال الأسبوعين الجايين.',rule:'عميل استراتيجي وآخر نشاط مسجل معه قبل أكثر من 30 يوم',list:strat.map(x=>[recCl(x.c.id,x.c.name),x.la?`آخر نشاط ${fdate(x.la)}`:'ما فيه نشاط مسجل',x.c.repId?esc(tName(x.c.repId)):'—'])});
+  // ---- quotations: win rate & loss reasons (last 180 days) ----
+  const from=addDays(t,-180);const Q=ix.quotes.filter(q=>q.date>=from&&(!q.cid||inS.has(q.cid)||inScope({repId:q.rep})));
+  const closed=Q.filter(q=>['accepted','rejected','expired'].includes(q.st));
+  const wr=rows=>{const c=rows.filter(q=>['accepted','rejected','expired'].includes(q.st));const w=c.filter(q=>q.st==='accepted').length;return c.length?{w,n:c.length,r:w/c.length}:null};
+  const all=wr(Q);
+  if(all&&all.n>=10&&all.r<0.25) out.push({sev:2,owner:lead?'مدير المبيعات':'المندوب',title:`نسبة كسب عروض الأسعار ${Math.round(all.r*100)}% خلال 6 أشهر`,ev:`${all.w} عرض تحوّل لأمر من ${all.n} عرض انتهى (مقبول أو مرفوض أو منتهي).`,
+    act:'راجع أسباب الرفض تحت. لو السعر هو السبب، قارن الأسعار مع السوق وحدد صلاحيات خصم واضحة. ولو العروض تنتهي بدون رد، تابعها خلال 3 أيام من إرسالها.',rule:'نسبة الكسب أقل من 25% بحد أدنى 10 عروض منتهية'});
+  if(lead){const byR=new Map();Q.forEach(q=>{if(!q.rep)return;(byR.get(q.rep)||byR.set(q.rep,[]).get(q.rep)).push(q)});
+    const avg=all?all.r:null;const weak=[...byR.entries()].map(([id,a])=>({id,s:wr(a)})).filter(x=>x.s&&x.s.n>=5&&avg!=null&&x.s.r<avg*0.6);
+    if(weak.length) out.push({sev:2,owner:'مدير المبيعات',title:`${weak.length} مندوب نسبة كسب العروض عندهم أقل بكثير من متوسط الفريق`,ev:`متوسط الفريق ${Math.round(avg*100)}%.`,
+      act:'راجع عروضهم المرفوضة معهم: هل المشكلة في السعر، أو اختيار العملاء، أو المتابعة بعد الإرسال؟ وشاركهم طريقة المندوب الأعلى كسباً.',rule:'نسبة كسب المندوب أقل من 60% من متوسط الفريق (5 عروض منتهية على الأقل)',
+      list:weak.map(x=>[esc(tName(x.id)),`${Math.round(x.s.r*100)}%`,`${x.s.w} من ${x.s.n}`])})}
+  const rej=closed.filter(q=>q.st==='rejected'&&q.reason);
+  if(rej.length>=5){const rs={};rej.forEach(q=>rs[q.reason]=(rs[q.reason]||0)+1);const top=Object.entries(rs).sort((a,b)=>b[1]-a[1])[0];const sh=top[1]/rej.length;
+    if(sh>=0.4){const tip=/سعر|السعر|price/i.test(top[0])?'راجع قائمة الأسعار وهوامش الخصم مع الإدارة، وركّز في العرض على الجودة والاعتمادات ومدة التوريد بدل السعر بس.'
+      :/توريد|مدة/.test(top[0])?'نسّق مع التخطيط والحركة على مدة توريد واقعية تُكتب في العرض، وتابع الالتزام فيها.'
+      :/فني|اشتراط|اعتماد/.test(top[0])?'جهّز ملف اعتمادات ونتائج اختبارات جاهز للاستشاريين، ونسّق مع الجودة على المواصفات المطلوبة.'
+      :'عالج هذا السبب أولاً لأنه أكثر سبب لخسارة العروض.';
+      out.push({sev:2,owner:'مدير المبيعات',title:`«${top[0]}» سبب ${Math.round(sh*100)}% من العروض المرفوضة`,ev:`${top[1]} من ${rej.length} عرض مرفوض بسبب مسجل خلال 6 أشهر.`,act:tip,rule:'سبب رفض واحد يمثل 40% أو أكثر (5 عروض مرفوضة على الأقل)'})}}
+  // ---- complaints ----
+  const cp=vis(S.complaints).filter(c=>String(c.openedAt||'').slice(0,10)>=addDays(t,-90));
+  const ql=cp.filter(c=>c.type==='quality');
+  if(ql.length>=3) out.push({sev:2,owner:'مدير المبيعات + الجودة',title:`${ql.length} شكوى جودة خلال 90 يوم`,ev:`من أصل ${cp.length} شكوى في نفس الفترة.`,
+    act:'ارفعها لقسم الجودة مع رقم أمر البيع والمنتج، وراجعها مع نتائج المختبر لنفس الفترة. لو تكررت على نفس المنتج، وقّف تسليمه لين يُفحص.',rule:'3 شكاوى جودة أو أكثر خلال 90 يوم',
+    list:ql.map(c=>[recCl(c.clientId),fdate(String(c.openedAt).slice(0,10)),esc(String(c.desc||'').slice(0,80)),c.status==='closed'?'مقفلة':'<b>مفتوحة</b>'])});
+  // ---- data quality ----
+  if(isMgr()){const un=ix.coll.filter(r=>!r.cid&&r.d>=addDays(t,-90));
+    if(un.length) out.push({sev:3,owner:'مدير النظام',title:`${un.length} سند قبض خلال 90 يوم غير مربوط بعميل`,ev:`مجموعها ${money(un.reduce((s,r)=>s+r.amt,0))}، ما تدخل في تحصيل أي عميل ولا مندوب.`,
+      act:'افتح «سلامة البيانات» واربط أكواد العملاء الناقصة أو أضف العملاء الجدد، عشان تنحسب صح في مؤشرات المندوبين.',rule:'سند قبض كود عميله غير موجود في قائمة العملاء'})}
+  const noPh=scopeC.filter(c=>c.kind!=='lead'&&!waPhone(c.phone)&&(ix.v12.get(c.id)||0)>0);
+  if(noPh.length>=5) out.push({sev:3,owner:'المندوب',title:`${noPh.length} عميل نشط بدون رقم جوال صالح`,ev:'ما نقدر نرسل لهم تذكير سداد ولا إشعار توصيل.',act:'حدّث أرقامهم من بطاقة العميل في أول زيارة أو اتصال.',rule:'عميل له تحصيل خلال 12 شهر ورقمه فاضي أو غير صالح',
+    list:noPh.slice(0,30).map(c=>[recCl(c.id,c.name),c.repId?esc(tName(c.repId)):'—'])});
+  return out.sort((a,b)=>a.sev-b.sev);
+}
+V.recs=()=>{let L0;try{L0=computeRecs()}catch(e){console.warn(e);return `<div class="card empty">تعذّر حساب التوصيات: ${esc(e.message)}</div>`}
+  const n=s=>L0.filter(x=>x.sev===s).length;
+  return recCss+`<div class="card"><h2>${L('توصيات للتصحيح والتطوير','Recommendations')}</h2><p class="small muted" style="margin:0">${L('محسوبة تلقائياً من بيانات العملاء والفواتير والتحصيل والعروض والزيارات اللي تظهر لك. كل توصية مكتوب تحتها القاعدة اللي طلّعتها.','Computed from the data visible to you.')}</p>
+   <div class="rc-sum" style="margin-top:8px"><span>🔴 عاجل: <b>${n(1)}</b></span><span>🟠 مهم: <b>${n(2)}</b></span><span>🔵 تحسين: <b>${n(3)}</b></span></div></div>
+   ${L0.length?L0.map(recCard).join(''):`<div class="card empty">${L('ما فيه توصيات حالياً: كل المؤشرات ضمن الحدود.','No recommendations right now.')}</div>`}`};
+NAV.splice(NAV.findIndex(n=>n[0]==='alerts')+1,0,['recs','bell',()=>L('التوصيات','Recommendations'),ALL]);
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};

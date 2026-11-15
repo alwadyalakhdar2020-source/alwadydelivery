@@ -2756,6 +2756,104 @@ function pcTrendChart(R){try{S.charts.pc&&S.charts.pc.destroy()}catch(e){}const 
   pcRun()}}
 document.addEventListener("change",e=>{if(e.target.id==="pc-mode"){PC.mode=e.target.value;renderDashboard()}else if(e.target.id==="pc-cf"||e.target.id==="pc-ct"){PC.cf=$("#pc-cf").value;PC.ct=$("#pc-ct").value;pcRun()}});
 
+/* ================= Al-Wady: rule-based recommendations (fleet KPIs, breakdowns, data entry, carrier, documents) =================
+   Every recommendation is computed from the same numbers the dashboard shows (computeAll) plus maintenance requests and
+   document dates. No AI, no estimates: each card states its rule, the evidence numbers and the suggested action. */
+const RC={maint:null,docs:null,loading:false,open:{}};
+const RC_SEV={1:["عاجل","#B42318"],2:["مهم","#C27C00"],3:["تحسين","#1F6FB2"]};
+function rcCard(r,i){const [lab,col]=RC_SEV[r.sev];const k="r"+i;const open=RC.open[r.key];
+  return `<div class="rc" style="border-inline-start:4px solid ${col}"><div class="rc-h" data-rc="${esc(r.key)}"><span class="rc-sev" style="background:${col}">${lab}</span><b>${esc(r.title)}</b><span class="rc-own">${esc(r.owner||"")}</span><span class="rc-tg">${open?"▲":"▼"}</span></div>
+   <div class="rc-ev">${r.ev}</div><div class="rc-act"><b>المقترح:</b> ${r.act}</div>${r.list&&r.list.length?`<div class="rc-list" ${open?"":"hidden"}><table><tbody>${r.list.map(x=>`<tr>${x.map((c,j)=>`<td class="${j?"":"txt"}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`:""}
+   <div class="rc-rule small muted">القاعدة: ${esc(r.rule)}</div></div>`}
+function rcCss(){if(document.getElementById("rc-css"))return;const s=document.createElement("style");s.id="rc-css";s.textContent=`.rc{background:var(--card,#fff);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}.rc-h{display:flex;gap:8px;align-items:center;cursor:pointer;flex-wrap:wrap}.rc-sev{color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700}.rc-own{margin-inline-start:auto;font-size:12px;color:var(--muted)}.rc-tg{font-size:11px;color:var(--muted)}.rc-ev{margin:6px 0 2px;font-size:14px}.rc-act{font-size:14px}.rc-list{margin-top:6px;max-height:260px;overflow:auto}.rc-list table{width:100%;font-size:13px}.rc-list td{padding:3px 6px;border-bottom:1px solid var(--line)}.rc-rule{margin-top:4px}.rc-sum{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 6px}.rc-sum span{font-size:13px}`;document.head.appendChild(s)}
+async function rcLoad(){if(RC.loading)return;RC.loading=true;
+  try{RC.maint=await api("fleet_maint_list",{f:{from:addDays(localToday(),-120)}})||[]}catch(e){RC.maint=[]}
+  try{RC.docs=(typeof FX!=="undefined"&&FX.docs)||await api("fleet_docs")}catch(e){RC.docs={docs:[],licenses:[]}}
+  RC.loading=false;rcPaint()}
+function rcBuild(){const R=computeAll(),c=R.c,T=R.T,out=[];const th=c.thresholds;const reasons=c.reasons||[];
+  const sc=x=>esc(vehLabel(x.v));const L=R.L;const today=R.today;
+  if(T.t===0&&!R.rows.length) return out;
+  // 1) vehicles below acceptable, split into "down for breakdowns" vs other
+  const intIdx=reasons.map((r,i)=>r.cls==="داخلي"&&/عطل|أعطال/.test(r.name)?i:-1).filter(i=>i>=0);
+  const low=R.rows.filter(r=>r.cur.t>0&&r.adj!==null&&r.adj<th[2]);
+  const brk=low.filter(r=>{const lost=r.cur.ext+r.cur.int+r.cur.gap;const b=intIdx.reduce((s,i)=>s+r.cur.rec[i],0);return lost>0&&b/lost>=0.5});
+  if(brk.length){const om=id=>(RC.maint||[]).find(m=>m.vehicle_id===id&&m.status!=="closed");
+    out.push({key:"brk",sev:1,owner:"الصيانة + مسؤول الحركة",title:`${brk.length} سيارة متعطلة أغلب الفترة بسبب الأعطال`,
+      ev:`تحقيقها المعدّل تحت ${pct(th[2],0)} وأكثر من نصف ردودها المفقودة مسجّلة «أعطال».`,
+      act:`السيارة اللي ما لها طلب صيانة مفتوح: افتح لها طلب عشان تنحسب أيام تعطّلها صح. واللي متوقفة لفترة طويلة أوقفها مؤقتاً من جدول السيارات لين ترجع، عشان ما تنزّل نسبة الفرع.`,
+      rule:`التحقيق المعدّل أقل من ${pct(th[2],0)}، و«أعطال» نصف المفقود أو أكثر`,
+      list:brk.map(r=>{const m=om(r.v.id);return [sc(r)+` <small>${esc(r.v.branch)}</small>`,pct(r.adj,0),`${fmt(r.cur.a,1)} من ${fmt(r.cur.t)}`,m?`طلب صيانة مفتوح منذ ${fd(m.opened_on)}`:`<b style="color:#B42318">بدون طلب صيانة</b>`]})})}
+  const other=low.filter(r=>!brk.includes(r)).sort((a,b)=>a.adj-b.adj);
+  if(other.length) out.push({key:"low",sev:2,owner:"مسؤول الحركة",title:`${other.length} سيارة أداؤها ضعيف لأسباب غير الأعطال`,
+    ev:`التحقيق المعدّل لكل وحدة منها تحت ${pct(th[2],0)}. السبب الرئيسي لكل سيارة مذكور في القائمة.`,
+    act:`راجعها مع مسؤول الحركة سيارة سيارة. لو السبب «عدم وجود ردود» وزّع عليها طلبات أكثر قبل ما تستأجر ناقل خارجي، ولو «غير موضح» فالمشكلة في التسجيل قبل الأداء.`,
+    rule:`التحقيق المعدّل أقل من ${pct(th[2],0)}`,list:other.slice(0,15).map(r=>[sc(r)+` <small>${esc(r.v.branch)}</small>`,pct(r.adj,0),esc(r.main),`عجز غير مبرر ${fmt(r.cur.gap,1)}`])});
+  // 2) unexplained shortfall share, per branch
+  R.branches.forEach(b=>{const lost=b.A.ext+b.A.int+b.A.gap;if(lost<5)return;const sh=b.A.gap/lost;if(sh<0.3)return;
+    out.push({key:"gap-"+b.b,sev:sh>=0.5?1:2,owner:"مسؤول حركة "+b.b,title:`فرع ${b.b}: ${pct(sh,0)} من الردود المفقودة بدون سبب مسجّل`,
+      ev:`${fmt(b.A.gap,1)} رد من ${fmt(lost,1)} رد مفقود ما انسجل لها سبب.`,act:`لازم يُسجَّل سبب لكل نقص يومي (أعطال، تأخر في الموقع، عدم وجود ردود…). بدونه ما نقدر نعرف وين المشكلة ولا نحسب التحقيق المعدّل صح.`,
+      rule:"العجز غير المبرر 30% من المفقود أو أكثر (عاجل من 50%)"})});
+  // 3) missing entry days
+  const miss={};R.rows.forEach(r=>{for(let iso=R.from;iso<=R.to&&iso<=today;iso=addDays(iso,1)){const x=calcDay(c,r.v,iso,getDay(r.v.id,iso),today);if(x.missing){(miss[r.v.branch]=miss[r.v.branch]||{n:0,d:{}}).n++;miss[r.v.branch].d[iso]=(miss[r.v.branch].d[iso]||0)+1}}});
+  Object.entries(miss).forEach(([b,m])=>{const days=Object.entries(m.d).sort((a,b)=>b[1]-a[1]);
+    out.push({key:"miss-"+b,sev:m.n>=20?1:2,owner:"مسؤول حركة "+b,title:`فرع ${b}: ${m.n} يوم عمل بدون تسجيل`,ev:`موزعة على ${days.length} يوم. كل يوم بدون تسجيل يُحسب مستهدفه كامل عجز غير مبرر.`,
+      act:`سجّل الأيام الناقصة من «الإدخال اليومي»، وخلّ التسجيل عادة يومية قبل نهاية الوردية. لو السيارة كانت إجازة أو متوقفة سجّل لها صفر مع السبب.`,rule:"يوم عليه مستهدف ومرّ بدون أي إدخال (عاجل من 20 يوم)",
+      list:days.slice(0,12).map(([d,n])=>[fd(d),`${n} سيارة`])})});
+  // 4) over-recorded reasons (raw > shortfall)
+  const over=[];R.rows.forEach(r=>{for(let iso=R.from;iso<=R.to&&iso<=today;iso=addDays(iso,1)){const d=getDay(r.v.id,iso);if(!d)continue;const x=calcDay(c,r.v,iso,d,today);const raw=x.rr.reduce((s,y)=>s+y,0),cnt=x.rec.reduce((s,y)=>s+y,0);if(raw-cnt>0.01)over.push([sc(r),fd(iso),`مسجّل ${fmt(raw,1)}`,`النقص الفعلي ${fmt(Math.max(0,x.t-x.a),1)}`])}});
+  if(over.length) out.push({key:"over",sev:3,owner:"مسؤول الحركة",title:`${over.length} يوم انسجلت فيه أسباب أكثر من النقص الفعلي`,ev:`النظام يحسب الأسباب بحدود النقص بس، لكن التسجيل الزايد يدل إن فيه سوء فهم لطريقة الإدخال.`,
+    act:`السبب يُكتب بعدد الردود اللي ضاعت بسببه، مو بعدد المشاوير الكلي. مثال: المستهدف 5 والمحقق 3، فمجموع الأسباب ما يزيد عن 2.`,rule:"مجموع الأسباب المسجلة أكبر من (المستهدف ناقص المحقق)",list:over.slice(0,20)});
+  // 5) dominant reason (Pareto)
+  const tot=T.rec.reduce((s,x)=>s+x,0);if(tot>=5){const i=T.rec.indexOf(Math.max(...T.rec));const sh=T.rec[i]/tot;const nm=(reasons[i]||{}).name||"";
+    if(sh>=0.4){const tips=/عطل|عطال/.test(nm)?"ركّز على الصيانة الوقائية للسيارات المتكررة في تبويب «تحليل الأعطال»، وجهّز سائق أو سيارة بديلة للأيام الحرجة."
+      :/ردود|طلب/.test(nm)?"المشكلة في الطلبات مو في السيارات: نسّق مع المبيعات على توزيع الطلبات، وراجع المستهدف اليومي لهذا النوع من السيارات لو النقص متكرر."
+      :/تأخر|موقع/.test(nm)?"راجع قائمة «العملاء المتسببين في التأخير» وتواصل مع أكثرهم تكراراً لتحديد مواعيد التفريغ، أو احسب عليهم رسوم انتظار."
+      :/سائق/.test(nm)?"وفّر سائقين احتياط أو نظّم إجازات السائقين عشان ما تقف السيارات."
+      :"عالج هذا السبب أولاً لأنه أكبر سبب للفقد.";
+      out.push({key:"par",sev:2,owner:"مدير العمليات",title:`«${nm}» لحاله سبب ${pct(sh,0)} من الردود المفقودة`,ev:`${fmt(T.rec[i],1)} رد من ${fmt(tot,1)} رد مفقود بأسباب مسجلة.`,act:tips,rule:"سبب واحد يمثل 40% أو أكثر من الأسباب المسجلة"})}}
+  // 6) external carrier while own fleet idle for lack of orders
+  const noOrd=reasons.map((r,i)=>/ردود|طلب/.test(r.name)?i:-1).filter(i=>i>=0);
+  R.branches.forEach(b=>{if(!b.ext||b.dep===null)return;const idle=noOrd.reduce((s,i)=>s+R.rows.filter(r=>r.v.branch===b.b).reduce((t,r)=>t+r.cur.rec[i],0),0);
+    if(b.dep>=0.2) out.push({key:"car-"+b.b,sev:idle>0?1:2,owner:"مدير العمليات",title:`فرع ${b.b} يعتمد على الناقل الخارجي بنسبة ${pct(b.dep,0)}`,
+      ev:`${fmt(b.ext)} رد ناقل خارجي مقابل ${fmt(b.A.a,1)} رد محقق بسيارات الشركة${idle>0?`، وفي نفس الفترة انسجل ${fmt(idle,1)} رد مفقود بسبب «عدم وجود ردود» على سيارات الشركة`:""}.`,
+      act:idle>0?"فيه تعارض: سيارات الشركة تنتظر طلبات والناقل الخارجي يشتغل. اربط توزيع الطلبات بحيث تُعبّأ سيارات الشركة أولاً.":"راجع السبب: عجز في عدد السيارات أو أعطال. لو العجز دائم، قارن تكلفة الناقل الخارجي بتكلفة سيارة إضافية.",
+      rule:"ردود الناقل الخارجي 20% أو أكثر من (المحقق + الخارجي)"})});
+  // 7) decline vs previous period
+  const adj=ratio(T.a,T.t-T.ext),adjP=ratio(R.P.a,R.P.t-R.P.ext);
+  if(adj!==null&&adjP!==null&&R.P.t>0&&adjP-adj>=0.05){const dec=R.rows.map(r=>({r,p:ratio(r.prev.a,r.prev.t-r.prev.ext)})).filter(x=>x.p!==null&&x.r.adj!==null).map(x=>({...x,d:x.r.adj-x.p})).filter(x=>x.d<=-0.1).sort((a,b)=>a.d-b.d);
+    out.push({key:"dec",sev:2,owner:"مدير العمليات",title:`التحقيق المعدّل نزل ${fmt((adjP-adj)*100,1)} نقطة عن الفترة السابقة`,ev:`${pct(adj)} الحين مقابل ${pct(adjP)} في الفترة السابقة (${fd(R.pf)} ← ${fd(R.pt)}).`,
+      act:"ابدأ بالسيارات اللي نزلت أكثر شي (القائمة)، وقارن أسبابها بين الفترتين من قسم «مقارنة الفترات».",rule:"نزول 5 نقاط أو أكثر، والقائمة للسيارات اللي نزلت 10 نقاط أو أكثر",
+      list:dec.slice(0,10).map(x=>[sc(x.r),`${pct(x.p,0)} ← ${pct(x.r.adj,0)}`,`▼ ${fmt(-x.d*100,0)} نقطة`])})}
+  // 8) maintenance patterns (last 90 days)
+  if(RC.maint){const from90=addDays(today,-90);const M=RC.maint.filter(m=>m.opened_on>=from90&&(S.f.branch==="الكل"||m.branch===S.f.branch)&&(S.f.vehicle==="الكل"||m.vehicle_id===S.f.vehicle));
+    const by={};M.forEach(m=>{(by[m.vehicle_id]=by[m.vehicle_id]||[]).push(m)});
+    const rep=Object.entries(by).filter(([,a])=>a.length>=3).sort((a,b)=>b[1].length-a[1].length);
+    if(rep.length) out.push({key:"mrep",sev:2,owner:"الصيانة",title:`${rep.length} سيارة دخلت الصيانة 3 مرات أو أكثر خلال 90 يوم`,ev:"تكرار الأعطال على نفس السيارة يرفع أيام التوقف وتكلفة الإصلاح.",
+      act:"اعمل لها فحص شامل وجدول صيانة وقائية. ولو التكرار مستمر، قارن تكلفة إصلاحها خلال السنة بقيمة استبدالها.",rule:"3 طلبات صيانة أو أكثر للسيارة خلال 90 يوم",
+      list:rep.map(([id,a])=>{const cats={};a.forEach(m=>cats[m.category||"—"]=(cats[m.category||"—"]||0)+1);const top=Object.entries(cats).sort((x,y)=>y[1]-x[1])[0];return [esc(laneName(id)),`${a.length} طلب`,`أكثر نوع: ${esc(top[0])} (${top[1]})`]})});
+    const openLong=RC.maint.filter(m=>m.status!=="closed"&&diffDays(m.opened_on,today)>7&&(S.f.branch==="الكل"||m.branch===S.f.branch)).sort((a,b)=>a.opened_on<b.opened_on?-1:1);
+    if(openLong.length) out.push({key:"mopen",sev:1,owner:"الصيانة",title:`${openLong.length} طلب صيانة مفتوح أكثر من 7 أيام`,ev:"كل يوم والسيارة في الصيانة يُحسب يوم تعطل، وينقص من جاهزية الأسطول.",
+      act:"صعّد الطلبات المتأخرة: وش ناقص (قطع غيار، ورشة، موافقة)؟ ولو الطلب انتهى وما انقفل، اقفله عشان ترجع السيارة للحساب.",rule:"طلب صيانة غير مقفل ومفتوح منذ أكثر من 7 أيام",
+      list:openLong.map(m=>[esc(laneName(m.vehicle_id)),esc(m.category||"—"),`مفتوح منذ ${fd(m.opened_on)}`,`${diffDays(m.opened_on,today)} يوم`])});
+    const oth=M.filter(m=>!m.category||m.category==="أخرى").length;if(M.length>=5&&oth/M.length>=0.3)
+      out.push({key:"mcat",sev:3,owner:"الصيانة",title:`${pct(oth/M.length,0)} من طلبات الصيانة نوعها «أخرى»`,ev:`${oth} من ${M.length} طلب خلال 90 يوم.`,act:"اختيار نوع العطل الصحيح (ميكانيكي، كهربائي، فرامل، كفرات…) وقت فتح الطلب يخلّي تحليل الأعطال يحدد المشكلة الحقيقية.",rule:"«أخرى» 30% من الطلبات أو أكثر"})}
+  // 9) documents
+  if(RC.docs){const ex=[],soon=[];(RC.docs.docs||[]).forEach(d=>{if(!d.expires_on)return;const v=vehById(d.vehicle_id);if(!v||(S.f.branch!=="الكل"&&v.branch!==S.f.branch))return;const n=diffDays(today,d.expires_on);const row=[esc(vehLabel(v)),esc((DOC_KINDS.find(k=>k[0]===d.kind)||[,d.kind])[1]),fd(d.expires_on)];if(n<0)ex.push([...row,`منتهية منذ ${-n} يوم`]);else if(n<=30)soon.push([...row,`باقي ${n} يوم`])});
+    (RC.docs.licenses||[]).forEach(l=>{if(!l.license_exp||(S.f.branch!=="الكل"&&l.branch&&l.branch!==S.f.branch))return;const n=diffDays(today,l.license_exp);const row=[esc(l.name),"رخصة القيادة",fd(l.license_exp)];if(n<0)ex.push([...row,`منتهية منذ ${-n} يوم`]);else if(n<=30)soon.push([...row,`باقي ${n} يوم`])});
+    if(ex.length) out.push({key:"dex",sev:1,owner:"الشؤون الإدارية",title:`${ex.length} وثيقة منتهية`,ev:"تشغيل سيارة أو سائق بوثيقة منتهية يعرّض الشركة لمخالفات وإيقاف.",act:"جدّد فوراً، ولا تُشغَّل السيارة لين تتجدد وثيقتها.",rule:"تاريخ الانتهاء قبل اليوم",list:ex});
+    if(soon.length) out.push({key:"dsoon",sev:2,owner:"الشؤون الإدارية",title:`${soon.length} وثيقة تنتهي خلال 30 يوم`,ev:"تجديد الوثائق قبل انتهائها يمنع توقف السيارات.",act:"ابدأ إجراءات التجديد الحين، وحدّث التاريخ في صفحة الوثائق بعد التجديد.",rule:"تنتهي خلال 30 يوم",list:soon})}
+  return out.sort((a,b)=>a.sev-b.sev)}
+function rcPaint(){const box=$("#rc-box");if(!box)return;rcCss();let L;try{L=rcBuild()}catch(e){console.warn("reco",e);box.innerHTML=`<div class="empty">تعذّر حساب التوصيات</div>`;return}
+  const n=s=>L.filter(x=>x.sev===s).length;
+  box.innerHTML=L.length?`<div class="rc-sum"><span>🔴 عاجل: <b>${n(1)}</b></span><span>🟠 مهم: <b>${n(2)}</b></span><span>🔵 تحسين: <b>${n(3)}</b></span>${RC.loading?'<span class="muted">…جاري تحميل الصيانة والوثائق</span>':""}</div>${L.map(rcCard).join("")}`
+   :`<div class="empty">ما فيه توصيات للفترة والنطاق المختار: كل المؤشرات ضمن الحدود.</div>`}
+document.addEventListener("click",e=>{const h=e.target.closest("[data-rc]");if(!h)return;const k=h.dataset.rc;RC.open[k]=!RC.open[k];rcPaint()});
+{const _rd=renderDashboard;renderDashboard=function(){_rd.apply(this,arguments);const el=$("#v-dashboard");if(!el||!S.vehLoaded)return;
+  const ins=el.querySelector(".insights");const anchor=ins?ins.closest(".panel"):null;
+  const html=`<div class="panel" id="rc-panel"><h2>توصيات للتصحيح والتطوير <span class="q">محسوبة من أرقام الفترة والنطاق المختار — اضغط أي توصية لعرض التفاصيل</span></h2><div id="rc-box"></div></div>`;
+  if(anchor) anchor.insertAdjacentHTML("afterend",html); else el.insertAdjacentHTML("beforeend",html);
+  rcPaint();if(!RC.maint&&!RC.loading) rcLoad()}}
+
 /* ===== Top menu in groups: each group is one button that opens its pages ===== */
 const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","costs","docs","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
 (function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
