@@ -311,13 +311,14 @@ function dayAchieved(cfg,v,day){ if(!day) return 0; const r=ruleFor(cfg,v); if(!
   if(v.type==="ونش"){ if(num(cfg.trailer.one)>0) a+=num(day.u1)/num(cfg.trailer.one); if(num(cfg.trailer.two)>0) a+=num(day.u2)/num(cfg.trailer.two);}
   return a;}
 function calcDay(cfg,v,iso,day,today){
-  if(today&&iso>today&&!hasEntry(day)) return {t:0,a:0,ext:0,int:0,gap:0,sur:0,rec:(cfg.reasons||[]).map(()=>0),has:false,missing:0};
+  if((cfg.kpiStart&&iso<cfg.kpiStart)||(today&&iso>=today&&!hasEntry(day))){ const z=(cfg.reasons||[]).map(()=>0); return {t:0,a:0,ext:0,int:0,gap:0,sur:0,rec:z,rr:z.slice(),has:hasEntry(day),missing:0}; }
   const t=dayTarget(cfg,v,iso,day), a=dayAchieved(cfg,v,day);
   const rec=(cfg.reasons||[]).map((_,i)=>num(day&&day.r?day.r[i]:0));
   let er=0, ir=0; (cfg.reasons||[]).forEach((x,i)=>{ if(x.cls==="خارجي") er+=rec[i]; else if(x.cls==="داخلي") ir+=rec[i]; });
   const def=Math.max(0,t-a), ext=Math.min(er,def), int=Math.min(ir,def-ext), gap=def-ext-int, sur=Math.max(0,a-t);
   const has=hasEntry(day); const missing=(t>0 && iso<=today && !has)?1:0;
-  return {t,a,ext,int,gap,sur,rec,has,missing};
+  const fe=er>0?ext/er:0, fi=ir>0?int/ir:0, rc=rec.map((x,i)=>{const k=((cfg.reasons||[])[i]||{}).cls; return k==="خارجي"?x*fe:k==="داخلي"?x*fi:x;});
+  return {t,a,ext,int,gap,sur,rec:rc,rr:rec,has,missing};
 }
 function emptyAgg(n){return {t:0,a:0,ext:0,int:0,gap:0,sur:0,missing:0,rec:new Array(n).fill(0)}}
 function addAgg(A,c){A.t+=c.t;A.a+=c.a;A.ext+=c.ext;A.int+=c.int;A.gap+=c.gap;A.sur+=c.sur;A.missing+=c.missing;c.rec.forEach((x,i)=>A.rec[i]+=x);return A}
@@ -535,7 +536,7 @@ function renderDashboard(){
     ${k("المحقق (رد)",fmt(T.a),"var(--green)",delta(T.a,P.t>0?P.a:null,"pct"))}
     ${k("نسبة التحقيق",pct(ach),"var(--green)",delta(ach,P.t>0?achP:null))}
     ${k("التحقيق المعدّل ★",pct(adj),"var(--navy-ink)",delta(adj,P.t>0?adjP:null)+(adj!==null?` <span class="pill ${rating(c,adj)}">${rating(c,adj)}</span>`:""),"star")}
-    ${k("عجز غير مبرر (رد)",fmt(T.gap,1),"var(--red)",`<span class="d">${def>0?pct(T.gap/Math.max(lost,1e-9),0)+" من الردود المفقودة":"لا يوجد عجز"}</span>`)}
+    ${k("عجز غير مبرر (رد)",fmt(T.gap,1),"var(--red)",`<span class="d">${lost>0?pct(T.gap/lost,0)+" من الردود المفقودة":"لا يوجد عجز"}</span>`)}
     ${k("الناقل الخارجي (رد)",R.extScope===null?"—":fmt(R.extScope),"var(--blue)",`<span class="d">${R.extScope===null?"غير متاح لسيارة واحدة":"الاعتماد عليه "+pct(ratio(R.extScope,T.a+R.extScope))}</span>`)}
   </div>
   <div class="panel"><h2>أهم الملاحظات</h2><ul class="insights">${ins.join("")}</ul>
@@ -1058,6 +1059,8 @@ function renderSetup(){
    <div class="panel"><h2>مستهدف يوم الجمعة</h2>
      <label class="f">طريقة احتساب الجمعة<select id="s-fri" ${dis}>
        ${[["worked","فقط إذا اشتغل السائق يوم الجمعة (سجّل توريد)"],["alt","بالتناوب: أسبوع عمل وأسبوع راحة (حسب أول جمعة عمل لكل سيارة)"],["all","كل جمعة"],["none","لا يوجد مستهدف يوم الجمعة"]].map(([k,l])=>`<option value="${k}" ${(c.friMode||"all")===k?"selected":""}>${l}</option>`).join("")}</select></label>
+     <label class="f" style="margin-top:10px">بداية احتساب المؤشرات<input type="date" id="s-kpistart" value="${esc(c.kpiStart||"")}" ${dis}></label>
+     <p class="small muted" style="margin:4px 0 0">الأيام قبل هذا التاريخ ما يُحسب لها مستهدف ولا "يوم بدون تسجيل" (قبل بداية استخدام النظام).</p>
      <p class="small muted" style="margin:8px 0 0">قيمة مستهدف الجمعة نفسها (عدد الردود) تتعدّل من جدول القواعد. في نظام "بالتناوب" حدّد لكل سيارة تاريخ جمعة يشتغل فيها السائق من جدول السيارات تحت، ولو تركته فاضي يُحسب حسب الإدخال.</p></div>
   </div>
   <div class="panel"><h2>قواعد المستهدف واحتساب الرد</h2><div class="tbl-wrap"><table><thead><tr><th>النوع</th><th>الفرع</th><th>المستهدف اليومي</th><th>مستهدف الجمعة</th><th>رد — قريبة</th><th>رد — بعيدة</th><th>رد — جدة والطائف</th></tr></thead><tbody>
@@ -1145,7 +1148,7 @@ function vehRow(v,dis,isNew){ const id=v.id||"new";
 document.addEventListener("click",async e=>{
   if(e.target.id==="s-save"){ const st=$("#s-st"); const c=JSON.parse(JSON.stringify(cfg()));
     BRANCHES.forEach(b=>c.managers[b]=$("#s-mgr-"+CSS.escape(b)).value.trim());
-    const nv=x=>Number(normDigits(x)); c.thresholds=[0,1,2].map(i=>nv($("#s-th-"+i).value)/100); c.trailer={one:nv($("#s-tr1").value)||0,two:nv($("#s-tr2").value)||0}; c.friMode=$("#s-fri").value;
+    const nv=x=>Number(normDigits(x)); c.thresholds=[0,1,2].map(i=>nv($("#s-th-"+i).value)/100); c.trailer={one:nv($("#s-tr1").value)||0,two:nv($("#s-tr2").value)||0}; c.friMode=$("#s-fri").value; { const ks=($("#s-kpistart")||{}).value||""; if(/^\d{4}-\d{2}-\d{2}$/.test(ks)) c.kpiStart=ks; else delete c.kpiStart; }
     if(!S.db){ st.className="save err"; st.textContent="غير متصل بقاعدة البيانات — ما تم الحفظ"; return; }
     document.querySelectorAll("[data-rule]").forEach(x=>{ const r=c.rules[x.dataset.rule], f=x.dataset.f, v=x.value.trim()===""?null:Number(normDigits(x.value)); if(f.startsWith("w")) r.w[Number(f.slice(1))]=v; else r[f]=v??0; });
     const rs=[]; document.querySelectorAll("[data-rs][data-f=name]").forEach(x=>{ const i=x.dataset.rs, n=x.value.trim(); if(n) rs.push({name:n,cls:document.querySelector(`[data-rs="${i}"][data-f=cls]`).value}); }); c.reasons=rs;
@@ -2146,7 +2149,7 @@ function vlMonthDays(){ const m=S.vlog.month, [y,mo]=m.split("-").map(Number), n
 function vlTotals(v){ const c=cfg(), today=localToday(), defs=fieldDefs(v); const T={t:0,a:0,diff:0,gap:0,f:{},r:(c.reasons||[]).map(()=>0),days:0,sub:0,subDays:0,other:0};
   defs.forEach(f=>T.f[f.k]=0);
   vlMonthDays().forEach(iso=>{ const d=realDay(v.id,iso), x=calcDay(c,v,iso,d,today); T.t+=x.t; T.a+=x.a; if(x.has){ T.days++; T.diff+=x.a-x.t; T.gap+=x.gap; }
-    defs.forEach(f=>T.f[f.k]+=num(d&&d[f.k])); x.rec.forEach((n,i)=>T.r[i]+=n);
+    defs.forEach(f=>T.f[f.k]+=num(d&&d[f.k])); x.rr.forEach((n,i)=>T.r[i]+=n);
     if(x.has){ let sd=false; dayDrivers(v,iso,d,x.a).forEach(dd=>{ if(dd.kind==="sub"){ T.sub+=x.a*dd.share; sd=true; } else if(dd.kind==="other") T.other+=x.a*dd.share; }); if(sd) T.subDays++; } });
   return T; }
 function vlFooter(){ const ft=$("#vl-foot"); const v=S.vehicles.find(x=>x.id===S.vlog.vid); if(!ft||!v) return; const T=vlTotals(v), c=cfg();
@@ -2709,7 +2712,7 @@ document.addEventListener("change",e=>{if(e.target.id==="fa-from"||e.target.id==
 const PC={mode:"prev",cf:"",ct:"",cache:{},busy:false};
 const PC_MODES=[["prev","الفترة السابقة المماثلة"],["month","نفس الفترة من الشهر الماضي"],["year","نفس الفترة من السنة الماضية"],["custom","فترة مخصصة"],["m6","آخر 6 أشهر (شهرياً)"],["w8","آخر 8 أسابيع (أسبوعياً)"]];
 const addMonthsIso=(iso,n)=>{const [y,m,d]=iso.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1+n,1));const last=new Date(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth()+1,0)).getUTCDate();return isoOf(new Date(Date.UTC(dt.getUTCFullYear(),dt.getUTCMonth(),Math.min(d,last))))};
-async function pcEntries(from,to){if(S.demo)return getDay;const k=from+"|"+to;if(PC.cache[k])return PC.cache[k];const rows=await api("fleet_entries",{p_from:from,p_to:to})||[];const m={};
+async function pcEntries(from,to){if(S.demo)return getDay;const k=from+"|"+to+"|"+S.ver;if(PC.cache[k])return PC.cache[k];const rows=await api("fleet_entries",{p_from:from,p_to:to})||[];const m={};
   rows.forEach(r=>{const d=Object.assign({},r.data);delete d.by;delete d.at;const key=r.vehicle_id+"|"+r.day.slice(0,7);(m[key]=m[key]||{})[r.day.slice(8)]=d});return PC.cache[k]=getDayFrom(m)}
 function pcAgg(from,to,gd){const c=cfg(),t=localToday();const vs=scopeVehicles();const A=vs.reduce((X,v)=>addAgg(X,aggVehicle(c,v,from,to,gd,t)),emptyAgg(c.reasons.length));
   const ext=S.f.vehicle!=="الكل"?null:carrierSum(from,to,S.f.branch);const per=vs.map(v=>{const x=aggVehicle(c,v,from,to,gd,t);return {v,adj:ratio(x.a,x.t-x.ext),t:x.t}});
@@ -2734,7 +2737,8 @@ function pcPairHtml(C,P){const c=cfg();const rowsK=[["المستهدف (رد)",C
   const tr=x=>`<tr><td class="txt">${esc(x[0])}</td><td><b>${fv(x[1],x[4])}</b></td><td>${fv(x[2],x[4])}</td>${pcCh(x[1],x[2],x[3],!!x[4])}</tr>`;
   const mv=C.per.map(r=>{const p=P.per.find(x=>x.v.id===r.v.id);return {v:r.v,c:r.adj,p:p?p.adj:null}}).filter(x=>x.c!=null&&x.p!=null).map(x=>({...x,d:x.c-x.p})).sort((a,b)=>b.d-a.d);
   const up=mv.filter(x=>x.d>0).slice(0,5),dn=mv.filter(x=>x.d<0).slice(-5).reverse();
-  return `<p class="small muted">الحالية: ${fd(C.from)} ← ${fd(C.to)} · المقارنة: ${fd(P.from)} ← ${fd(P.to)}. الأخضر تحسّن والأحمر تراجع (للعجز والمفقود: النزول تحسّن).</p>
+  const ks=c.kpiStart;const early=ks&&(P.from<ks||C.from<ks)?`<p class="small" style="color:var(--red)">تنبيه: جزء من الفترة قبل بداية احتساب المؤشرات (${fd(ks)})، فالأيام اللي قبله ما تدخل في المقارنة.</p>`:"";
+  return early+`<p class="small muted">الحالية: ${fd(C.from)} ← ${fd(C.to)} · المقارنة: ${fd(P.from)} ← ${fd(P.to)}. الأخضر تحسّن والأحمر تراجع (للعجز والمفقود: النزول تحسّن).</p>
    <div class="tbl-wrap"><table><thead><tr><th class="txt">المؤشر</th><th>الفترة الحالية</th><th>فترة المقارنة</th><th>الفرق</th><th>معدل التغيير</th></tr></thead><tbody>${rowsK.map(tr).join("")}
    ${reasons.length?`<tr><td class="txt" colspan="5"><b>أسباب عدم التحقيق (رد)</b></td></tr>${reasons.map(tr).join("")}`:""}</tbody></table></div>
    ${mv.length?`<div class="grid2" style="margin-top:10px"><div><h3 style="font-size:14px">أكثر السيارات تحسناً</h3>${up.length?`<table><tbody>${up.map(x=>`<tr><td class="txt">${esc(vehLabel(x.v))}</td><td>${pct(x.p,0)} ← <b>${pct(x.c,0)}</b></td><td class="up">▲ ${(x.d*100).toFixed(0)} نقطة</td></tr>`).join("")}</tbody></table>`:`<p class="small muted">لا يوجد</p>`}</div>
