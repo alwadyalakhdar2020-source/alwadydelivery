@@ -2923,16 +2923,16 @@ function renderGps(){const el=$("#v-gps");if(!el)return;if(!GPS.d){el.innerHTML=
    <div class="kpis">${kpiBox("مربوطة بجهاز تتبع",`${linked.length} / ${V.length}`)}${kpiBox("تتحرك الحين",mov.length)}${kpiBox("متصلة وواقفة",on.length-mov.length)}${kpiBox("بدون اتصال (+30 دقيقة)",off.length)}${kpiBox("كم اليوم (الأسطول)",fmt(km,0))}${kpiBox("ساعات تشغيل بدون حركة اليوم",fmt(idle,1))}</div>
    ${bad&&(Date.now()-new Date(bad.at).getTime())<3600000?`<div class="banner warn">آخر خطأ من منصة التتبع (${gpsAgo(bad.at)}): ${esc(bad.msg||"")}</div>`:""}
    <div class="row" style="gap:8px;margin:8px 0"><button class="btn sm" data-gps="refresh">تحديث الشاشة</button>${["sysadmin","ops_mgr","dispatcher"].includes(ME.role)?`<button class="btn sm" data-gps="sync">مزامنة من المنصة الآن</button>`:""}
-    <span class="grow"></span><label class="small">مسار يوم <input type="date" id="gps-day" value="${GPS.day||localToday()}"></label>${GPS.sel?`<button class="btn sm ghost" data-gps="clear">إخفاء المسار</button>`:""}</div>
+    <input type="search" id="gps-q" placeholder="ابحث برقم اللوحة أو الكود أو السائق" value="${esc(GPS.q||"")}" style="min-width:240px"><select id="gps-br"><option value="الكل" ${S.f.branch==="الكل"?"selected":""}>كل الفروع</option>${[...new Set((d.vehicles||[]).map(v=>v.branch))].map(b=>`<option ${S.f.branch===b?"selected":""}>${esc(b)}</option>`).join("")}</select><span class="grow"></span><label class="small">مسار يوم <input type="date" id="gps-day" value="${GPS.day||localToday()}"></label>${GPS.sel?`<button class="btn sm ghost" data-gps="clear">إخفاء المسار</button>`:""}</div>
    <div id="gps-map"></div></div>
    <div class="panel"><h2>السيارات</h2><div class="tablewrap"><table class="tbl"><thead><tr><th>السيارة</th><th>الفرع</th><th>السائق</th><th>الحالة</th><th>السرعة</th><th>آخر إشارة</th><th>كم اليوم</th><th>تشغيل بدون حركة</th><th>الحمولة</th><th></th></tr></thead><tbody>
    ${V.sort((a,b)=>(b.gps_id?1:0)-(a.gps_id?1:0)||String(a.id).localeCompare(String(b.id))).map(v=>{const [l,c]=gpsSt(v);const w=((v.sensors||{}).weight||[])[0];
-     return `<tr><td><b>${esc(vehLabel(v))}</b>${v.plate&&vehLabel(v)!==v.plate?`<div class="small muted">${esc(v.plate)}</div>`:""}</td><td>${esc(v.branch)}</td><td class="small">${esc(v.driver||"")}</td><td><span class="gps-st" style="background:${c}"></span>${esc(l)}</td>
+     return `<tr data-gq="${esc([vehLabel(v),v.plate,v.id,v.driver].join(" ").toLowerCase())}" data-vid="${esc(v.id)}"><td><b>${esc(vehLabel(v))}</b>${v.plate&&vehLabel(v)!==v.plate?`<div class="small muted">${esc(v.plate)}</div>`:""}</td><td>${esc(v.branch)}</td><td class="small">${esc(v.driver||"")}</td><td><span class="gps-st" style="background:${c}"></span>${esc(l)}</td>
       <td>${v.lat&&!gpsOff(v)?fmt(+v.speed||0,0)+" كم/س":"—"}</td><td class="small">${gpsAgo(v.last_seen)}</td><td>${v.km_today!=null?fmt(+v.km_today,1):"—"}</td><td>${v.idle_today!=null?fmt(+v.idle_today,1)+" س":"—"}</td>
       <td class="small">${w?`${fmt(+w.cargoKG||0,0)} كجم`:"—"}</td><td>${v.lat?`<button class="btn xs" data-gps="track" data-id="${esc(v.id)}">مسار اليوم</button>`:""}</td></tr>`}).join("")}</tbody></table></div>
    <p class="small muted">الوقت والكيلومترات من منصة Sactracking. «تشغيل بدون حركة» = ساعات المحرك شغال والسيارة واقفة، حسب المنصة. الحمولة تظهر للسيارات اللي فيها حساس وزن.</p></div>
    ${gpsCan()?gpsAdminHtml():""}`;
-  gpsMap(V)}
+  gpsMap(V).then(()=>gpsFilter(false))}
 function kpiBox(l,v){return `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`}
 function gpsTokenForm(){return `<div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap"><label class="f" style="min-width:320px">مفتاح الربط (x-token)<input type="password" id="gps-token" autocomplete="off" dir="ltr" placeholder="الصق المفتاح هنا"></label><button class="btn" data-gps="token">حفظ المفتاح</button></div>
   <p class="small muted">المفتاح ينحفظ مشفراً في خزنة الخادم ولا يرجع لأي متصفح. بعد الحفظ تبدأ المزامنة تلقائياً.</p>`}
@@ -2946,8 +2946,8 @@ function gpsAdminHtml(){const A=GPS.assets||[];const veh=(GPS.d.vehicles||[]);co
 async function gpsMap(V){const box=document.getElementById("gps-map");if(!box)return;try{await gpsLeaflet()}catch(e){box.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
   if(GPS.map){try{GPS.map.remove()}catch(e){}GPS.map=null}
   const m=L.map(box,{zoomControl:true});GPS.map=m;L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(m);
-  const pts=[];V.filter(v=>v.lat&&v.lng).forEach(v=>{const [l,c]=gpsSt(v);const ic=L.divIcon({className:"",html:`<div style="display:flex;align-items:center;gap:3px"><div class="gps-dot" style="background:${c}"></div><span class="gps-lbl">${esc(vehLabel(v))}</span></div>`,iconSize:[10,10],iconAnchor:[7,7]});
-    L.marker([v.lat,v.lng],{icon:ic}).addTo(m).bindPopup(`<b>${esc(vehLabel(v))}</b> · ${esc(v.plate||"")}<br>${esc(v.driver||"")}<br>${esc(l)}${!gpsOff(v)?` · ${fmt(+v.speed||0,0)} كم/س`:""}<br>آخر إشارة: ${gpsAgo(v.last_seen)}${v.km_today!=null?`<br>كم اليوم: ${fmt(+v.km_today,1)}`:""}`);pts.push([v.lat,v.lng])});
+  GPS.markers={};const pts=[];V.filter(v=>v.lat&&v.lng).forEach(v=>{const [l,c]=gpsSt(v);const ic=L.divIcon({className:"",html:`<div style="display:flex;align-items:center;gap:3px"><div class="gps-dot" style="background:${c}"></div><span class="gps-lbl">${esc(vehLabel(v))}</span></div>`,iconSize:[10,10],iconAnchor:[7,7]});
+    GPS.markers[v.id]=L.marker([v.lat,v.lng],{icon:ic}).addTo(m).bindPopup(`<b>${esc(vehLabel(v))}</b> · ${esc(v.plate||"")}<br>${esc(v.driver||"")}<br>${esc(l)}${!gpsOff(v)?` · ${fmt(+v.speed||0,0)} كم/س`:""}<br>آخر إشارة: ${gpsAgo(v.last_seen)}${v.km_today!=null?`<br>كم اليوم: ${fmt(+v.km_today,1)}`:""}`);pts.push([v.lat,v.lng])});
   if(pts.length)m.fitBounds(pts,{padding:[30,30],maxZoom:13});else m.setView([21.45,39.85],9);
   if(GPS.sel)gpsDrawTrack()}
 async function gpsDrawTrack(){if(!GPS.map||!GPS.sel)return;const day=($("#gps-day")||{}).value||localToday();GPS.day=day;let t=[];try{t=await api("gps_track",{p_vehicle:GPS.sel,p_date:day})}catch(e){toast(errMsg(e),"err");return}
@@ -2967,6 +2967,17 @@ document.addEventListener("change",async e=>{const s=e.target.closest("[data-gps
   if(e.target.id==="gps-day"&&GPS.sel)gpsDrawTrack()});
 {const _dr=doRender;doRender=function(){if(S.view==="gps"){try{renderBanner();updateSyncBadge()}catch(e){}renderGps();return}return _dr.apply(this,arguments)}}
 setInterval(()=>{if(S.view==="gps"&&!document.hidden){gpsLoad()}},60000);
+
+const gpsNorm=t=>String(t||"").toLowerCase().replace(/[أإآ]/g,"ا").replace(/\s+/g," ").trim();
+function gpsFilter(fly){const q=gpsNorm(GPS.q);const rows=[...document.querySelectorAll("#v-gps tr[data-gq]")];let hit=[];
+  rows.forEach(tr=>{const ok=!q||gpsNorm(tr.dataset.gq).includes(q)||gpsNorm(tr.dataset.gq).replace(/\s/g,"").includes(q.replace(/\s/g,""));tr.hidden=!ok;if(ok)hit.push(tr.dataset.vid)});
+  Object.entries(GPS.markers||{}).forEach(([id,mk])=>{const on=!q||hit.includes(id);const el=mk.getElement&&mk.getElement();if(el)el.style.display=on?"":"none"});
+  if(fly&&q&&GPS.map){const ms=hit.map(id=>GPS.markers&&GPS.markers[id]).filter(Boolean);if(ms.length===1){GPS.map.setView(ms[0].getLatLng(),15);ms[0].openPopup()}else if(ms.length>1)GPS.map.fitBounds(ms.map(x=>x.getLatLng()),{padding:[40,40],maxZoom:14})}
+  const c=document.getElementById("gps-qc");if(c)c.textContent=q?`${hit.length} نتيجة`:""}
+let gpsQT=null;
+document.addEventListener("input",e=>{if(e.target.id!=="gps-q")return;GPS.q=e.target.value;clearTimeout(gpsQT);gpsQT=setTimeout(()=>gpsFilter(true),250)});
+document.addEventListener("change",e=>{if(e.target.id==="gps-br"){S.f.branch=e.target.value;renderGps()}});
+document.addEventListener("click",e=>{const tr=e.target.closest("#v-gps tr[data-vid]");if(!tr||e.target.closest("button,select,a"))return;const mk=GPS.markers&&GPS.markers[tr.dataset.vid];if(mk&&GPS.map){GPS.map.setView(mk.getLatLng(),15);mk.openPopup();document.getElementById("gps-map").scrollIntoView({behavior:"smooth",block:"center"})}});
 
 start();
 
