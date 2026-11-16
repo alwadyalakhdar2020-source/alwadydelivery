@@ -1042,7 +1042,7 @@ function permMatrix(cur,adm){adm=adm||[];
       <div class="pm-grid">${P.groups.map(([g,ps])=>`<div class="pm-g">${esc(g)}</div>`+ps.map(([id,l])=>`<label class="pm-row"><span>${esc(l)}</span><select data-pm="${app}|${id}">${LVLS.map(([v,t])=>`<option value="${v}" ${(c[id]||'')===v?'selected':''}>${t}</option>`).join('')}</select></label>`).join('')).join('')}</div></details>`}).join('')}
 const wn=t=>String(t||'').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,'').toLowerCase();
 function sapSellerList(p){const L0=S.sapSellers||[];if(!L0.length)return '<div class="small muted">ما فيه بائعين من SAP في البيانات بعد.</div>';const mine=new Set((p.aliases||[]).map(wn));
-  return L0.map(x=>{const other=x.user&&x.user!==p.id?S.profiles.find(u=>u.id===x.user):null;return `<label class="pm-row" data-sname="${esc(wn(x.name))}" style="display:flex;gap:8px;align-items:center;padding:4px 2px"><input type="checkbox" data-seller="${esc(x.name)}" ${mine.has(wn(x.name))?'checked':''}><span style="flex:1">${esc(x.name)}</span><span class="small muted">${x.clients} عميل${other?` · مربوط بـ ${esc(other.full_name||other.username)}`:''}</span></label>`}).join('')}
+  return L0.map(x=>{const others=(x.users||(x.user?[x.user]:[])).filter(id=>id!==p.id).map(id=>S.profiles.find(u=>u.id===id)).filter(Boolean);return `<label class="pm-row" data-sname="${esc(wn(x.name))}" style="display:flex;gap:8px;align-items:center;padding:4px 2px"><input type="checkbox" data-seller="${esc(x.name)}" ${mine.has(wn(x.name))?'checked':''}><span style="flex:1">${esc(x.name)}</span><span class="small muted">${x.clients} عميل${others.length?` · مربوط أيضاً بـ ${others.map(o=>esc(o.username||o.full_name)).join('، ')}`:''}</span></label>`}).join('')}
 async function userForm(p){
   const isNew=!p;p=p||{role:'staff',active:true,aliases:[]};const ad=isAdmin();if(!ad)return toast('إدارة المستخدمين لمدير النظام');
   if(!S.allPagesLoaded)await loadAllPages();try{const {data}=await sb.rpc('sap_sellers');S.sapSellers=data||[]}catch(e){S.sapSellers=S.sapSellers||[]}const cur=JSON.parse(JSON.stringify((S.allPages||{})[p.id]||{}));
@@ -1059,7 +1059,7 @@ async function userForm(p){
     <div class="fld" style="grid-column:1/-1"><label>البائعين في SAP المرتبطين بهذا المستخدم</label>
       <input id="uf_sapq" type="search" placeholder="ابحث باسم البائع" style="margin-bottom:6px" aria-label="بحث في البائعين">
       <div id="uf_sap" style="max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px">${sapSellerList(p)}</div>
-      <span class="small muted">اختر بائع أو أكثر: عملاؤهم وطلباتهم في CRM والتوصيل تنتقل لهذا المستخدم ويشوفهم. البائع ينربط بمستخدم واحد بس — لو كان مربوط بغيره بينتقل.</span></div>
+      <span class="small muted">اختر بائع أو أكثر: عملاؤهم وطلباتهم في CRM والتوصيل تنتقل لهذا المستخدم ويشوفهم. ممكن أكثر من مستخدم يكون مربوط بنفس البائع، وكلهم يشوفون عملاءه (المالك الأساسي للعميل يبقى أول مستخدم مربوط).</span></div>
     <div class="fld" style="grid-column:1/-1"><label for="uf_alias">أسماء وأكواد إضافية في ملفات Excel (غير البائعين أعلاه)</label><input id="uf_alias" value="${esc((p.aliases||[]).filter(a=>!S.sapSellers?.some(x=>wn(x.name)===wn(a))).join('، '))}" placeholder="مثال: احمد خالد، A.KHALED، 112"><span class="small muted">افصل بينها بفاصلة. أي ملف Excel فيه هذا الاسم أو الكود (مثل عمود المندوب في ملف العملاء أو التحصيل) يُربط بهذا المستخدم، فيصير العميل تابع له تلقائياً.</span></div>
    </div>
    <h3 class="fsec">${icon('pipe')} الدور في المبيعات والإنتاج</h3>
