@@ -98,6 +98,8 @@ a.lnk{color:var(--navy-ink);font-weight:700;text-decoration:none;cursor:pointer}
 .hm .n{text-align:right;padding-inline-end:8px;white-space:nowrap;font-weight:700;font-size:12px;position:sticky;right:0;background:var(--surface)}
 .hm .n small{color:var(--muted);font-weight:500}
 .hm .c{height:22px;border-radius:3px;display:grid;place-items:center;font-size:10px;color:#1b2b1b;min-width:26px}
+.hm .c.mt{background:repeating-linear-gradient(135deg,#C9D3E1 0 4px,#E3E9F2 4px 8px);color:#051D48;font-weight:800}
+.hm .c[data-hv]{cursor:pointer}.hm .c[data-hv]:hover{outline:2px solid var(--navy-ink)}
 .hm .c.miss{background:var(--line);color:var(--muted);font-weight:800}
 .hm .c.off{background:transparent}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px;align-items:center}
@@ -338,7 +340,7 @@ const S={db:null,user:null,uid:null,canWrite:null,isAdmin:false,readOnly:false,c
   entSub:null,entMonths:"",charts:{},pending:{},saveState:{},names:{},ver:0,entryQ:"",connecting:true};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmt=(x,d=0)=>x===null||x===undefined||isNaN(x)?"—":Number(x).toLocaleString("en-US",{maximumFractionDigits:d,minimumFractionDigits:0});
+const _NF={}; const fmt=(x,d=0)=>x===null||x===undefined||isNaN(x)?"—":(_NF[d]||(_NF[d]=new Intl.NumberFormat("en-US",{maximumFractionDigits:d,minimumFractionDigits:0}))).format(Number(x));
 const pct=(x,d=1)=>x===null||x===undefined||isNaN(x)?"—":(x*100).toFixed(d)+"%";
 const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function cfg(){return S.cfg||DEFAULT_CFG}
@@ -554,7 +556,7 @@ function renderDashboard(){
   <div class="panel"><h2><span class="step">6</span>أين السيارات؟ <span class="q">حسب توريدات يوم ${fd(R.to>R.today?R.today:R.to)}</span></h2>${locationsHtml(R.to>R.today?R.today:R.to,S.f.branch)}</div>
   <div class="panel"><h2><span class="step">7</span>الخريطة الحرارية <span class="q">نسبة التحقيق اليومية لكل سيارة — الأضعف في الأعلى</span></h2>
     ${heatmap(R)}
-    <div class="legend"><span><i style="background:#F8696B"></i>عجز كبير</span><span><i style="background:#FFEB84"></i>قريب</span><span><i style="background:#63BE7B"></i>حقق المستهدف</span><span><i style="background:var(--line)"></i>؟ يوم عمل بدون تسجيل</span><span>فاضي = إجازة أو بدون مستهدف</span></div></div>`;
+    <div class="legend"><span><i style="background:#F8696B"></i>عجز كبير</span><span><i style="background:#FFEB84"></i>قريب</span><span><i style="background:#63BE7B"></i>حقق المستهدف</span><span><i style="background:var(--line)"></i>؟ يوم عمل بدون تسجيل</span><span><i style="background:repeating-linear-gradient(135deg,#C9D3E1 0 3px,#E3E9F2 3px 6px)"></i>ص = السيارة في الصيانة (يُحسب تلقائياً على الأعطال)</span><span>اضغط أي خانة لفتح سجل السيارة على يومها</span><span>فاضي = إجازة أو بدون مستهدف</span></div></div>`;
   drawDashCharts(R,reasonsSorted,worst);
 }
 function heatColor(x){ if(x===null) return ""; const lo=[248,105,107], mid=[255,235,132], hi=[99,190,123];
@@ -571,11 +573,13 @@ function heatmap(R){
     for(const iso of days){ const x=calcDay(c,r.v,iso,getDay(r.v.id,iso),R.today);
       if(x.missing){h+=`<div class="c miss" title="${fd(iso)}: لم يُسجّل">؟</div>`;continue}
       if(x.t===0){h+=`<div class="c off" title="${fd(iso)}: بدون مستهدف"></div>`;continue}
-      const q=x.a/x.t; h+=`<div class="c" style="background:${heatColor(q)}" title="${esc(r.v.plate)} — ${fd(iso)}: ${fmt(x.a,1)} من ${fmt(x.t)}">${Math.round(q*100)}</div>`; }
+      if(x.inMaint){h+=`<div class="c mt" data-hv="${esc(r.v.id)}|${iso}" title="${esc(r.v.plate)} — ${fd(iso)}: في الصيانة (${esc(x.inMaint)}) — ${fmt(x.a,1)} من ${fmt(x.t)}">ص</div>`;continue}
+      const q=x.a/x.t; h+=`<div class="c" data-hv="${esc(r.v.id)}|${iso}" style="background:${heatColor(q)}" title="${esc(r.v.plate)} — ${fd(iso)}: ${fmt(x.a,1)} من ${fmt(x.t)}">${Math.round(q*100)}</div>`; }
     h+=`<div class="c" style="background:${heatColor(r.adj)};font-weight:800">${r.adj===null?"—":Math.round(r.adj*100)+"%"}</div>`;
   }
   return h+`</div></div>${days.length<R.L?`<p class="small muted">تعرض الخريطة أول 62 يوم من الفترة.</p>`:""}`;
 }
+document.addEventListener("click",e=>{const c=e.target.closest(".hm [data-hv]"); if(!c) return; const [vid,iso]=c.dataset.hv.split("|"); S.vlog.vid=vid; S.vlog.month=iso.slice(0,7); persistUI(); go("vehicle"); setTimeout(()=>{ const el=document.querySelector(`#vl-table [data-ed="${CSS.escape(vid+"|"+iso)}"]`); if(el){ el.scrollIntoView({block:"center"}); const tr=el.closest("tr"); if(tr){ tr.style.outline="2px solid #E8A33D"; setTimeout(()=>tr.style.outline="",2500);} } },400); });
 document.addEventListener("click",e=>{const o=e.target.closest("[data-open]"); if(!o) return; S.vlog.vid=o.dataset.open; S.vlog.month=monthOf(S.view==="entry"?S.entryDate:S.f.to); persistUI(); go("vehicle");});
 function chartBase(){ const ink=cssv("--ink"), muted=cssv("--muted"), line=cssv("--line");
   Chart.defaults.font.family=cssv("--font")||"Tajawal"; Chart.defaults.color=muted; Chart.defaults.borderColor=line;
@@ -1284,12 +1288,31 @@ const FDB=(()=>{
     if(path==="meta/backup") return {onSnapshot:cb=>{ L.backup.push(cb); let v=null; try{ v=JSON.parse(localStorage.getItem("fleet.backup")||"null"); }catch(e){} later(()=>cb(snapDoc("backup",v))); return ()=>{}; },
       set:async v=>{ try{ localStorage.setItem("fleet.backup",JSON.stringify(v)); }catch(e){} L.backup.forEach(cb=>cb(snapDoc("backup",v))); }};
     return {set:async()=>{},update:async()=>{},get:async()=>snapDoc(path,null),onSnapshot:cb=>{ later(()=>cb(snapDoc(path,null))); return ()=>{}; }}; }
+  /* full reload — only re-renders what actually changed */
+  const J=x=>JSON.stringify(x===undefined?null:x);
+  async function loadBoot(){ const b=await api("fleet_bootstrap"); BOOT=b; const cs=J(b.settings)!==J(C.settings), vs=J(b.vehicles)!==J(C.vehicles);
+    C.settings=b.settings; C.vehicles=b.vehicles; S2.people=b.people||[]; S2.products=b.products||[]; namesFromPeople(); if(cs) emitCfg(); if(vs) emitVeh(); }
   async function refresh(){ if(!ME||document.hidden) return; try{
-      const b=await api("fleet_bootstrap"); BOOT=b; C.settings=b.settings; C.vehicles=b.vehicles; S2.people=b.people||[]; S2.products=b.products||[]; namesFromPeople(); emitCfg(); emitVeh();
-      await loadMaintOpen();
-      if(kpi()){ const ms=[...new Set(L.ent.flatMap(l=>l.months||[]))]; if(ms.length){ await loadEnt(ms); emitEnt(); } await loadCar(); emitCar(); }
+      await loadBoot(); await loadMaintOpen();
+      if(kpi()){ const ms=[...new Set(L.ent.flatMap(l=>l.months||[]))]; if(ms.length){ const b0=J(C.ent); await loadEnt(ms); if(J(C.ent)!==b0) emitEnt(); }
+        const c0=J(C.car); await loadCar(); if(J(C.car)!==c0) emitCar(); }
     }catch(e){ if(/not_authorized/.test(e.message||"")) location.reload(); } }
-  return {doc,collection,refresh,C,setSettings:s=>{ C.settings=s; emitCfg(); },reload:refresh};
+  /* light poll: asks the server only "what changed since my last check" (audit log cursor) and applies just those rows,
+     so an edit made on any screen or by any user shows up everywhere within seconds without reloading everything */
+  let LAST=null, polling=false;
+  async function poll(){ if(!ME||document.hidden||polling) return; polling=true; try{
+      const r=await rpc("fleet_changes",{p_after:LAST===null?null:Math.max(0,LAST-30)}); if(!r) return;
+      if(LAST===null||r.reset){ LAST=r.last; if(r.reset) await refresh(); return; } LAST=r.last;
+      const k=r.kinds||[]; let ch=false;
+      (r.ent||[]).forEach(row=>{ const key=row.vehicle_id+"|"+row.day, nv=Object.assign({},row.data,{by:row.by||null,at:row.updated_at}), cur=C.ent[key];
+        if(!cur||!same(cur,nv)||cur.at!==nv.at){ C.ent[key]=nv; ch=true; } });
+      (r.del||[]).forEach(key=>{ if(C.ent[key]){ delete C.ent[key]; ch=true; } });
+      if(ch) emitEnt();
+      if(kpi()&&k.includes("carrier")){ const c0=J(C.car); await loadCar(); if(J(C.car)!==c0) emitCar(); }
+      if(k.some(x=>x==="vehicles"||x==="settings"||x==="profiles"||x==="products")) await loadBoot();
+      if(k.includes("maintenance")){ await loadMaintOpen(); if(typeof mkLoad==="function") mkLoad(); }
+    }catch(e){ if(/not_authorized/.test(e.message||"")) location.reload(); } finally{ polling=false; } }
+  return {doc,collection,refresh,poll,C,setSettings:s=>{ C.settings=s; emitCfg(); },reload:refresh};
 })();
 function namesFromPeople(){ S.names=S.names||{}; (S2.people||[]).forEach(p=>{ S.names[p.username]=p.full_name||p.username; }); if(ME) S.names[ME.username]=ME.full_name||ME.username; }
 
@@ -1350,7 +1373,7 @@ async function afterLogin(){
   $("#who").innerHTML=`<button class="userbtn" id="u-menu" type="button">${esc(ME.full_name||ME.username)} · ${esc(ROLE_L[ME.role])}${ME.branch?" · "+esc(ME.branch):""} ▾</button>`;
   if(ME.role==="dispatcher"&&ME.branch){ S.entryBranch=ME.branch; if(S.f.branch==="الكل") S.f.branch=ME.branch; }
   await loadMaintOpen();
-  if(!booted){ booted=true; boot(); setInterval(()=>FDB.refresh(),60000); document.addEventListener("visibilitychange",()=>{ if(!document.hidden) FDB.refresh(); }); }
+  if(!booted){ booted=true; boot(); setTimeout(()=>FDB.poll(),4000); setInterval(()=>FDB.poll(),15000); setInterval(()=>FDB.refresh(),600000); document.addEventListener("visibilitychange",()=>{ if(!document.hidden) FDB.poll(); }); }
 }
 const TABS_BY_ROLE={
   sysadmin:["ops","orders","plan","reserve","maint","dreports","dashboard","entry","vehicle","drivers","costs","docs","carrier","report","places","log","admin","setup"],
@@ -2158,7 +2181,10 @@ function vlFooter(){ const ft=$("#vl-foot"); const v=S.vehicles.find(x=>x.id===S
   const sb=$("#vl-sub"); if(sb) sb.innerHTML=T.sub>0||T.other>0?`<div class="panel" style="border-inline-start:4px solid #B42318"><b>ردود بسائق من سيارة أخرى</b>
     <p class="small" style="margin:6px 0 0">${T.sub>0?`<b>${fmt(T.sub,2)}</b> رد من المحقق (${T.subDays} يوم) كانت بسائق بديل سيارته الأساسية متعطلة في الصيانة. يعني جزء من محقق هذي السيارة جاء من تشغيلها بسائق سيارة متوقفة.`:""}${T.other>0?` ${T.sub>0?"و":""}<b>${fmt(T.other,2)}</b> رد بسائق سيارته الأساسية مختلفة (بدون عطل مسجل).`:""}</p>
     <p class="small muted" style="margin:4px 0 0">المحقق بدون الردود البديلة أثناء العطل: <b>${fmt(T.a-T.sub,2)}</b> من مستهدف ${fmt(T.t)} (${pct(ratio(T.a-T.sub,T.t))}).</p></div>`:""; }
-{ const _ud=updateDerived; updateDerived=function(vid,iso,fromDom){ _ud(vid,iso,fromDom); if(S.view==="vehicle"&&fromDom){ clearTimeout(DRV.ft); DRV.ft=setTimeout(vlFooter,250); } }; }
+{ const _ud=updateDerived; updateDerived=function(vid,iso,fromDom){ _ud(vid,iso,fromDom); if(S.view==="vehicle"){ clearTimeout(DRV.ft); DRV.ft=setTimeout(()=>{ vlFooter(); vlLiveTotals(fromDom); },250); } }; }
+/* top KPI cards of the vehicle log follow the typed numbers immediately (not only after leaving the screen) */
+function vlLiveTotals(fromDom){ if(!fromDom){ updateVlogTotals(); return; } const keys=new Set([...document.querySelectorAll("#vl-table [data-ed]")].map(e=>e.dataset.ed)); const ov={}; keys.forEach(k=>{ if(S.pending[k]){ const [vid,iso]=k.split("|"); ov[iso]=readEditor(vid,iso); } });
+  if(!Object.keys(ov).length){ updateVlogTotals(); return; } const _rd=realDay; try{ realDay=function(vid,iso){ return vid===S.vlog.vid&&iso in ov?ov[iso]:_rd(vid,iso); }; updateVlogTotals(); } finally{ realDay=_rd; } }
 
 /* ---------- printing (A4, opened for print through the platform) ---------- */
 const PRINT_CSS=`*{box-sizing:border-box}body{font-family:"Tajawal",Tahoma,sans-serif;direction:rtl;color:#0B1B33;margin:0;font-size:9.5px}
@@ -2862,7 +2888,7 @@ document.addEventListener("click",e=>{const h=e.target.closest("[data-rc]");if(!
 const MK={iv:{},at:0};
 async function mkLoad(){try{const L=await api("fleet_maint_list",{f:{from:"2000-01-01"}})||[];const iv={};
   L.forEach(m=>{if(!m.vehicle_id||!m.opened_on)return;(iv[m.vehicle_id]=iv[m.vehicle_id]||[]).push([m.opened_on,m.status==="closed"&&m.closed_on?m.closed_on:"9999-12-31",m.category||""])});
-  MK.iv=iv;MK.at=Date.now();if(typeof render==="function")render()}catch(e){}}
+  const ch=JSON.stringify(iv)!==JSON.stringify(MK.iv);MK.iv=iv;MK.at=Date.now();if(ch&&typeof S!=="undefined"){S.ver++;if(S.view==="entry"||S.view==="vehicle")refreshEditorValues();else render()}}catch(e){}}
 function mkOn(vid,iso){const a=MK.iv[vid];if(!a)return null;for(const x of a)if(x[0]<=iso&&iso<=x[1])return x;return null}
 function mkReasonIdx(cfg,cat){const R=cfg.reasons||[];const find=re=>R.findIndex(r=>re.test(r.name||""));
   if(/سائق/.test(cat)){const i=find(/سائق/);if(i>=0)return i}const i=find(/عطل|أعطال|عطال/);return i}
