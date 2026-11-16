@@ -1,10 +1,10 @@
-<!DOCTYPE html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><title>الوادي الأخضر — المبيعات</title>
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#051D48"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="المندوب"><title>CRM الوادي الأخضر</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
 <script src="claude-shim.js"></script>
 <style>
@@ -4444,5 +4444,59 @@ document.addEventListener('click',e=>{if(e.target.closest('[data-act="aiToggle"]
 .ai-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line,#e0e6ef)}.ai-h .small{flex:1}
 .ai-b{padding:10px 12px;overflow:auto;display:grid;gap:8px}.ai-b label{display:grid;gap:4px}.ai-b select,.ai-b textarea{width:100%}
 .ai-q{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.ai-out{border-top:1px dashed var(--line,#e0e6ef);padding-top:8px}.ai-txt{line-height:1.8;white-space:normal;font-size:14px}`;document.head.appendChild(st)})();
+
+/* ============ Sidebar: main sections with sub-items (order set by management) ============ */
+{
+const NAV_TREE=[
+  [null,null,['mydash','dash','alerts','recs']],
+  ['users',()=>L('العملاء','Customers'),['clients','leads','custmap']],
+  ['pipe',()=>L('البايب لاين','Pipeline'),['pipeline','opps','oppboard','projects']],
+  ['pin',()=>L('الزيارات الميدانية','Field visits'),['plan','visits','calendar','complaints','comms','field']],
+  ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
+  ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
+  ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
+  ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
+  ['build',null,['prodplan']]];
+const DROP=new Set(['dlvvehicle','dlvdrivers']);
+const by={};NAV.forEach(n=>{if(n[0]!=='g')by[n[0]]=n});
+const used=new Set(),out=[];
+NAV_TREE.forEach(([ic,title,keys])=>{if(title)out.push(['g',title,ic]);keys.forEach(k=>{if(by[k]&&!used.has(k)){out.push(by[k]);used.add(k)}})});
+const rest=Object.keys(by).filter(k=>!used.has(k)&&!DROP.has(k));   // anything not placed above (mobile pages, future pages) stays reachable
+if(rest.some(k=>!/^m(today|clients|alerts|more)$/.test(k)))out.push(['g',()=>L('أخرى','Other'),'more']);
+rest.forEach(k=>out.push(by[k]));
+NAV.splice(0,NAV.length,...out);
+// pages removed from the menu also close if opened by an old link
+if(DROP.has(route))route='dash';
+window.addEventListener('hashchange',()=>{if(DROP.has(location.hash.slice(1)))go('dash')});
+
+const NG_KEY='crm_nav_closed';let closed;try{closed=new Set(JSON.parse(localStorage.getItem(NG_KEY)||'[]'))}catch(e){closed=new Set()}
+const saveClosed=()=>{try{localStorage.setItem(NG_KEY,JSON.stringify([...closed]))}catch(e){}};
+function navTree(){const ac=computeAlerts().length;let h='',grp=null,items='',gi=-1;
+  const flush=()=>{if(grp===null){h+=items}else if(items){const has=items.includes('nv on');const open=has||!closed.has(gi);
+      h+=`<div class="ng ${open?'open':''}" data-ng="${gi}"><button class="ngh" data-ngt="${gi}" aria-expanded="${open}">${icon(grp.ic)}<span>${grp.t}</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button><div class="ngb">${items}</div></div>`}
+    items=''};
+  NAV.forEach(n=>{if(n[0]==='g'){flush();gi++;grp={t:n[1](),ic:n[2]};return}if(!n[3]())return;
+    const main=n[0]==='prodplan';
+    if(main){flush();grp=null}
+    items+=`<button class="nv ${main?'nvm':''} ${route===n[0]?'on':''}" data-go="${n[0]}">${icon(n[1])}<span>${n[2]()}</span>${n[0]==='alerts'&&ac?`<span class="cnt">${ac}</span>`:''}</button>`});
+  flush();return h}
+const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);const nav=document.querySelector('#side nav');if(nav)nav.innerHTML=navTree()};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-ngt]');if(!b)return;e.preventDefault();e.stopPropagation();const i=+b.dataset.ngt,g=b.parentElement,o=!g.classList.contains('open');g.classList.toggle('open',o);b.setAttribute('aria-expanded',o);if(o)closed.delete(i);else closed.add(i);saveClosed()},true);
+const st=document.createElement('style');st.textContent=`
+#side nav .ng{margin-top:4px}
+#side nav .ngh,#side nav .nvm{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:rgba(255,255,255,.06);color:#E8C77A;font-weight:800;font-size:14px;cursor:pointer;text-align:start;opacity:1}
+#side nav .ngh:hover,#side nav .nvm:hover{background:rgba(255,255,255,.12)}
+#side nav .ngh svg{width:18px;height:18px;flex:none}
+#side nav .ngh .chev{margin-inline-start:auto;width:16px;height:16px;transition:transform .15s;opacity:.8}
+#side nav .ng:not(.open) .chev{transform:rotate(90deg)}
+html[dir=ltr] #side nav .ng:not(.open) .chev{transform:rotate(-90deg)}
+#side nav .ngb{display:none;flex-direction:column;gap:1px;margin-inline-start:18px;padding-inline-start:8px;border-inline-start:1px solid rgba(255,255,255,.18);margin-top:2px}
+#side nav .ng.open .ngb{display:flex}
+#side nav .ngb .nv{font-size:13px;padding:6px 10px;font-weight:500}
+#side nav .ngb .nv svg{width:15px;height:15px;opacity:.75}
+#side nav .ngb .nv.on{font-weight:700}
+#side nav .nvm{margin-top:4px}
+#side nav .nvm.on{background:rgba(255,255,255,.18)}`;document.head.appendChild(st);
+}
 </script>
 <script src="wady-back.js"></script></body></html>
