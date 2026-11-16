@@ -4418,6 +4418,114 @@ ACT.plAppr=async d=>{const ns=d.ns;if(PL.dirty){toast(L('احفظ التغيير
   render()};
 {const st=document.createElement('style');st.textContent=`.pl-appr .pl-trail{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}.pl-step{padding:3px 8px;border-radius:12px;background:var(--bg2,#f1f3f6);color:var(--muted)}.pl-step.ok{background:#e6f4ea;color:#1e6b34}.pl-step.cur{background:#fff4dc;color:#7a4b00;font-weight:700}.pl-step small{opacity:.8}.pl-arr{opacity:.4}html[dir=ltr] .pl-arr{transform:scaleX(-1)}`;document.head.appendChild(st)}
 
+/* ============ Communication Center — phase 2: settings + client phone cleanup (admin) ============ */
+const CM={d:null,busy:false,err:null,ph:null,phq:'',phs:'open',pho:0};
+const CM_KIND={voice:['اتصال صوتي','Voice'],whatsapp:['WhatsApp','WhatsApp'],sms:['SMS','SMS']};
+const CM_ADAPTER={test:['اختبار آلي (لا يظهر في التقارير)','Automated test (never in reports)']};
+const CM_DOW=[['الأحد','Sun'],['الإثنين','Mon'],['الثلاثاء','Tue'],['الأربعاء','Wed'],['الخميس','Thu'],['الجمعة','Fri'],['السبت','Sat']];
+const CM_HOOK=t=>`https://kpdvgmioltltshzersyc.supabase.co/functions/v1/comm-webhook?t=${t}`;
+const cmRpc=async(fn,args)=>{const {data,error}=await window.__sb.rpc(fn,args||{});if(error)throw new Error(error.message);return data};
+async function cmLoad(){if(CM.busy)return;CM.busy=true;try{CM.d=await cmRpc('comm_admin_get');CM.err=null}catch(e){CM.err=e.message}CM.busy=false;if(route==='commset')render()}
+async function cmPhLoad(){try{CM.ph=await cmRpc('comm_phone_dups',{p_q:CM.phq,p_state:CM.phs,p_limit:30,p_offset:CM.pho});CM.pherr=null}catch(e){CM.pherr=e.message;CM.ph={total:0,rows:[]}}if(route==='commphones')render()}
+const cmLab=(m,k)=>m[k]?L(m[k][0],m[k][1]):esc(k||'—');
+const cmUser=id=>{const u=(CM.d?.users||[]).find(x=>x.id===id);return u?u.name:'—'};
+
+V.commset=()=>{
+  if(!isAdmin())return `<div class="card empty">${L('هذه الصفحة لمسؤول النظام','System admin only')}</div>`;
+  if(!CM.d){if(!CM.err)cmLoad();return `<div class="card empty">${CM.err?esc(CM.err):L('جاري التحميل…','Loading…')}</div>`}
+  const d=CM.d,ib=d.inbox||{};const live=d.providers.filter(p=>p.active&&!p.is_test);
+  return `<div class="banner info"><span class="sp">${L('مركز التواصل — المرحلة الثانية: البنية جاهزة (الجداول، استقبال الأحداث، منع التكرار، الصلاحيات، تنظيف أرقام العملاء). ربط مزوّد فعلي للمكالمات وWhatsApp وSMS يتم في المراحل 3 و4 بعد اختيار المزوّد وإدخال مفتاحه هنا.','Communication Center — phase 2: the foundation is ready. A real voice/WhatsApp/SMS provider is connected in phases 3–4 once chosen and its key is entered here.')}</span></div>
+  <div class="kpis">
+   <div class="kpi"><div class="l">${L('مزوّدون مفعّلون (فعلي)','Live providers')}</div><div class="v">${live.length}</div></div>
+   <div class="kpi"><div class="l">${L('أرقام الشركة','Company numbers')}</div><div class="v">${d.numbers.length}</div></div>
+   <div class="kpi"><div class="l">${L('أحداث بانتظار المعالجة','Events pending')}</div><div class="v">${ib.pending||0}</div></div>
+   <div class="kpi"><div class="l">${L('أحداث فشلت','Failed events')}</div><div class="v ${ib.error?'bad':''}">${ib.error||0}</div></div>
+   <div class="kpi"><div class="l">${L('أرقام عملاء موحّدة','Client numbers')}</div><div class="v">${(d.phones.numbers||0).toLocaleString('en-US')}</div></div>
+   <div class="kpi"><div class="l">${L('أرقام مشتركة بانتظار القرار','Shared numbers to review')}</div><div class="v ${d.shared_open?'warn':''}"><a href="#" data-go="commphones">${(d.shared_open||0).toLocaleString('en-US')}</a></div></div>
+  </div>
+
+  <div class="card"><div class="row" style="display:flex;align-items:center;gap:8px"><h3 style="margin:0">${L('مزوّدو الخدمة','Providers')}</h3><span class="grow" style="flex:1"></span><button class="btn p" data-act="cmProv">${L('+ مزوّد','+ Provider')}</button></div>
+   ${table([{l:L('الاسم','Name'),f:p=>`<b>${esc(p.name)}</b>${p.is_test?` ${pill(L('اختبار','Test'),'warn')}`:''}`},{l:L('الخدمة','Service'),f:p=>cmLab(CM_KIND,p.kind)},{l:L('الموصّل','Adapter'),f:p=>cmLab(CM_ADAPTER,p.adapter)},
+     {l:L('الحالة','Status'),f:p=>p.active?pill(L('مفعّل','Active'),'ok'):pill(L('موقوف','Off'))},{l:L('مفتاح الربط','Key'),f:p=>p.has_secret?pill(L('محفوظ','Saved'),'ok'):pill(L('غير مدخل','Missing'),'bad')},
+     {l:L('رابط الاستقبال (Webhook)','Webhook URL'),f:p=>`<button class="btn s" data-act="cmCopy" data-v="${esc(CM_HOOK(p.webhook_token))}">${L('نسخ الرابط','Copy URL')}</button>`},
+     {l:'',f:p=>`<button class="btn s" data-act="cmProv" data-id="${p.id}">${L('تعديل','Edit')}</button> <button class="btn s" data-act="cmKey" data-id="${p.id}">${L('المفتاح','Key')}</button> <button class="btn s" data-act="cmRot" data-id="${p.id}">${L('رابط جديد','New URL')}</button>`}],d.providers)}
+   <div class="small muted">${L('المفتاح يُحفظ في خزنة مشفّرة على الخادم ولا يُعرض مرة ثانية. رابط الاستقبال يُعطى للمزوّد ليرسل له كل مكالمة ورسالة. الموصّلات الفعلية تُضاف بعد اختيار المزوّد والتحقق من توثيقه.','Keys live in the encrypted server vault and are never shown again. Give the webhook URL to the provider. Real adapters are added once a provider is chosen and its documentation checked.')}</div></div>
+
+  <div class="card"><div class="row" style="display:flex;align-items:center;gap:8px"><h3 style="margin:0">${L('أرقام الشركة وتخصيصها للموظفين','Company numbers')}</h3><span style="flex:1"></span><button class="btn p" data-act="cmNum">${L('+ رقم','+ Number')}</button></div>
+   ${table([{l:L('الرقم','Number'),f:n=>`<b dir="ltr">${esc(n.e164)}</b>${n.label?`<div class="small muted">${esc(n.label)}</div>`:''}`},{l:L('القنوات','Channels'),f:n=>(n.channels||[]).map(c=>cmLab(CM_KIND,c)).join('، ')},
+     {l:L('المزوّد','Provider'),f:n=>esc((d.providers.find(p=>p.id===n.provider_id)||{}).name||'—')},{l:L('الحالة','Status'),f:n=>n.status==='active'?pill(L('نشط','Active'),'ok'):pill(L('معطّل','Disabled'),'bad')},
+     {l:L('الموظف الحالي','Employee'),f:n=>esc(n.user_name||'—')},{l:L('سجل التخصيص','History'),f:n=>(n.history||[]).length?`<span class="small">${n.history.slice(0,3).map(h=>`${esc(h.user||'—')} <span class="muted">${esc(String(h.from).slice(0,10))}${h.to?' ← '+esc(String(h.to).slice(0,10)):''}</span>`).join('<br>')}</span>`:'—'},
+     {l:'',f:n=>`<button class="btn s" data-act="cmNum" data-id="${n.id}">${L('تعديل','Edit')}</button> <button class="btn s" data-act="cmAssign" data-id="${n.id}">${L('تخصيص لموظف','Assign')}</button>`}],d.numbers)}
+   <div class="small muted">${L('تغيير الموظف لا ينقل المكالمات والرسائل السابقة؛ تبقى باسم من تعامل معها، والسجل محفوظ.','Reassigning keeps past calls/messages with whoever handled them.')}</div></div>
+
+  <div class="card"><h3>${L('ساعات العمل الرسمية','Official working hours')}</h3>
+   ${!(d.hours||[]).some(h=>h.working)?`<div class="banner warn"><span class="sp">${L('لم تُحدد ساعات العمل بعد — مدد التنبيه (15 و30 دقيقة) تُحسب خلالها فقط، فلازم تحديدها قبل تشغيل التنبيهات.','Working hours are not set yet — alert timers only count inside them.')}</span></div>`:''}
+   <table class="tbl"><thead><tr><th>${L('اليوم','Day')}</th><th>${L('يوم عمل','Working')}</th><th>${L('من','From')}</th><th>${L('إلى','To')}</th></tr></thead><tbody>
+   ${CM_DOW.map((n,i)=>{const h=(d.hours||[]).find(x=>x.dow===i)||{};return `<tr><td>${L(n[0],n[1])}</td><td><input type="checkbox" id="cmh_w${i}" ${h.working?'checked':''}></td><td><input type="time" id="cmh_s${i}" value="${esc((h.start_t||'').slice(0,5))}"></td><td><input type="time" id="cmh_e${i}" value="${esc((h.end_t||'').slice(0,5))}"></td></tr>`}).join('')}</tbody></table>
+   <h3 style="margin-top:14px">${L('قواعد التنبيه والتصعيد','Alert & escalation rules')}</h3>
+   <table class="tbl"><thead><tr><th>${L('القاعدة','Rule')}</th><th>${L('المدة (دقائق عمل)','Minutes (working)')}</th><th>${L('مفعّلة','Active')}</th></tr></thead><tbody>
+   ${(d.sla||[]).map(s=>`<tr><td>${esc(s.label)}</td><td><input type="number" min="1" id="cms_${esc(s.code)}" value="${s.minutes}" style="width:90px"></td><td><input type="checkbox" id="cmsa_${esc(s.code)}" ${s.active?'checked':''}></td></tr>`).join('')}</tbody></table>
+   <div style="margin-top:8px"><button class="btn p" data-act="cmRules">${L('حفظ ساعات العمل والقواعد','Save hours & rules')}</button> <span class="small muted">${L('القواعد تبدأ العمل في المرحلة 6.','Rules start working in phase 6.')}</span></div>
+   <h3 style="margin-top:14px">${L('العطل الرسمية','Holidays')}</h3>
+   <div class="row" style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap"><input type="date" id="cmhol_d"><input id="cmhol_l" placeholder="${L('اسم العطلة','Holiday name')}"><button class="btn s" data-act="cmHol">${L('إضافة','Add')}</button></div>
+   <div class="small" style="margin-top:6px">${(d.holidays||[]).map(h=>`<span class="pill">${esc(h.day)} · ${esc(h.label||'')} <a href="#" data-act="cmHolDel" data-d="${esc(h.day)}">✕</a></span>`).join(' ')||`<span class="muted">${L('لا توجد عطل مسجلة','None')}</span>`}</div></div>
+
+  <div class="card"><h3>${L('مراقبة التكامل','Integration monitor')}</h3>
+   <div class="small">${L('صندوق الأحداث','Event inbox')}: ${L('تمت','done')} ${ib.done||0} · ${L('بانتظار','pending')} ${ib.pending||0} · ${L('فشلت','failed')} ${ib.error||0} · ${L('متجاهلة','ignored')} ${ib.ignored||0}</div>
+   ${(d.errors||[]).length?table([{l:L('الوقت','Time'),f:e=>fdt(e.at)},{l:L('النوع','Kind'),f:e=>esc(e.kind||'')},{l:L('الخطأ','Error'),f:e=>`<span class="small">${esc(e.error||'')}</span>`},{l:L('المحاولات','Tries'),f:e=>e.attempts},{l:'',f:e=>`<button class="btn s" data-act="cmRetry" data-id="${e.id}">${L('إعادة المحاولة','Retry')}</button>`}],d.errors):''}
+   ${table([{l:L('الوقت','Time'),f:l=>fdt(l.at)},{l:L('الإجراء','Action'),f:l=>esc(l.action||'')},{l:L('النتيجة','Result'),f:l=>l.ok?pill(L('تم','OK'),'ok'):pill(L('خطأ','Error'),'bad')},{l:L('التفاصيل','Details'),f:l=>`<span class="small">${esc(l.msg||'')}</span>`}],d.log||[])}
+  </div>`;
+};
+
+V.commphones=()=>{
+  if(!(isAdmin()||role()==='mgr'))return `<div class="card empty">${L('هذه الصفحة لمسؤول النظام ومدير المبيعات','Admin / sales manager only')}</div>`;
+  if(!CM.ph){cmPhLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const P=CM.ph;const tab=(k,l)=>`<button class="tab ${CM.phs===k?'on':''}" data-act="cmPhTab" data-k="${k}">${l}</button>`;
+  return `<div class="banner info"><span class="sp">${L('هذه أرقام جوال مسجّلة على أكثر من عميل. المكالمة أو الرسالة من رقم مشترك لا تُنسب تلقائياً لأي عميل حتى تحدد هنا العميل الأساسي للرقم، أو تعتمده كرقم مشترك فيختار الموظف العميل وقت المكالمة. لا يتم تعديل بيانات العملاء نفسها.','Numbers registered on several clients. Calls from them are not auto-matched until you pick the main client or mark the number as shared. Client records are not changed.')}</span></div>
+  ${CM.pherr?`<div class="banner bad"><span class="sp">${esc(CM.pherr)}</span></div>`:''}
+  <div class="toolbar"><div class="tabs">${tab('open',L('بانتظار القرار','To review'))}${tab('done',L('تم البت فيها','Decided'))}${tab('all',L('الكل','All'))}</div><span class="grow"></span>
+   <input type="search" id="cmph_q" placeholder="${L('رقم أو اسم عميل أو كوده','Number, client name or code')}" value="${esc(CM.phq)}" style="min-width:240px"><button class="btn s" data-act="cmPhFind">${L('بحث','Search')}</button></div>
+  <div class="small muted" style="margin:6px 0">${L('العدد','Total')}: ${(P.total||0).toLocaleString('en-US')}</div>
+  <div class="list">${(P.rows||[]).map(r=>`<div class="card"><div class="row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b dir="ltr">${esc(r.e164)}</b> ${pill(r.n+' '+L('عملاء','clients'))}
+     ${r.status==='primary'?pill(L('عميل أساسي محدد','Main client set'),'ok'):r.status==='shared'?pill(L('رقم مشترك','Shared'),'warn'):r.status==='invalid'?pill(L('رقم غير صالح','Invalid'),'bad'):''}
+     <span style="flex:1"></span><button class="btn s" data-act="cmPhFlag" data-e="${esc(r.e164)}" data-s="shared">${L('اعتماده كرقم مشترك','Mark shared')}</button><button class="btn s" data-act="cmPhFlag" data-e="${esc(r.e164)}" data-s="invalid">${L('رقم غير صالح','Invalid')}</button>${r.status?`<button class="btn s" data-act="cmPhFlag" data-e="${esc(r.e164)}" data-s="">${L('تراجع','Undo')}</button>`:''}</div>
+    <table class="tbl" style="margin-top:6px"><tbody>${(r.clients||[]).map(c=>`<tr><td><a href="#" data-open="client" data-id="${esc(c.id)}">${esc(c.name||'—')}</a> <span class="small muted">${esc(c.code||'')}</span></td><td class="small">${esc(c.rep||'')}</td><td>${r.primary_client===c.id?pill(L('الأساسي','Main'),'ok'):`<button class="btn s" data-act="cmPhFlag" data-e="${esc(r.e164)}" data-s="primary" data-c="${esc(c.id)}">${L('هذا العميل الأساسي','Set as main')}</button>`}</td></tr>`).join('')}</tbody></table></div>`).join('')||`<div class="card empty">${L('لا توجد أرقام','Nothing here')}</div>`}</div>
+  <div style="margin-top:8px">${CM.pho>0?`<button class="btn s" data-act="cmPhPage" data-d="-30">${L('السابق','Prev')}</button>`:''} ${CM.pho+30<(P.total||0)?`<button class="btn s" data-act="cmPhPage" data-d="30">${L('التالي','Next')}</button>`:''}</div>`;
+};
+
+ACT.cmCopy=async d=>{try{await navigator.clipboard.writeText(d.v);toast(L('تم نسخ الرابط','Copied'))}catch(e){prompt(L('انسخ الرابط','Copy'),d.v)}};
+ACT.cmProv=d=>{const p=d.id?CM.d.providers.find(x=>x.id===d.id):{kind:'voice',adapter:(CM.d.adapters||[])[0],active:false};
+  openForm({title:d.id?L('تعديل مزوّد','Edit provider'):L('مزوّد جديد','New provider'),data:p,fields:[{k:'name',l:L('الاسم','Name'),req:1},{k:'kind',l:L('الخدمة','Service'),t:'sel',opts:Object.entries(CM_KIND).map(([k,v])=>[k,L(v[0],v[1])])},
+    {k:'adapter',l:L('الموصّل','Adapter'),t:'sel',opts:(CM.d.adapters||[]).map(a=>[a,cmLab(CM_ADAPTER,a)]),hint:L('الموصّل الفعلي لمزوّدكم يُبرمج بعد اختيار المزوّد','The real adapter is built once you choose a provider')},{k:'active',l:L('الحالة','Status'),t:'check',cl:L('مفعّل','Active')}],
+    onSave:async v=>{await cmRpc('comm_provider_save',{p:{...v,id:d.id||null}});toast(L('تم الحفظ','Saved'));CM.d=null;cmLoad()}})};
+ACT.cmKey=d=>openForm({title:L('مفتاح الربط','Provider key'),data:{},fields:[{k:'x',t:'html',html:`<div class="fld"><label for="cm_secret">${L('المفتاح (يُدخله مسؤول النظام بنفسه، ولا يُعرض بعد الحفظ)','Key (entered by the admin, never shown again)')}</label><input id="cm_secret" type="password" autocomplete="off" dir="ltr"></div>`}],
+  onSave:async()=>{const v=(document.getElementById('cm_secret')||{}).value||'';await cmRpc('comm_provider_secret_set',{p_id:d.id,p_secret:v});toast(L('تم حفظ المفتاح','Key saved'));CM.d=null;cmLoad()}});
+ACT.cmRot=async d=>{if(!confirm(L('إنشاء رابط استقبال جديد؟ الرابط القديم يتوقف فوراً ولازم تحدّثه عند المزوّد.','Create a new webhook URL? The old one stops at once.')))return;try{await cmRpc('comm_provider_rotate_token',{p_id:d.id});CM.d=null;cmLoad()}catch(e){toast(e.message)}};
+ACT.cmNum=d=>{const n=d.id?CM.d.numbers.find(x=>x.id===d.id):{channels:['voice'],status:'active'};
+  openForm({title:d.id?L('تعديل رقم','Edit number'):L('رقم جديد للشركة','New company number'),data:n,fields:[{k:'e164',l:L('الرقم','Number'),req:1,hint:'05xxxxxxxx / +9665xxxxxxxx'},{k:'label',l:L('وصف','Label')},
+    {k:'provider_id',l:L('المزوّد','Provider'),t:'sel',opts:CM.d.providers.map(p=>[p.id,p.name])},{k:'channels',l:L('القنوات','Channels'),t:'multi',opts:Object.entries(CM_KIND).map(([k,v])=>[k,L(v[0],v[1])])},
+    {k:'status',l:L('الحالة','Status'),t:'sel',opts:[['active',L('نشط','Active')],['disabled',L('معطّل','Disabled')]]}],
+    onSave:async v=>{await cmRpc('comm_number_save',{p:{...v,id:d.id||null}});toast(L('تم الحفظ','Saved'));CM.d=null;cmLoad()}})};
+ACT.cmAssign=d=>{const n=CM.d.numbers.find(x=>x.id===d.id);openForm({title:L('تخصيص الرقم ','Assign ')+n.e164,data:{user:n.user_id||''},fields:[{k:'user',l:L('الموظف','Employee'),t:'sel',opts:CM.d.users.map(u=>[u.id,u.name]),empty:L('— بدون موظف —','— none —')},{k:'note',l:L('ملاحظة','Note')}],
+  onSave:async v=>{await cmRpc('comm_number_assign',{p_number:d.id,p_user:v.user||null,p_note:v.note||null});toast(L('تم التخصيص','Assigned'));CM.d=null;cmLoad()}})};
+ACT.cmRules=async()=>{const hours=CM_DOW.map((_,i)=>({dow:i,working:document.getElementById('cmh_w'+i).checked,start_t:document.getElementById('cmh_s'+i).value,end_t:document.getElementById('cmh_e'+i).value}));
+  if(hours.some(h=>h.working&&(!h.start_t||!h.end_t||h.end_t<=h.start_t)))return toast(L('حدد بداية ونهاية صحيحة لكل يوم عمل','Set a valid start and end for each working day'));
+  const sla=(CM.d.sla||[]).map(s=>({code:s.code,minutes:+document.getElementById('cms_'+s.code).value||s.minutes,active:document.getElementById('cmsa_'+s.code).checked}));
+  try{await cmRpc('comm_rules_save',{p_sla:sla,p_hours:hours});toast(L('تم الحفظ','Saved'));CM.d=null;cmLoad()}catch(e){toast(e.message)}};
+ACT.cmHol=async()=>{const dd=document.getElementById('cmhol_d').value,l=document.getElementById('cmhol_l').value.trim();if(!dd)return toast(L('اختر التاريخ','Pick a date'));try{await cmRpc('comm_holiday_set',{p_day:dd,p_label:l,p_delete:false});CM.d=null;cmLoad()}catch(e){toast(e.message)}};
+ACT.cmHolDel=async d=>{try{await cmRpc('comm_holiday_set',{p_day:d.d,p_label:null,p_delete:true});CM.d=null;cmLoad()}catch(e){toast(e.message)}};
+ACT.cmRetry=async d=>{try{await cmRpc('comm_inbox_retry',{p_id:+d.id});CM.d=null;cmLoad()}catch(e){toast(e.message)}};
+ACT.cmPhTab=d=>{CM.phs=d.k;CM.pho=0;CM.ph=null;render()};
+ACT.cmPhFind=()=>{CM.phq=(document.getElementById('cmph_q')||{}).value||'';CM.pho=0;CM.ph=null;render()};
+ACT.cmPhPage=d=>{CM.pho=Math.max(0,CM.pho+(+d.d));CM.ph=null;render()};
+ACT.cmPhFlag=async d=>{let note=null;if(d.s==='invalid'&&!confirm(L('اعتبار الرقم غير صالح؟ لن يُطابق أي عميل.','Mark number invalid?')))return;
+  try{await cmRpc('comm_phone_flag',{p_e164:d.e,p_status:d.s||null,p_client:d.c||null,p_note:note});toast(L('تم','Done'));cmPhLoad()}catch(e){toast(e.message)}};
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target&&e.target.id==='cmph_q'){e.preventDefault();ACT.cmPhFind()}});
+
+// sidebar entries (placed into the "مركز التواصل" section by zzz_nav.js)
+NAV.push(['commset','db',()=>L('إعدادات مركز التواصل','Communication settings'),()=>isAdmin()],['commphones','users',()=>L('تنظيف أرقام العملاء','Client phone cleanup'),()=>isAdmin()||role()==='mgr']);
+{const h=(location.hash||'').slice(1);if(['commset','commphones'].includes(h)){route=h;setTimeout(render,0)}}
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -4493,6 +4601,7 @@ const NAV_TREE=[
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
   ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
+  ['pin',()=>L('مركز التواصل','Communication center'),['commset','commphones']],
   ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
   ['build',null,['prodplan']]];
 const DROP=new Set(['dlvvehicle','dlvdrivers']);
