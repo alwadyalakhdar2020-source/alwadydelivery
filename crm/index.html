@@ -4638,6 +4638,228 @@ NAV.push(['radar','pin',()=>L('رادار المشاريع','Project radar'),rdC
 {const h=(location.hash||'').slice(1);if(h==='radar'){route=h;setTimeout(render,0)}}
 ACT.rdQTog=ACT.rdQTog||(()=>{});
 
+/* ===== Legal contracts + credit-facility requests (العقود القانونية) — UI only.
+   Approval routes, permissions and every state change are enforced by the lc_* database functions. ===== */
+const LC_KIND={contract:{ar:'العقد',page:'contracts',pre:'CT-',newL:()=>L('+ عقد جديد','+ New contract')},credit:{ar:'طلب التسهيلات',page:'credit',pre:'CF-',newL:()=>L('+ طلب تسهيلات ائتمانية','+ Credit facility request')}};
+const LC_ST={draft:['مسودة',''],pending:['بانتظار الاعتماد','warn'],returned:['معاد للاستكمال','info'],approved:['معتمد','ok'],rejected:['مرفوض','bad'],cancelled:['ملغى','']};
+const LC_CTYPE=[['supply','عقد توريد'],['frame','اتفاقية إطارية للتوريد'],['price','اتفاقية أسعار'],['other','أخرى']];
+const LC_GUAR=[['promissory','سند لأمر'],['bank','ضمان بنكي'],['cheques','شيكات مؤجلة'],['personal','كفالة غرم وأداء'],['none','بدون ضمان']];
+const LC_ACT={create:'إنشاء',save_draft:'حفظ مسودة',submit:'إرسال للاعتماد',submit_blocked:'محاولة إرسال مرفوضة',approve:'موافقة',reject:'رفض',return:'إعادة للاستكمال',
+  self_blocked:'محاولة اعتماد طلب ذاتي',decide_denied:'محاولة قرار بدون صلاحية',cancel:'إلغاء',signed:'تسجيل توقيع العقد',sap_done:'تسجيل الحد في SAP'};
+const LC_ROLE={admin:'مدير النظام',mgr:'المدير',sup:'المشرفون'};
+const LCX={rows:null,flows:{},tpls:[],names:{},profiles:[],busy:false,at:0,err:null};
+const lcRef=d=>(LC_KIND[d.kind]?.pre||'')+d.no;
+const lcName=id=>id?(LCX.names[id]||byId('team',id)?.name||'—'):'—';
+const lcSt=d=>pill(LC_ST[d.status]?.[0]||d.status,LC_ST[d.status]?.[1]||'')+(d.status==='approved'&&d.closed_at?' '+pill(d.kind==='contract'?L('موقّع','Signed'):L('مسجّل في SAP','In SAP'),'ok'):'');
+const lcCur=d=>d.status==='pending'&&d.cur?(d.route||[])[d.cur-1]:null;
+const lcMyTurn=d=>{const s=lcCur(d);return !!s&&(s.approvers||[]).includes(me().id)&&d.created_by!==me().id};
+const lcMine=d=>lcMyTurn(d)||(['draft','returned'].includes(d.status)&&d.created_by===me().id);
+const lcLvl=k=>(typeof wadyLvl==='function'?wadyLvl('crm',LC_KIND[k].page):3);
+const lcCfg=()=>isAdmin()||(typeof WADY_PERM!=='undefined'&&(WADY_PERM.admin||(WADY_PERM.app_admin||[]).includes('crm')))||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=3);
+async function lcLoad(force){if(LCX.busy||(!force&&LCX.rows&&Date.now()-LCX.at<30000))return;LCX.busy=true;
+  try{const sb=window.__sb;const [r,f,t,p]=await Promise.all([sb.from('lc_docs').select('*').order('created_at',{ascending:false}).limit(2000),sb.from('lc_flows').select('*'),
+      sb.from('lc_templates').select('*').eq('active',true).order('name'),sb.from('profiles').select('id,full_name,role,active')]);
+    if(r.error)throw r.error;LCX.rows=r.data||[];LCX.flows={};(f.data||[]).forEach(x=>LCX.flows[x.kind]=x.steps||[]);LCX.tpls=t.data||[];
+    (p.data||[]).forEach(x=>LCX.names[x.id]=x.full_name);LCX.profiles=(p.data||[]).filter(x=>x.active).sort((a,b)=>(a.full_name||'').localeCompare(b.full_name||'','ar'));LCX.at=Date.now();LCX.err=null}
+  catch(e){LCX.err=e.message||String(e);LCX.rows=LCX.rows||[]}LCX.busy=false;render()}
+const lcRpc=async(fn,args)=>{const {data,error}=await window.__sb.rpc(fn,args);if(error)throw new Error(error.message);return data};
+
+function lcView(kind){if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
+  if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const rows=LCX.rows.filter(d=>d.kind===kind);const tk='lcTab_'+kind,tab=fv(tk,'queue');const q=rows.filter(lcMine);
+  const steps=LCX.flows[kind]||[];
+  let h=`<div class="toolbar">${lcLvl(kind)>=3?`<button class="btn p" data-act="lcNew" data-k="${kind}">${LC_KIND[kind].newL()}</button>`:''}<button class="btn s" data-act="lcRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
+    <span class="small muted">${L('دورة الموافقات: ','Approval route: ')}${steps.length?steps.map(s=>esc(s.name)).join(' ← '):`<span class="flag">${L('لسا ما تحددت','not set yet')}</span>`}</span></div>
+   ${LCX.err?`<div class="banner bad"><span class="sp">${esc(LCX.err)}</span></div>`:''}
+   <div class="tabs">${[['queue',L('بانتظار إجراء مني','My queue')+` (${q.length})`],['list',L('الكل','All')],['help',L('دليل الوحدة','Guide')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="${tk}" data-v="${k}">${l}</button>`).join('')}</div>`;
+  if(tab==='queue')return h+lcTable(kind,q,L('ما فيه شي ينتظر إجراء منك','Nothing waiting for you'));
+  if(tab==='help')return h+lcHelp(kind);
+  const s=normTxt(fv('lcQ_'+kind,'')),st=fv('lcS_'+kind,'');
+  const list=rows.filter(d=>(!st||d.status===st)&&(!s||normTxt(`${lcRef(d)} ${d.client_name||''} ${d.client_code||''} ${d.title||''}`).includes(s)));
+  return h+`<div class="fbar"><label class="fl">${L('بحث بالرقم أو العميل أو العنوان','Search')}<input type="search" value="${esc(fv('lcQ_'+kind,''))}" data-act="filtIn" data-k="lcQ_${kind}"></label>
+    <label class="fl">${L('الحالة','Status')}<select data-act="filtSel" data-k="lcS_${kind}">${opt(Object.entries(LC_ST).map(([k,v])=>[k,v[0]]),st,L('الكل','All'))}</select></label></div>`+lcTable(kind,list,L('ما فيه طلبات','No records'))}
+function lcTable(kind,rows,emp){if(!rows.length)return `<div class="card empty">${emp}</div>`;
+  return `<div class="card">${table([{l:L('الرقم','No.'),f:d=>`<a href="#" data-act="lcOpen" data-id="${d._id}"><b>${lcRef(d)}</b></a>`},{l:L('العميل','Customer'),f:d=>`${esc(d.client_name||'')} <span class="small muted">${esc(d.client_code||'')}</span>`},
+    ...(kind==='contract'?[{l:L('العنوان','Title'),f:d=>esc(d.title||'—')},{l:L('قيمة العقد','Value'),c:'n',f:d=>d.amount!=null?money(d.amount):'—'}]
+      :[{l:L('الحد المطلوب','Requested limit'),c:'n',f:d=>d.amount!=null?money(d.amount):'—'},{l:L('مدة السداد','Term'),f:d=>d.fields?.term_days?`${d.fields.term_days} ${L('يوم','days')}`:'—'}]),
+    {l:L('المندوب','Rep'),f:d=>esc(lcName(d.rep_id))},{l:L('المرحلة الحالية','Current step'),f:d=>{const s=lcCur(d);return s?esc(s.name)+(lcMyTurn(d)?' '+pill(L('دورك','Your turn'),'warn'):''):'—'}},
+    {l:L('الحالة','Status'),f:lcSt},{l:L('التاريخ','Date'),c:'nw',f:d=>fdate(d.created_at.slice(0,10))}],rows.slice(0,500).map(d=>({...d,id:null,_id:d.id})))}</div>`}
+function lcHelp(kind){const c=kind==='contract';return `<div class="card"><ol style="line-height:2">
+  <li>${c?L('أنشئ العقد لعميل من عملائك، واختر القالب، وعبّي البيانات. النظام يعبّي نص العقد من القالب وتقدر تعدّل عليه.','Create a contract, pick a template, fill the fields; the text is filled from the template and stays editable.')
+        :L('أنشئ طلب التسهيلات لعميل من عملائك: الحد المطلوب، مدة السداد، الضمان، والمبررات، وأرفق المستندات (السجل التجاري، القوائم المالية، خطاب الطلب).','Create the request: limit, term, guarantee, justification and documents.')}</li>
+  <li>${L('احفظه مسودة لين يكتمل، وبعدها «إرسال للاعتماد». النظام يرفض الإرسال لو فيه بيانات ناقصة.','Save as draft, then submit. Incomplete requests are refused.')}</li>
+  <li>${L('الطلب يمشي على مراحل دورة الموافقات اللي يحددها مدير النظام من «إعدادات الموافقات والقوالب». كل مرحلة يوصل لصاحبها إشعار.','The request follows the approval route set by the system admin; each approver is notified.')}</li>
+  <li>${L('المعتمد يقدر يوافق، أو يعيد الطلب للاستكمال، أو يرفض. الإعادة والرفض لازم يكون معها سبب. وما أحد يعتمد طلب قدمه هو.','Approvers approve, return or reject (with a reason). Nobody approves their own request.')}</li>
+  <li>${c?L('بعد الاعتماد اطبع العقد، ولما يوقّعه العميل سجّل التوقيع وارفع النسخة الموقعة.','After approval print it; once signed, record the signature and upload the signed copy.')
+        :L('بعد الاعتماد، المسؤول يدخل الحد الجديد في SAP ويسجّل هنا إنه انعكس. الحد في CRM يتحدث مع استيراد SAP الجاي.','After approval, finance enters the new limit in SAP and records it here.')}</li></ol>
+  ${c?`<div class="banner warn"><span class="sp">${L('القوالب مبدئية، ولازم يراجعها المستشار القانوني قبل ما تعتمدونها للاستخدام.','Templates are drafts and need legal review before use.')}</span></div>`:''}</div>`}
+V.contracts=()=>lcView('contract');V.credit=()=>lcView('credit');
+
+/* ---- form ---- */
+let LC_FORM=null;
+const lcF=(id,label,inp,full,req)=>`<div class="fld${full?' full':''}"><label>${label}${req?' <span class="req">*</span>':''}</label>${inp}</div>`;
+const lcIn=(id,v,type)=>`<input id="lc_${id}" ${type?`type="${type}"`:''} ${type==='number'?'step="any"':''} value="${esc(v??'')}">`;
+const lcTa=(id,v,rows)=>`<textarea id="lc_${id}" rows="${rows||3}">${esc(v??'')}</textarea>`;
+function lcForm(kind,d){const f=d?.fields||{};const c=kind==='contract';const clients=vis(S.clients).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  LC_FORM={kind,id:d?.id||null,client_id:d?.client_id||'',files:d?.attachments||[]};
+  const tplOpts=LCX.tpls.map(t=>[t.id,t.name]);
+  openModal(d?`${L('تعديل','Edit')} ${lcRef(d)}`:(c?L('عقد جديد','New contract'):L('طلب تسهيلات ائتمانية جديد','New credit facility request')),`<form id="lcform" novalidate>
+   <div class="fgrid">${lcF('client',L('العميل','Customer'),d?`<b>${esc(d.client_name||'')} — ${esc(d.client_code||'')}</b>`:`<input list="lc_cl" id="lc_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="lc_cl">${clients.slice(0,4000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`,true,true)}</div>
+   <div id="lc_snap" class="small muted" style="margin:4px 0 8px"></div>
+   ${c?`<div class="fgrid">${lcF('title',L('عنوان العقد','Title'),lcIn('title',d?.title),true,true)}
+      ${lcF('ctype',L('نوع العقد','Type'),`<select id="lc_ctype">${opt(LC_CTYPE,f.ctype||'supply')}</select>`)}${lcF('project',L('المشروع','Project'),lcIn('project',f.project))}
+      ${lcF('amount',L('قيمة العقد (ريال)','Value (SAR)'),lcIn('amount',d?.amount,'number'),false,true)}${lcF('cr_no',L('السجل التجاري للعميل','Customer CR no.'),lcIn('cr_no',f.cr_no))}
+      ${lcF('start',L('بداية العقد','Start'),lcIn('start',f.start,'date'),false,true)}${lcF('end',L('نهاية العقد','End'),lcIn('end',f.end,'date'),false,true)}
+      ${lcF('signatory',L('ممثل العميل في التوقيع','Customer signatory'),lcIn('signatory',f.signatory))}${lcF('guarantee',L('الضمانات','Guarantees'),lcIn('guarantee',f.guarantee))}
+      ${lcF('products',L('المنتجات والكميات','Products & quantities'),lcTa('products',f.products,3),true)}
+      ${lcF('payment',L('شروط الدفع','Payment terms'),lcTa('payment',f.payment,2),true,true)}${lcF('delivery',L('شروط التوريد','Delivery terms'),lcTa('delivery',f.delivery,2),true)}
+      <div class="fld full"><label>${L('نص العقد','Contract text')} <span class="req">*</span></label>
+        <div class="toolbar" style="margin:0 0 6px"><select id="lc_tpl">${opt(tplOpts,d?.template_id||tplOpts[0]?.[0]||'',L('— بدون قالب —','— no template —'))}</select><button type="button" class="btn s" data-act="lcFill">${L('تعبئة النص من القالب','Fill from template')}</button>
+        <span class="small muted">${L('التعبئة تستبدل النص الحالي','Replaces the current text')}</span></div>${lcTa('body',d?.body,14)}</div></div>`
+   :`<div class="fgrid">${lcF('amount',L('الحد الائتماني المطلوب (ريال)','Requested limit (SAR)'),lcIn('amount',d?.amount,'number'),false,true)}${lcF('term_days',L('مدة السداد (يوم)','Payment term (days)'),lcIn('term_days',f.term_days,'number'),false,true)}
+      ${lcF('guarantee',L('نوع الضمان','Guarantee'),`<select id="lc_guarantee">${opt(LC_GUAR,f.guarantee||'',L('— اختر —','— choose —'))}</select>`,false,true)}${lcF('guarantee_value',L('قيمة الضمان (ريال)','Guarantee value'),lcIn('guarantee_value',f.guarantee_value,'number'))}
+      ${lcF('monthly',L('المشتريات الشهرية المتوقعة (ريال)','Expected monthly purchases'),lcIn('monthly',f.monthly,'number'))}${lcF('cr_no',L('السجل التجاري للعميل','Customer CR no.'),lcIn('cr_no',f.cr_no))}
+      ${lcF('since',L('بداية التعامل مع العميل','Customer since'),lcIn('since',f.since))}${lcF('project',L('المشروع المرتبط (إن وجد)','Related project'),lcIn('project',f.project))}
+      ${lcF('justification',L('مبررات الطلب','Justification'),lcTa('justification',f.justification,3),true,true)}</div>`}
+   <div class="fgrid">${lcF('files',L('المرفقات — حتى 5 ملفات، كل ملف أقل من 2.5 ميجا','Attachments (up to 5)'),`<input type="file" id="lc_files" multiple accept="image/*,application/pdf"><div id="lc_flist" class="small muted"></div>`,true)}</div>
+   ${d?.status==='returned'?`<div class="banner warn"><span class="sp">${L('سبب الإعادة: ','Returned: ')}${esc(d.decision_note||'')}</span></div>`:''}
+   <div id="lc_err" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span>
+   <button type="button" class="btn" data-act="lcSave" data-s="0">${L('حفظ كمسودة','Save draft')}</button><button type="button" class="btn p" data-act="lcSave" data-s="1">${L('إرسال للاعتماد','Submit')}</button></div></form>`);
+  lcFilesPaint();if(LC_FORM.client_id)lcSnap();
+  const cl=document.getElementById('lc_client');if(cl)cl.addEventListener('change',()=>{const code=cl.value.split(' — ')[0].trim();const x=S.clients.find(y=>normCode(y.code)===normCode(code));LC_FORM.client_id=x?x.id:'';lcSnap()});
+  document.getElementById('lc_files').addEventListener('change',async e=>{for(const fl of [...e.target.files]){if(LC_FORM.files.length>=5)break;if(fl.size>2.5e6){toast(L('حجم الملف أكبر من 2.5 ميجا: ','File over 2.5MB: ')+fl.name);continue}
+    const u=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(fl)});LC_FORM.files.push({name:fl.name,type:fl.type,data:u})}e.target.value='';lcFilesPaint()});
+  if(c&&!d&&LCX.tpls.length){/* start a new contract from the first template */setTimeout(()=>{const b=document.getElementById('lc_body');if(b&&!b.value)lcFillBody()},0)}}
+function lcFilesPaint(){const el=document.getElementById('lc_flist');if(el)el.innerHTML=LC_FORM.files.map((f,i)=>`${esc(f.name)} <a href="#" data-act="lcFileDel" data-i="${i}">×</a>`).join(' · ')}
+async function lcSnap(){const box=document.getElementById('lc_snap');if(!box)return;const x=byId('clients',LC_FORM.client_id);if(!x){box.textContent='';return}
+  let h=`${L('المنطقة','Region')}: ${esc((REGIONS.find(r=>r.id===x.region)||{}).ar||x.region||'—')}`;
+  if(LC_FORM.kind==='credit'){box.innerHTML=h+' · '+L('جاري جلب الحد والرصيد…','Loading limit and balance…');
+    try{const s=await lcRpc('ce_snapshot',{p_client_id:LC_FORM.client_id,p_amount:null,p_exclude:null});
+      if(s&&s.ok)h+=` · ${L('الحد الائتماني الحالي','Current limit')}: <b>${s.credit_limit==null?L('غير مسجل','not on file'):money(s.credit_limit)}</b> · ${L('الرصيد','Balance')}: <b>${s.balance_ok?money(s.balance):'—'}</b>${s.data_at?` <span class="muted">(${L('بيانات SAP بتاريخ','SAP data as of')} ${fdt(s.data_at)})</span>`:''}`}catch(e){}}
+  box.innerHTML=h}
+function lcVals(){const g=k=>{const el=document.getElementById('lc_'+k);return el?el.value:''};const c=LC_FORM.kind==='contract';
+  const fields=c?{ctype:g('ctype'),project:g('project'),cr_no:g('cr_no'),start:g('start'),end:g('end'),signatory:g('signatory'),guarantee:g('guarantee'),products:g('products'),payment:g('payment'),delivery:g('delivery')}
+    :{term_days:g('term_days'),guarantee:g('guarantee'),guarantee_value:g('guarantee_value'),monthly:g('monthly'),cr_no:g('cr_no'),since:g('since'),project:g('project'),justification:g('justification')};
+  return {id:LC_FORM.id,kind:LC_FORM.kind,client_id:LC_FORM.client_id,title:g('title'),amount:g('amount'),fields,body:c?g('body'):null,template_id:c?g('tpl'):null,attachments:LC_FORM.files}}
+function lcFillBody(){const t=LCX.tpls.find(x=>x.id===(document.getElementById('lc_tpl')||{}).value);if(!t)return toast(L('اختر القالب','Pick a template'));
+  const v=lcVals();const x=byId('clients',LC_FORM.client_id)||{};const k=typeof qCfg==='function'?qCfg():{};const miss='[يُستكمل]';const dt=s=>s?fdate(s):miss;
+  const m={no:LC_FORM.id?lcRef(LCX.rows.find(d=>d.id===LC_FORM.id)||{}):L('(يُحدد عند الحفظ)','(set on save)'),date:fdate(TODAY()),company:k.coName||'مصنع الوادي الأخضر المميز',company_cr:k.crNo||miss,
+    client_name:x.name||miss,client_code:x.code||miss,cr_no:v.fields.cr_no||miss,signatory:v.fields.signatory||miss,project:v.fields.project||miss,value:v.amount?num(+v.amount):miss,
+    start:dt(v.fields.start),end:dt(v.fields.end),payment:v.fields.payment||miss,delivery:v.fields.delivery||miss,guarantee:v.fields.guarantee||miss,products:v.fields.products||miss};
+  document.getElementById('lc_body').value=t.body.replace(/\{\{(\w+)\}\}/g,(a,key)=>m[key]??a)}
+async function lcSaveForm(submit){const err=document.getElementById('lc_err');err.textContent='';if(!LC_FORM.client_id){err.textContent=L('اختر العميل من القائمة','Choose a customer');return}
+  BUSY=true;let r;try{r=await lcRpc('lc_save',{p:lcVals(),p_submit:!!submit})}catch(e){BUSY=false;err.textContent=e.message;return}BUSY=false;
+  if(r.id)LC_FORM.id=r.id;if(!r.ok){err.innerHTML=(r.errors||[]).map(esc).join('<br>');lcLoad(true);return}
+  closeModal();toast((submit?L('تم الإرسال للاعتماد ','Submitted '):L('تم حفظ المسودة ','Draft saved '))+(r.ref||''));lcLoad(true)}
+
+/* ---- detail ---- */
+async function lcOpen(id){const d=LCX.rows.find(x=>x.id===id);if(!d)return;const u=me().id;const {data:log}=await window.__sb.from('lc_log').select('*').eq('doc_id',id).order('id');
+  const kv=(l,v)=>v==null||v===''?'':`<dt>${l}</dt><dd>${v}</dd>`;const f=d.fields||{};const c=d.kind==='contract';const turn=lcMyTurn(d);
+  const canEdit=['draft','returned'].includes(d.status)&&d.created_by===u;const canCancel=(['draft','pending','returned'].includes(d.status)&&d.created_by===u)||(d.status==='approved'&&isMgr());
+  const canClose=d.status==='approved'&&!d.closed_at&&(isMgr()||lcCfg()||(c&&[d.created_by,d.rep_id,d.sup_id].includes(u)));
+  const stepIc={done:'✔',wait:'…',skipped:'↷',rejected:'✖',returned:'↩',error:'!'};
+  const route=(d.route||[]).map((s,i)=>{const now=d.status==='pending'&&d.cur===s.i;return `<div class="li"><div class="main"><div class="t">${stepIc[s.state]||''} ${i+1}. ${esc(s.name)} ${now?pill(L('المرحلة الحالية','Current'),'warn'):''}</div>
+    <div class="m">${s.state==='skipped'?esc(L('تم تخطيها: ','Skipped: ')+(s.note||'')):`${L('المعتمد','Approver')}: ${(s.approvers||[]).map(lcName).map(esc).join('، ')||'—'}`}${s.by?` · ${L('القرار من','Decided by')} ${esc(lcName(s.by))} ${fdt(s.at)}`:''}${s.dnote?` · «${esc(s.dnote)}»`:''}</div></div></div>`}).join('');
+  openModal(`${lcRef(d)} — ${d.client_name||''}`,`<div class="toolbar">${lcSt(d)}<span class="grow"></span>
+     ${c?`<button class="btn s" data-act="lcPrint" data-id="${d.id}">${L('طباعة العقد','Print')}</button>`:`<button class="btn s" data-act="lcPrint" data-id="${d.id}">${L('طباعة الطلب','Print')}</button>`}
+     ${canEdit?`<button class="btn s" data-act="lcEdit" data-id="${d.id}">${L('تعديل وإرسال','Edit & submit')}</button>`:''}
+     ${canCancel?`<button class="btn s d" data-act="lcCancel" data-id="${d.id}">${d.status==='approved'?L('إلغاء الاعتماد','Revoke'):L('إلغاء الطلب','Cancel')}</button>`:''}</div>
+   ${turn?`<div class="card" style="border:2px solid var(--warn,#e0a800)"><b>${L('دورك في الاعتماد: ','Your decision: ')}${esc(lcCur(d).name)}</b>
+     <textarea id="lc_dnote" rows="2" placeholder="${L('ملاحظة (إلزامية عند الإعادة أو الرفض)','Note (required to return or reject)')}" style="width:100%;margin:6px 0"></textarea>
+     <div class="formbar"><button class="btn d" data-act="lcDecide" data-id="${d.id}" data-a="reject">${L('رفض','Reject')}</button><button class="btn" data-act="lcDecide" data-id="${d.id}" data-a="return">${L('إعادة للاستكمال','Return')}</button><span class="grow"></span><button class="btn p" data-act="lcDecide" data-id="${d.id}" data-a="approve">${L('موافقة','Approve')}</button></div></div>`:''}
+   ${canClose?`<div class="card"><b>${c?L('بعد توقيع العميل: سجّل التوقيع وارفع النسخة الموقعة','After signing: record it and upload the signed copy'):L('بعد إدخال الحد الجديد في SAP سجّله هنا','After entering the new limit in SAP, record it here')}</b>
+     <div class="fgrid" style="margin-top:6px">${c?`<div class="fld"><label>${L('النسخة الموقعة (PDF أو صورة)','Signed copy')}</label><input type="file" id="lc_cfile" accept="image/*,application/pdf"></div>`:''}<div class="fld${c?'':' full'}"><label>${L('ملاحظة','Note')}</label><input id="lc_cnote"></div></div>
+     <div class="formbar"><span class="grow"></span><button class="btn p" data-act="lcClose" data-id="${d.id}">${c?L('تسجيل التوقيع','Record signature'):L('تم الإدخال في SAP','Entered in SAP')}</button></div></div>`:''}
+   <dl class="kv card">${kv(L('العميل','Customer'),`${esc(d.client_name||'')} — ${esc(d.client_code||'')}`)}${kv(L('المندوب / المشرف','Rep / supervisor'),`${esc(lcName(d.rep_id))} / ${esc(lcName(d.sup_id))}`)}${kv(L('مقدم الطلب','Created by'),esc(lcName(d.created_by))+' · '+fdt(d.created_at))}
+    ${c?kv(L('العنوان','Title'),esc(d.title||''))+kv(L('النوع','Type'),esc((LC_CTYPE.find(x=>x[0]===f.ctype)||[])[1]||''))+kv(L('المشروع','Project'),esc(f.project||''))+kv(L('قيمة العقد','Value'),d.amount!=null?money(d.amount):'')
+        +kv(L('المدة','Period'),f.start?`${fdate(f.start)} ← ${fdate(f.end)}`:'')+kv(L('شروط الدفع','Payment'),esc(f.payment||''))+kv(L('شروط التوريد','Delivery'),esc(f.delivery||''))+kv(L('الضمانات','Guarantees'),esc(f.guarantee||''))
+       :kv(L('الحد المطلوب','Requested limit'),d.amount!=null?`<b>${money(d.amount)}</b>`:'')+kv(L('مدة السداد','Term'),f.term_days?`${esc(f.term_days)} ${L('يوم','days')}`:'')+kv(L('الضمان','Guarantee'),esc((LC_GUAR.find(x=>x[0]===f.guarantee)||[])[1]||'')+(f.guarantee_value?` — ${money(+f.guarantee_value)}`:''))
+        +kv(L('المشتريات الشهرية المتوقعة','Expected monthly'),f.monthly?money(+f.monthly):'')+kv(L('السجل التجاري','CR no.'),esc(f.cr_no||''))+kv(L('بداية التعامل','Customer since'),esc(f.since||''))+kv(L('المشروع','Project'),esc(f.project||''))+kv(L('المبررات','Justification'),esc(f.justification||''))}
+    ${kv(L('ملاحظة القرار','Decision note'),esc(d.decision_note||''))}${d.closed_at?kv(c?L('التوقيع','Signed'):L('الإدخال في SAP','SAP entry'),`${esc(lcName(d.closed_by))} · ${fdt(d.closed_at)}${d.close_note?' · '+esc(d.close_note):''}`):''}
+    ${(d.attachments||[]).length?kv(L('المرفقات','Attachments'),d.attachments.map((a,i)=>`<a href="#" data-act="lcFile" data-id="${d.id}" data-i="${i}">${esc(a.name)}</a>`).join(' · ')):''}</dl>
+   ${route?`<div class="card"><b>${L('مسار الاعتماد','Approval route')}</b><div class="list">${route}</div></div>`:''}
+   ${c&&d.body?`<details class="card"><summary><b>${L('نص العقد','Contract text')}</b></summary><div style="white-space:pre-wrap;line-height:1.9;margin-top:8px">${esc(d.body)}</div></details>`:''}
+   <details class="card"><summary><b>${L('سجل الإجراءات','Activity log')}</b></summary><div class="list">${(log||[]).map(l=>`<div class="li"><div class="main"><div class="t">${esc(LC_ACT[l.action]||l.action)}</div><div class="m">${esc(lcName(l.by))} · ${fdt(l.at)}${l.note?' · '+esc(l.note):''}</div></div></div>`).join('')}</div></details>`)}
+function lcPrint(id){const d=LCX.rows.find(x=>x.id===id);if(!d)return;const k=typeof qCfg==='function'?qCfg():{};const logo=window.WADY_LOGO_DATA||'';const c=d.kind==='contract';const f=d.fields||{};
+  const w=window.open('','_blank');if(!w)return toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));
+  const row=(a,b)=>b?`<tr><th>${a}</th><td>${b}</td></tr>`:'';const draft=d.status!=='approved';
+  const route=(d.route||[]).filter(s=>s.state!=='skipped').map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.by?lcName(s.by):'')}</td><td>${s.at?fdt(s.at):''}</td><td>${esc({done:'موافق',rejected:'مرفوض',returned:'معاد',wait:'بالانتظار'}[s.state]||'')}</td></tr>`).join('');
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${lcRef(d)}</title><style>@page{size:A4;margin:14mm}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:12.5px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #051D48;padding-bottom:10px;margin-bottom:12px}.hd img{height:60px}.hd b{font-size:17px;color:#051D48}.hd small{display:block;color:#555}
+  .body{white-space:pre-wrap;line-height:2}h1{font-size:19px;color:#051D48;margin:6px 0 10px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #D7DEE8;padding:6px 8px;text-align:right}th{background:#F3F6FA;width:32%;font-weight:600}
+  .ap{margin-top:16px}.ap th{width:auto}.wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:84px;color:rgba(200,0,0,.08);transform:rotate(-25deg);font-weight:900}.ref{color:#38AC57;font-weight:700}</style></head><body>
+  ${draft?'<div class="wm">غير معتمد</div>':''}<div class="hd">${logo?`<img src="${logo}" alt="">`:''}<div><b>${esc(k.coName||'مصنع الوادي الأخضر المميز')}</b><small>${[k.crNo&&'س.ت: '+k.crNo,k.vatNo&&'الرقم الضريبي: '+k.vatNo].filter(Boolean).map(esc).join(' · ')}</small></div><span style="flex:1"></span><span class="ref">${lcRef(d)}</span></div>
+  ${c?`<div class="body">${esc(d.body||'')}</div>`:`<h1>طلب تسهيلات ائتمانية</h1><table>${row('العميل',esc(`${d.client_name||''} — ${d.client_code||''}`))}${row('السجل التجاري',esc(f.cr_no||''))}${row('المندوب',esc(lcName(d.rep_id)))}
+    ${row('الحد الائتماني المطلوب',d.amount!=null?num(d.amount)+' ريال':'')}${row('مدة السداد',f.term_days?esc(f.term_days)+' يوم':'')}${row('نوع الضمان',esc((LC_GUAR.find(x=>x[0]===f.guarantee)||[])[1]||''))}${row('قيمة الضمان',f.guarantee_value?num(+f.guarantee_value)+' ريال':'')}
+    ${row('المشتريات الشهرية المتوقعة',f.monthly?num(+f.monthly)+' ريال':'')}${row('بداية التعامل',esc(f.since||''))}${row('المشروع',esc(f.project||''))}${row('المبررات',esc(f.justification||''))}${row('تاريخ الطلب',fdate(d.created_at.slice(0,10)))}</table>`}
+  ${route?`<table class="ap"><tr><th>مرحلة الاعتماد</th><th>المعتمد</th><th>التاريخ</th><th>القرار</th></tr>${route}</table>`:''}
+  <script>window.onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
+
+/* ---- settings: approval routes + templates ---- */
+let LC_ED=null;
+V.lcset=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
+  if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const can=lcCfg();const kind=fv('lcSetK','contract');
+  if(!LC_ED||LC_ED.kind!==kind)LC_ED={kind,steps:JSON.parse(JSON.stringify(LCX.flows[kind]||[]))};
+  const users=LCX.profiles;const dis=can?'':'disabled';
+  const stepRow=(s,i)=>`<tr><td>${i+1}</td><td><input data-lcs="${i}" data-f="name" value="${esc(s.name||'')}" ${dis} style="width:100%"></td>
+    <td><select data-lcs="${i}" data-f="type" ${dis}>${opt([['sup',L('مشرف المندوب','Rep supervisor')],['role',L('دور','Role')],['users',L('مستخدمين محددين','Specific users')]],s.type)}</select></td>
+    <td>${s.type==='role'?`<select data-lcs="${i}" data-f="role" ${dis}>${opt(Object.entries(LC_ROLE),s.role||'',L('— اختر —','— choose —'))}</select>`:s.type==='users'?`<select multiple size="4" data-lcs="${i}" data-f="users" ${dis} style="min-width:180px">${users.map(u=>`<option value="${u.id}" ${(s.users||[]).includes(u.id)?'selected':''}>${esc(u.full_name||'')}</option>`).join('')}</select>`:`<span class="muted small">${L('المشرف المسجل للمندوب صاحب العميل','The customer rep\'s supervisor')}</span>`}</td>
+    <td><input type="number" step="any" data-lcs="${i}" data-f="min_amount" value="${esc(s.min_amount??'')}" placeholder="${L('كل القيم','any')}" ${dis} style="width:110px"></td>
+    <td class="nw">${can?`<button class="btn s" data-act="lcStep" data-op="up" data-i="${i}">↑</button><button class="btn s" data-act="lcStep" data-op="down" data-i="${i}">↓</button><button class="btn s d" data-act="lcStep" data-op="del" data-i="${i}">×</button>`:''}</td></tr>`;
+  return `<div class="tabs">${[['contract',L('دورة موافقات العقود','Contracts route')],['credit',L('دورة موافقات التسهيلات الائتمانية','Credit route')],['tpl',L('قوالب العقود','Contract templates')]].map(([k,l])=>`<button class="tab ${kind===k?'on':''}" data-act="filt" data-k="lcSetK" data-v="${k}">${l}</button>`).join('')}</div>
+   ${can?'':`<div class="banner info"><span class="sp">${L('تقدر تشوف الإعدادات بس، التعديل لمدير النظام.','View only; editing is for the system admin.')}</span></div>`}
+   ${kind==='tpl'?lcTplView(can):`<div class="card"><p class="small muted">${L('المراحل تمشي بالترتيب. «الحد الأدنى للقيمة»: المرحلة تنطبق بس لو قيمة العقد أو الحد المطلوب يساوي هذا الرقم أو أكثر، وتتخطاها لو أقل. مقدم الطلب ما يعتمد طلبه حتى لو كان من معتمدي المرحلة. وأي تعديل هنا يطبق على الطلبات اللي تنرسل بعده، أما الطلبات اللي قيد الاعتماد فتكمل على مسارها.','Steps run in order. Min amount: the step applies only at or above it. Changes apply to requests submitted afterwards.')}</p>
+     <div class="tw"><table><thead><tr><th>#</th><th>${L('اسم المرحلة','Step')}</th><th>${L('المعتمد','Approver')}</th><th></th><th>${L('الحد الأدنى للقيمة','Min amount')}</th><th></th></tr></thead>
+     <tbody>${LC_ED.steps.length?LC_ED.steps.map(stepRow).join(''):`<tr><td colspan="6" class="empty">${L('ما فيه مراحل','No steps')}</td></tr>`}</tbody></table></div>
+     ${can?`<div class="formbar"><button class="btn s" data-act="lcStep" data-op="add">+ ${L('إضافة مرحلة','Add step')}</button><span class="grow"></span><button class="btn" data-act="lcStepReset">${L('تراجع','Revert')}</button><button class="btn p" data-act="lcFlowSave">${L('حفظ دورة الموافقات','Save route')}</button></div>`:''}</div>`}`};
+function lcTplView(can){return `<div class="card"><div class="toolbar">${can?`<button class="btn p" data-act="lcTpl" data-id="">+ ${L('قالب جديد','New template')}</button>`:''}<span class="grow"></span></div>
+  ${LCX.tpls.length?`<div class="list">${LCX.tpls.map(t=>`<div class="li" data-act="lcTpl" data-id="${t.id}"><div class="main"><div class="t">${esc(t.name)}</div><div class="m">${L('آخر تعديل','Updated')} ${fdt(t.updated_at)}</div></div></div>`).join('')}</div>`:`<div class="muted">${L('ما فيه قوالب','No templates')}</div>`}
+  <div class="banner warn" style="margin-top:8px"><span class="sp">${L('القوالب مبدئية، ولازم يراجعها المستشار القانوني قبل الاستخدام.','Templates need legal review before use.')}</span></div></div>`}
+const LC_PH=[['no','رقم العقد'],['date','تاريخ اليوم'],['company','اسم الشركة'],['company_cr','سجل الشركة'],['client_name','اسم العميل'],['client_code','كود العميل'],['cr_no','سجل العميل'],['signatory','ممثل العميل'],['project','المشروع'],['products','المنتجات'],['value','قيمة العقد'],['start','البداية'],['end','النهاية'],['payment','شروط الدفع'],['delivery','شروط التوريد'],['guarantee','الضمانات']];
+function lcTplOpen(id){const t=LCX.tpls.find(x=>x.id===id)||{};const can=lcCfg();
+  openModal(t.id?t.name:L('قالب جديد','New template'),`<div class="fgrid"><div class="fld full"><label>${L('اسم القالب','Name')}</label><input id="lct_name" value="${esc(t.name||'')}" ${can?'':'disabled'}></div>
+   <div class="fld full"><label>${L('نص القالب','Text')}</label><textarea id="lct_body" rows="18" ${can?'':'disabled'}>${esc(t.body||'')}</textarea></div></div>
+   <div class="small muted">${L('الحقول اللي تتعبى تلقائياً: ','Placeholders: ')}${LC_PH.map(([k,l])=>`<code>{{${k}}}</code> ${l}`).join(' · ')}</div>
+   <div class="formbar">${can&&t.id?`<button class="btn d" data-act="lcTplDel" data-id="${t.id}">${L('إيقاف القالب','Deactivate')}</button>`:''}<span class="grow"></span><button class="btn" data-act="closeModal">${L('إغلاق','Close')}</button>${can?`<button class="btn p" data-act="lcTplSave" data-id="${t.id||''}">${L('حفظ','Save')}</button>`:''}</div>`)}
+document.addEventListener('change',e=>{const el=e.target;if(!el.dataset||el.dataset.lcs==null||!LC_ED)return;const s=LC_ED.steps[+el.dataset.lcs];if(!s)return;const f=el.dataset.f;
+  if(f==='users')s.users=[...el.selectedOptions].map(o=>o.value);else if(f==='min_amount')s.min_amount=el.value===''?null:+el.value;else s[f]=el.value;
+  if(f==='type'){delete s.role;delete s.users;render()}},true);
+document.addEventListener('input',e=>{const el=e.target;if(el.dataset&&el.dataset.lcs!=null&&el.dataset.f==='name'&&LC_ED){const s=LC_ED.steps[+el.dataset.lcs];if(s)s.name=el.value}},true);
+
+Object.assign(ACT,{
+  lcRe:()=>lcLoad(true),
+  lcNew:d=>lcForm(d.k,null),
+  lcEdit:d=>{const x=LCX.rows.find(r=>r.id===d.id);if(x){closeModal();lcForm(x.kind,x)}},
+  lcOpen:d=>lcOpen(d.id),
+  lcSave:d=>lcSaveForm(d.s==='1'),
+  lcFill:()=>{const b=document.getElementById('lc_body');if(b&&b.value.trim()&&!confirm(L('تعبئة النص من القالب تستبدل النص الحالي. تكمل؟','Replace the current text?')))return;lcFillBody()},
+  lcFileDel:d=>{LC_FORM.files.splice(+d.i,1);lcFilesPaint()},
+  lcFile:d=>{const x=LCX.rows.find(r=>r.id===d.id);const a=x?.attachments?.[+d.i];if(!a)return;const l=document.createElement('a');l.href=a.data;l.download=a.name;document.body.appendChild(l);l.click();l.remove()},
+  lcPrint:d=>lcPrint(d.id),
+  lcDecide:async d=>{const note=(document.getElementById('lc_dnote')||{}).value||'';if(d.a!=='approve'&&!note.trim())return toast(L('اكتب السبب في الملاحظة','Write the reason'));
+    if(d.a==='reject'&&!confirm(L('رفض الطلب نهائياً؟','Reject the request?')))return;
+    try{const r=await lcRpc('lc_decide',{p_id:d.id,p_action:d.a,p_note:note});if(!r.ok)return toast((r.errors||[]).join(' · '));closeModal();toast(L('تم تسجيل القرار','Decision recorded'));lcLoad(true)}catch(e){toast(e.message)}},
+  lcCancel:async d=>{const x=LCX.rows.find(r=>r.id===d.id);const n=prompt(x?.status==='approved'?L('سبب إلغاء الاعتماد:','Reason for revoking:'):L('سبب الإلغاء (اختياري):','Reason (optional):'));if(n===null)return;
+    try{const r=await lcRpc('lc_cancel',{p_id:d.id,p_note:n});if(!r.ok)return toast((r.errors||[]).join(' · '));closeModal();toast(L('تم الإلغاء','Cancelled'));lcLoad(true)}catch(e){toast(e.message)}},
+  lcClose:async d=>{const fi=document.getElementById('lc_cfile');let file=null;const fl=fi?.files?.[0];
+    if(fl){if(fl.size>2.5e6)return toast(L('حجم الملف أكبر من 2.5 ميجا','File over 2.5MB'));file={name:fl.name,type:fl.type,data:await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(fl)})}}
+    try{const r=await lcRpc('lc_close',{p_id:d.id,p_note:(document.getElementById('lc_cnote')||{}).value||'',p_file:file});if(!r.ok)return toast((r.errors||[]).join(' · '));closeModal();toast(L('تم التسجيل','Recorded'));lcLoad(true)}catch(e){toast(e.message)}},
+  lcStep:d=>{const st=LC_ED.steps,i=+d.i;if(d.op==='add')st.push({name:'',type:'role',role:'admin'});else if(d.op==='del')st.splice(i,1);
+    else if(d.op==='up'&&i>0)[st[i-1],st[i]]=[st[i],st[i-1]];else if(d.op==='down'&&i<st.length-1)[st[i+1],st[i]]=[st[i],st[i+1]];render()},
+  lcStepReset:()=>{LC_ED=null;render()},
+  lcFlowSave:async()=>{const steps=LC_ED.steps.map(s=>{const o={name:(s.name||'').trim(),type:s.type};if(s.type==='role')o.role=s.role;if(s.type==='users')o.users=s.users||[];if(s.min_amount!=null&&s.min_amount!=='')o.min_amount=+s.min_amount;return o});
+    try{const r=await lcRpc('lc_flow_save',{p_kind:LC_ED.kind,p_steps:steps});if(!r.ok)return toast((r.errors||[]).join(' · '));toast(L('تم حفظ دورة الموافقات','Route saved'));LC_ED=null;lcLoad(true)}catch(e){toast(e.message)}},
+  lcTpl:d=>lcTplOpen(d.id),
+  lcTplSave:async d=>{try{const r=await lcRpc('lc_template_save',{p:{id:d.id||null,name:document.getElementById('lct_name').value,body:document.getElementById('lct_body').value},p_delete:false});
+    if(!r.ok)return toast((r.errors||[]).join(' · '));closeModal();toast(L('تم حفظ القالب','Template saved'));lcLoad(true)}catch(e){toast(e.message)}},
+  lcTplDel:async d=>{if(!confirm(L('إيقاف القالب؟ العقود اللي انكتبت منه ما تتأثر.','Deactivate template?')))return;
+    try{const r=await lcRpc('lc_template_save',{p:{id:d.id},p_delete:true});if(!r.ok)return toast((r.errors||[]).join(' · '));closeModal();lcLoad(true)}catch(e){toast(e.message)}}
+});
+NAV.push(['contracts','doc',()=>L('العقود','Contracts'),()=>lcLvl('contract')>=1]);
+NAV.push(['credit','shield',()=>L('طلبات التسهيلات الائتمانية','Credit facility requests'),()=>lcLvl('credit')>=1]);
+NAV.push(['lcset','db',()=>L('إعدادات الموافقات والقوالب','Approvals & templates'),()=>lcCfg()||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=1)]);
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -4712,6 +4934,7 @@ const NAV_TREE=[
   ['pin',()=>L('الزيارات الميدانية','Field visits'),['plan','visits','calendar','complaints','comms','field']],
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
   ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
+  ['doc',()=>L('العقود القانونية','Legal contracts'),['contracts','credit','lcset']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
   ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
   ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
