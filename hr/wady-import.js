@@ -6,7 +6,11 @@
 
   /* ---------- 1. column setup per import: required / in template / column title ---------- */
   const CFG = kind => ((SET().importCols || {})[kind]) || {};
-  function applyCfg(kind, base) {
+  // additional fields (الحقول الإضافية) of the record become importable columns automatically
+  const CF_ENT = { employees: 'employee', shipments: 'shipment' };
+  const cfImpCols = kind => { const ent = CF_ENT[kind]; if (!ent || typeof cfDefs !== 'function') return []; return cfDefs(ent).filter(f => f.type !== 'section' && f.key).map(f => ['cf_' + f.key, f.label, 0, f.type === 'date' ? 'date' : f.type === 'number' ? 'num' : undefined]); };
+  const allBase = (kind, base) => base.concat(cfImpCols(kind).filter(x => !base.some(b => b[0] === x[0])));
+  function applyCfg(kind, base) { base = allBase(kind, base);
     const c = CFG(kind); const req = c.req || {}, tpl = c.tpl || {}, lbl = c.label || {};
     return base.filter(x => x[2] || req[x[0]] || tpl[x[0]] !== false).map(x => { const n = [...x]; if (lbl[x[0]]) n[1] = lbl[x[0]]; if (!x[2] && req[x[0]]) n[2] = 1; return n; });
   }
@@ -27,19 +31,28 @@
 
   ACT['imp-cols'] = el => {
     const kind = el.dataset.k; if (kind.startsWith('cs_')) IMPORTS[kind] = screenImportDef(scr(kind.slice(3)));
-    const def = IMPORTS[kind]; if (!def) return; const c = CFG(kind); const base = def.baseCols || def.cols;
+    const def = IMPORTS[kind]; if (!def) return; const c = CFG(kind); const base = allBase(kind, def.baseCols || def.cols);
     openModal('أعمدة ملف: ' + def.title.replace(/^استيراد /, ''), `<div class="note">حدّد الأعمدة الإلزامية واللي تطلع في القالب، وغيّر عنوان أي عمود ليطابق ملفاتكم. العمود الإلزامي أساسًا لا يمكن إلغاؤه.</div>
-      <form id="impcolsf"><div class="tablewrap"><table><thead><tr><th>الحقل</th><th>إلزامي</th><th>في القالب</th><th>عنوان العمود في الملف</th></tr></thead><tbody>${base.map(([k, l, req]) => `<tr><td><b>${esc(l)}</b></td>
+      <form id="impcolsf"><div class="tablewrap"><table><thead><tr><th>الحقل</th><th>إلزامي</th><th>في القالب</th><th>عنوان العمود في الملف</th></tr></thead><tbody>${base.map(([k, l, req]) => `<tr><td><b>${esc(l)}</b>${k.startsWith('cf_') ? ' <span class="badge">إضافي</span>' : ''}</td>
         <td>${req ? '<span class="badge b-bad">دائمًا</span>' : `<input type="checkbox" name="req_${k}" ${(c.req || {})[k] ? 'checked' : ''} aria-label="إلزامي">`}</td>
         <td>${req ? '<span class="small muted">دائمًا</span>' : `<input type="checkbox" name="tpl_${k}" ${(c.tpl || {})[k] === false ? '' : 'checked'} aria-label="في القالب">`}</td>
-        <td><input name="lbl_${k}" value="${esc((c.label || {})[k] || '')}" placeholder="${esc(l)}" style="width:100%;min-width:140px"></td></tr>`).join('')}</tbody></table></div></form>`,
+        <td><input name="lbl_${k}" value="${esc((c.label || {})[k] || '')}" placeholder="${esc(l)}" style="width:100%;min-width:140px"></td></tr>`).join('')}</tbody></table></div></form>${CF_ENT[kind] ? `<div class="row" style="margin-top:10px;gap:6px;align-items:flex-end"><div class="fld" style="margin:0"><label for="impcf-l">إضافة عمود جديد للملف</label><input id="impcf-l" placeholder="مثال: رقم الحساب البنكي"></div><div class="fld" style="margin:0"><label for="impcf-t">النوع</label><select id="impcf-t"><option value="text">نص</option><option value="number">رقم</option><option value="date">تاريخ</option></select></div><button class="btn" data-act="imp-cf-add" data-k="${esc(kind)}">+ إضافة</button></div><div class="small muted">العمود الجديد يُضاف كحقل في ${CF_ENT[kind] === 'employee' ? 'ملف الموظف' : 'بيانات الشحنة'} (الحقول الإضافية)، ويظهر في القالب والاستيراد والنموذج.</div>` : ''}`,
       `<button class="btn pri" data-act="imp-cols-save" data-k="${esc(kind)}">حفظ</button><button class="btn" data-act="imp-cols-reset" data-k="${esc(kind)}">استعادة الافتراضي</button><button class="btn" data-act="close-modal">إلغاء</button>`, true);
   };
   ACT['imp-cols-save'] = async el => {
     if (!canCfg()) return toast('تعديل إعداد الأعمدة يحتاج صلاحية محرر على الإعدادات', true);
     const kind = el.dataset.k, def = IMPORTS[kind], f = $('#impcolsf'); const req = {}, tpl = {}, label = {};
-    (def.baseCols || def.cols).forEach(([k, , r]) => { if (!r) { if (f.elements['req_' + k]?.checked) req[k] = true; if (!f.elements['tpl_' + k]?.checked) tpl[k] = false; } const v = T(f.elements['lbl_' + k]?.value); if (v) label[k] = v; });
+    allBase(kind, def.baseCols || def.cols).forEach(([k, , r]) => { if (!r) { if (f.elements['req_' + k]?.checked) req[k] = true; if (!f.elements['tpl_' + k]?.checked) tpl[k] = false; } const v = T(f.elements['lbl_' + k]?.value); if (v) label[k] = v; });
     await patch('settings', 'main', { importCols: { ...(SET().importCols || {}), [kind]: { req, tpl, label } } }); await audit('إعداد أعمدة الاستيراد', 'import', null, def.title); closeModal(); toast('تم حفظ إعداد الأعمدة');
+  };
+  ACT['imp-cf-add'] = async el => {
+    if (!canCfg()) return toast('إضافة عمود تحتاج صلاحية محرر على الإعدادات', true);
+    const kind = el.dataset.k, ent = CF_ENT[kind]; const label = T($('#impcf-l')?.value), type = $('#impcf-t')?.value || 'text';
+    if (!label) return toast('اكتب عنوان العمود', true);
+    const cur = ((SET().customFields || {})[ent] || []); if (cur.some(f => nk(f.label) === nk(label))) return toast('فيه حقل بنفس الاسم', true);
+    const f = { _id: newId(), key: 'f' + Math.random().toString(36).slice(2, 7), label, type, required: false };
+    await patch('settings', 'main', { customFields: { ...(SET().customFields || {}), [ent]: [...cur, f] } }); await audit('إضافة عمود استيراد', 'settings', null, label);
+    toast('تمت إضافة العمود: ' + label); setTimeout(() => ACT['imp-cols']({ dataset: { k: kind } }), 300);
   };
   ACT['imp-cols-reset'] = async el => {
     if (!canCfg()) return toast('تعديل إعداد الأعمدة يحتاج صلاحية محرر على الإعدادات', true);
@@ -82,6 +95,7 @@
     for (const r of rows) {
       const ex = empByNo(r.empNo); const o = {};
       for (const [k, f] of Object.entries(FIELD)) if (T(r[k]) !== '') o[f] = r[k];
+      { const cf = Object.keys(r).filter(k => k.startsWith('cf_') && T(r[k]) !== ''); if (cf.length) { o.custom = { ...((ex && ex.custom) || {}) }; cf.forEach(k => { o.custom[k.slice(3)] = r[k]; }); } }
       if (r.dept) o.deptId = unitByCode(r.dept); if (r.section) o.sectionId = unitByCode(r.section); if (r.loc) o.locationId = unitByCode(r.loc);
       if (ex) { ids[r.empNo] = ex.id; const ch = Object.entries(o).filter(([k, v]) => !sameJ(ex[k], v)); if (ch.length) { await patch('employees', ex.id, { ...o, updatedAt: at, importedById: S.meId }); await put('emphistory', newId(), { empId: ex.id, kind: 'data', field: 'استيراد', label: 'تحديث من Excel', old: null, new: ch.map(([k]) => k).join('، '), reason: 'استيراد ' + file, byId: S.meId, at }); } if (credOf(ex.id)) { r.username = ''; r.password = ''; } }
       else { const id = newId(); ids[r.empNo] = id; await put('employees', id, { empNo: r.empNo, ...o, joinDate: o.hireDate || null, status: 'active', roles: [], docs: [], createdAt: at, importedById: S.meId }); }
@@ -104,6 +118,7 @@
   };
   SH.commit = async function (rows, file) {
     const nw = rows.filter(r => !r._upd); if (nw.length) await _shCommit.call(this, nw, file);
+    { const withCf = rows.filter(r => Object.keys(r).some(k => k.startsWith('cf_') && T(r[k]) !== '') && r.blNo); if (withCf.length) { await sleep(400); for (const r of withCf) { const cur = D.shipments.list.find(x => x.blNo === r.blNo); if (!cur) continue; const c = { ...(cur.custom || {}) }; Object.keys(r).filter(k => k.startsWith('cf_') && T(r[k]) !== '').forEach(k => { c[k.slice(3)] = r[k]; }); await patch('shipments', cur.id, { custom: c }); } } }
     for (const r of rows.filter(r => r._upd)) { const cur = D.shipments.map[r._ex]; if (!cur) continue; const o = {};
       ['supplier', 'origin', 'poNo', 'goods', 'mode', 'port', 'currency', 'etd', 'eta'].forEach(k => { if (T(r[k]) !== '') o[k] = r[k]; });
       if (r.containers !== '') o.containers = r.containers; if (r.invoiceValue !== '') o.invoiceValue = r.invoiceValue; if (r.broker) o.brokerId = D.brokers.list.find(b => b.name === r.broker)?.id || cur.brokerId;

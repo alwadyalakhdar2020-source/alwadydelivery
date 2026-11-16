@@ -122,9 +122,11 @@
   const emitT = {}; function emitSoon(col) { clearTimeout(emitT[col]); emitT[col] = setTimeout(() => emit(col), 120); }
   function emit(col) { (listeners[col] || new Set()).forEach(fn => { try { fn(); } catch (e) { console.warn(e); } }); }
   const refetchT = {};
+  // emit only when the data really changed — an unchanged refresh must not repaint the screen
+  const sig = col => { const m = cache[col]; if (!m) return ''; try { return m.size + '|' + JSON.stringify([...m]); } catch (e) { return String(Math.random()); } };
   function refetch(col, delay = 250) {
     clearTimeout(refetchT[col]);
-    refetchT[col] = setTimeout(async () => { try { await fetchCol(col); emit(col); } catch (e) { console.warn('refetch', col, e); } }, delay);
+    refetchT[col] = setTimeout(async () => { try { const before = sig(col); await fetchCol(col); if (sig(col) !== before) emit(col); } catch (e) { console.warn('refetch', col, e); } }, delay);
   }
   function localSet(col, id, data) { (cache[col] = cache[col] || new Map()); if (data == null) cache[col].delete(id); else cache[col].set(id, clone(data)); emit(col); }
   function deepMerge(a, b) {
@@ -181,7 +183,7 @@
     try { sb.channel(TABLE + '_live').on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, p => { const col = (p.new && p.new.col) || (p.old && p.old.col); if (!col || !listeners[col]?.size) return;
       // apply the changed row directly; only fall back to a full reload when the payload is incomplete
       if (p.eventType === 'DELETE' && p.old && p.old.id && cache[col]) { cache[col].delete(p.old.id); emitSoon(col); }
-      else if (p.new && p.new.id && p.new.data && cache[col] && !(CFG.teamView && col === 'team')) { cache[col].set(p.new.id, p.new.data); emitSoon(col); }
+      else if (p.new && p.new.id && p.new.data && cache[col] && !(CFG.teamView && col === 'team')) { const cur = cache[col].get(p.new.id); if (cur && JSON.stringify(cur) === JSON.stringify(p.new.data)) return; cache[col].set(p.new.id, p.new.data); emitSoon(col); }
       else refetch(col, 400); }).subscribe(); } catch (e) { console.warn('realtime', e); }
     // safety net in case a live update was missed: small collections every 90 s, large ones every 15 min
     let tick = 0; setInterval(() => { if (document.hidden) return; tick++; Object.keys(listeners).forEach(c => { if (!listeners[c].size) return; const big = (cache[c]?.size || 0) > 3000; if (!big || tick % 10 === 0) refetch(c, Math.random() * 3000); }); }, 90000);

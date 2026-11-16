@@ -1350,6 +1350,8 @@ const segPill=s=>pillOf(SEGMENTS,s);
 
 /* ============ Charts (Chart.js, with an accessible fallback) ============ */
 const CHQ=[];const CHM=new Map();let chartSeq=0;
+// write HTML only when it actually changed — background data refreshes no longer repaint (and shake) an unchanged screen
+function setHTML(el,h){if(!el)return false;if(el.__h===h)return false;el.innerHTML=h;el.__h=h;return true}
 function chart(spec,h){const id='ch'+(++chartSeq);CHQ.push([id,spec]);return `<div class="chartbox" style="height:${h||260}px"><canvas id="${id}" role="img" aria-label="${esc(spec.title||'')}"></canvas></div>`}
 function tok(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
 function chartFallback(s){const ser=s.series[0]||{data:[]};return bars(s.labels.map((l,i)=>({l,v:ser.data[i]||0})),s.money?smoney:null)}
@@ -1395,14 +1397,14 @@ function renderChrome(){
     if(pendingGroup){h+=`<div class="navgrp">${pendingGroup}</div>`;pendingGroup=''}
     h+=`<button class="nv ${route===n[0]?'on':''}" data-go="${n[0]}">${icon(n[1])}<span>${n[2]()}</span>${n[0]==='alerts'&&ac?`<span class="cnt">${ac}</span>`:''}</button>`});
   h+='</nav>';
-  document.getElementById('side').innerHTML=h;
+  setHTML(document.getElementById('side'),h);
   const cur=NAV.find(n=>n[0]===route);
   const roleOpts=S.team.map(t=>[t.id,`${t.name} — ${lab(ROLES,t.role)}${t.region?' · '+regName(t.region):''}`]);
-  document.getElementById('top').innerHTML=`<h1>${cur?cur[2]():''}</h1>
+  setHTML(document.getElementById('top'),`<h1>${cur?cur[2]():''}</h1>
    <label class="asbox" for="viewAsSel"><span>${L('الدخول بصفة','Signed in as')}</span><select id="viewAsSel" data-act="viewAs">${opt(roleOpts,me().id)}</select></label>
-   <button class="btn s" data-act="lang">${lang==='ar'?'English':'عربي'}</button>`;
+   <button class="btn s" data-act="lang">${lang==='ar'?'English':'عربي'}</button>`);
   const tabs=[['dash','dash',L('الرئيسية','Home')],['clients','users',L('العملاء','Customers')],['collections','coin',L('التحصيل','Collect')],['visits','pin',L('الزيارات','Visits')],['more','more',L('المزيد','More')]];
-  document.getElementById('tabbar').innerHTML=tabs.map(t=>`<button class="${route===t[0]||(t[0]==='more'&&!tabs.some(x=>x[0]===route))?'on':''}" data-go="${t[0]}">${icon(t[1])}<span>${t[2]}</span>${t[0]==='more'&&ac?`<span class="dot">${ac}</span>`:''}</button>`).join('');
+  setHTML(document.getElementById('tabbar'),tabs.map(t=>`<button class="${route===t[0]||(t[0]==='more'&&!tabs.some(x=>x[0]===route))?'on':''}" data-go="${t[0]}">${icon(t[1])}<span>${t[2]}</span>${t[0]==='more'&&ac?`<span class="dot">${ac}</span>`:''}</button>`).join(''));
 }
 const metaDoc=()=>S.settings.find(x=>x.id==='meta')||{};
 const needsUpgrade=()=>mode==='db'&&loaded.has('settings')&&loaded.has('clients')&&hasDemo()&&!(metaDoc().demoVer>=DEMO_VER);
@@ -1834,7 +1836,7 @@ function plSummaryView(){
    ${kpiTile(L('الفعلي بدون ضريبة','Actual ex-VAT'),smoney(A),`${fpct(T?A/T:null)} ${L('من المستهدف','of target')}`,meter(T?A/T*100:0,achCls(T?A/T:null)))}
    ${kpiTile(L('الفرق عن المستهدف','Gap to target'),smoney(A-T),'')}${kpiTile(L('Back log خلال 3 أشهر','Backlog (3 months)'),smoney(B),`${fpct(T?B/(T*(C.backCover??3)):null)} ${L('من المطلوب','of required')}`)}</div>
    <div class="card"><h2>${L('المستهدف والفعلي حسب المندوب','Target vs actual by rep')}<span class="sub">${monthLabel(month)}</span></h2>
-   ${table([{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.r.name)}</b><div class="small muted">${regName(x.r.region)}</div>`},
+   ${table([{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.r.name)}</b><div class="small muted">${regName(x.r.region)}</div>`},{l:L('الاعتماد','Approval'),f:x=>x.none?'—':(typeof plStPill==='function'?plStPill(x.d):'')},
      {l:L('المستهدف','Target'),c:'n',f:x=>x.none?'—':plNum(x.c.target),t:()=>plNum(T)},{l:L('المتوقع بالضريبة','Expected incl. VAT'),c:'n',f:x=>x.none?'—':plNum(x.c.amt),t:()=>plNum(tot('amt'))},
      {l:L('الصافي المتوقع','Net expected'),c:'n',f:x=>x.none?'—':plNum(x.c.net),t:()=>plNum(N)},{l:L('تغطية البايب لاين','Coverage'),c:'n',f:x=>x.none?'—':`<span class="${pctCls(x.c.cover,C.pipeCover??1.5)}">${fpct(x.c.cover)}</span>`,t:()=>fpct(T?N/T:null)},
      {l:L('الفعلي بدون ضريبة','Actual ex-VAT'),c:'n',f:x=>x.none?'—':plNum(x.c.actEx),t:()=>plNum(A)},{l:L('النسبة %','Achievement'),c:'n',f:x=>x.none?'—':`${fpct(x.c.ach)}${meter((x.c.ach||0)*100,achCls(x.c.ach))}`,t:()=>fpct(T?A/T:null)},
@@ -2605,10 +2607,10 @@ function render(){
   const ae=document.activeElement;const aid=ae&&ae.id&&ae.closest('#view, #top')?ae.id:null;const sel=aid&&ae.selectionStart!=null?[ae.selectionStart,ae.selectionEnd]:null;
   const cur=NAV.find(n=>n[0]===route);if(cur&&cur[3]&&!cur[3]())route='dash';
   renderChrome();
-  let body='';CHQ.length=0;
+  let body='';CHQ.length=0;chartSeq=0;
   if(mode==='init'||(mode==='db'&&!(loaded.has('team')&&loaded.has('clients')&&loaded.has('collChunks')&&loaded.has('imports'))))body=`<div class="card empty">${L('جارٍ تحميل البيانات…','Loading…')}</div>`;
   else{try{body=banners()+(V[route]?V[route]():'')}catch(e){console.error(e);body=`<div class="card empty">${L('حدث خطأ في عرض الصفحة','Something went wrong')}</div>`}}
-  document.getElementById('view').innerHTML=body;
+  window.__viewSame=!setHTML(document.getElementById('view'),body);if(window.__viewSame)CHQ.length=0;
   if(aid){const el=document.getElementById(aid);if(el){el.focus();if(sel)try{el.setSelectionRange(sel[0],sel[1])}catch(e){}}}
   if(drawer)refreshDrawer();
   mountCharts();
@@ -3223,7 +3225,7 @@ V.mydash=()=>{
    (miss?`<div class="small muted">${L(`${miss} عنصر ما عاد متاح لك (تغيّرت الصلاحيات أو اسم المؤشر)`,`${miss} items are no longer available`)}</div>`:'')+
    (DS.pick=pick.map(w=>w.id),'');
 };
-function dsMount(){if(route!=='mydash'||DS.edit||!DS.pick)return;const ids=DS.pick;
+function dsMount(){if(route!=='mydash'||DS.edit||!DS.pick||window.__viewSame)return;const ids=DS.pick;
   const W=dsCollect();const K=document.getElementById('dsK'),C=document.getElementById('dsC');
   ids.forEach(id=>{const w=W.find(x=>x.id===id);if(!w)return;const n=w.node.cloneNode(true);if(w.kind==='kpi'){n.title=w.srcName;K&&K.appendChild(n)}else{const s=document.createElement('span');s.className='sub';s.textContent=w.srcName;n.querySelector('h2')?.appendChild(s);C&&C.appendChild(n)}})}
 {const _r=render;render=function(){const o=_r.apply(this,arguments);try{dsMount()}catch(e){console.warn(e)}return o}}
@@ -4380,6 +4382,42 @@ function ceHelp(){const c=CEX.cfg||{};const th=money(c.threshold??20000);return 
  <h2>تعديل الإعدادات</h2><p>من تبويب «الإعدادات» (لمدير النظام): سقف مدير المبيعات، والحد الشهري، ومدة الصلاحية، وأقصى عمر لبيانات SAP، وأيام العطلة، وأسماء مدير المبيعات والمدير العام، ومنع جدولة التوصيل. مدير النظام ما يقدر يضيف نفسه معتمداً، والمعتمدين يحتاجون صفحة «استثناءات التوريد الائتماني» في صلاحيات CRM.</p>
  <h2>مصدر البيانات</h2><p>الحد الائتماني وكود العميل من ملف العملاء المستورد من SAP. الرصيد من كشف الفواتير المفتوحة والمغلقة والتحصيل والإشعارات الدائنة (نفس حساب «أعمار الديون»). أول ما يكتمل الربط المباشر مع SAP Service Layer تنتقل القراءة له بدون تغيير في الشاشات.</p></div>`}
 
+/* ============ Pipeline approval: rep → supervisor → system admin (rules enforced again on the server) ============ */
+const PL_ST={draft:['مسودة','Draft',''],submitted:['بانتظار اعتماد المشرف','Awaiting supervisor','warn'],sup:['بانتظار اعتماد مدير النظام','Awaiting system admin','warn'],approved:['معتمد','Approved','ok'],returned:['مُرجع للتعديل','Returned','bad']};
+const plSt=d=>(d&&d.appr&&d.appr.status)||'draft';
+const plStPill=d=>{const s=PL_ST[plSt(d)];return pill(L(s[0],s[1]),s[2])};
+const plRepSup=rep=>{const t=byId('team',rep);return t&&t.supId&&byId('team',t.supId)?t.supId:''};
+function plMayAct(doc,ns){const st=plSt(doc),rep=doc.repId,uid=me().id;
+  if(ns==='submitted')return ['draft','returned'].includes(st)&&(rep===uid||isLead());
+  if(ns==='sup')return st==='submitted'&&rep!==uid&&(plRepSup(rep)===uid||(!plRepSup(rep)&&isAdmin()));
+  if(ns==='approved')return st==='sup'&&rep!==uid&&isAdmin();
+  if(ns==='returned')return (isAdmin()&&['submitted','sup','approved'].includes(st))||(st==='submitted'&&plRepSup(rep)===uid);
+  return false}
+{const _pce=plCanEdit;plCanEdit=function(rep){if(!_pce(rep))return false;const st=plSt(PL.doc);return ['draft','returned'].includes(st)||isAdmin()}}
+function plApprBar(doc){const a=doc.appr||{},st=plSt(doc);const who=id=>id?esc(tName(id)):'';const dt=s=>s?esc(String(s).replace('T',' ').slice(0,16)):'';
+  const steps=[['subBy','subAt',L('أرسله المندوب','Sent by rep')],['supBy','supAt',L('اعتماد المشرف','Supervisor approval')],['admBy','admAt',L('اعتماد مدير النظام','System admin approval')]];
+  const done=st==='approved'?3:st==='sup'?2:st==='submitted'?1:0;
+  const trail=steps.map(([b,t,l],i)=>`<span class="pl-step ${i<done?'ok':i===done&&st!=='draft'&&st!=='returned'?'cur':''}">${i<done?'✓':i+1} ${l}${i<done&&a[b]?` <small>${who(a[b])} · ${dt(a[t])}</small>`:''}</span>`).join('<span class="pl-arr">←</span>');
+  const btn=(ns,lab,cls)=>plMayAct(doc,ns)?`<button class="btn s ${cls||''}" data-act="plAppr" data-ns="${ns}">${lab}</button>`:'';
+  return `<div class="card pl-appr"><div class="row" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><b>${L('حالة الاعتماد','Approval')}:</b> ${plStPill(doc)}<span class="pl-trail">${trail}</span><span style="flex:1"></span>
+    ${PL.exists?btn('submitted',st==='returned'?L('إعادة الإرسال للاعتماد','Resubmit'):L('إرسال للمشرف للاعتماد','Send for approval'),'p'):''}${btn('sup',L('اعتماد المشرف','Approve (supervisor)'),'p')}${btn('approved',L('اعتماد نهائي','Final approval'),'p')}${btn('returned',st==='approved'?L('إعادة فتح للتعديل','Reopen'):L('إرجاع للتعديل','Return'),'d')}</div>
+    ${st==='returned'&&a.note?`<div class="banner warn" style="margin-top:8px"><span class="sp">${L('سبب الإرجاع','Returned because')}: ${esc(a.note)}${a.retBy?` — ${who(a.retBy)} · ${dt(a.retAt)}`:''}</span></div>`:''}
+    ${['submitted','sup','approved'].includes(st)&&!isAdmin()?`<div class="small muted" style="margin-top:6px">${L('البايب لاين مقفول للتعديل أثناء الاعتماد. خانة «الفعلي» تتحدث تلقائياً من سندات التحصيل.','The sheet is locked while in approval. Actuals still update from collection vouchers.')}</div>`:''}
+    ${!PL.exists&&(doc.repId===me().id||isLead())?`<div class="small muted" style="margin-top:6px">${L('احفظ البايب لاين أولاً ثم أرسله للاعتماد.','Save the sheet first, then send it for approval.')}</div>`:''}</div>`}
+{const _sv=plSheetView;plSheetView=function(){const h=_sv();if(!PL.doc||!PL.doc.repId)return h;const i=h.indexOf('<div id="plBar"');return i<0?plApprBar(PL.doc)+h:h.slice(0,i)+plApprBar(PL.doc)+h.slice(i)}}
+// leads see what is waiting for them
+const plWaiting=()=>S.pipeline.filter(d=>plMayAct(d,'sup')||plMayAct(d,'approved'));
+{const _pv=V.pipeline;V.pipeline=function(){const w=isLead()?plWaiting():[];return (w.length?`<div class="banner warn"><span class="sp">${L('بايب لاين بانتظار اعتمادك','Pipelines awaiting your approval')}: ${w.map(d=>`<a href="#" data-act="plGo" data-r="${esc(d.repId)}" data-m="${esc(d.month)}">${esc(tName(d.repId))} — ${esc(monthLabel(d.month))}</a>`).join(' · ')}</span></div>`:'')+_pv()}}
+ACT.plGo=d=>{F.plRep=d.r;F.plMonth=d.m;F.plTab='sheet';PL.key='';render()};
+ACT.plAppr=async d=>{const ns=d.ns;if(PL.dirty){toast(L('احفظ التغييرات أولاً','Save your changes first'));return}
+  const cur=byId('pipeline',PL.key);if(!cur){toast(L('احفظ البايب لاين أولاً','Save the sheet first'));return}
+  let note='';if(ns==='returned'){note=(prompt(L('سبب الإرجاع للتعديل:','Reason for returning:'))||'').trim();if(!note){toast(L('لازم تكتب السبب','A reason is required'));return}}
+  else if(!confirm(ns==='submitted'?L('إرسال البايب لاين للاعتماد؟ بيتقفل التعديل لين يتم الاعتماد أو الإرجاع.','Send for approval? Editing locks until it is approved or returned.'):L('تأكيد الاعتماد؟','Confirm approval?')))return;
+  const doc=clean(cur);doc.appr={...(doc.appr||{}),status:ns,...(note?{note}:{})};
+  try{await save('pipeline',doc);PL.key='';toast(ns==='submitted'?L('تم الإرسال للاعتماد','Sent for approval'):ns==='returned'?L('تم الإرجاع للتعديل','Returned'):L('تم الاعتماد','Approved'))}catch(e){toast(e.message||String(e))}
+  render()};
+{const st=document.createElement('style');st.textContent=`.pl-appr .pl-trail{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}.pl-step{padding:3px 8px;border-radius:12px;background:var(--bg2,#f1f3f6);color:var(--muted)}.pl-step.ok{background:#e6f4ea;color:#1e6b34}.pl-step.cur{background:#fff4dc;color:#7a4b00;font-weight:700}.pl-step small{opacity:.8}.pl-arr{opacity:.4}html[dir=ltr] .pl-arr{transform:scaleX(-1)}`;document.head.appendChild(st)}
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -4480,7 +4518,7 @@ function navTree(){const ac=computeAlerts().length;let h='',grp=null,items='',gi
     if(main){flush();grp=null}
     items+=`<button class="nv ${main?'nvm':''} ${route===n[0]?'on':''}" data-go="${n[0]}">${icon(n[1])}<span>${n[2]()}</span>${n[0]==='alerts'&&ac?`<span class="cnt">${ac}</span>`:''}</button>`});
   flush();return h}
-const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);const nav=document.querySelector('#side nav');if(nav)nav.innerHTML=navTree()};
+const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);const nav=document.querySelector('#side nav');if(nav)setHTML(nav,navTree())};
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ngt]');if(!b)return;e.preventDefault();e.stopPropagation();const i=+b.dataset.ngt,g=b.parentElement,o=!g.classList.contains('open');g.classList.toggle('open',o);b.setAttribute('aria-expanded',o);if(o)closed.delete(i);else closed.add(i);saveClosed()},true);
 const st=document.createElement('style');st.textContent=`
 #side nav .ng{margin-top:4px}
