@@ -2854,6 +2854,23 @@ document.addEventListener("click",e=>{const h=e.target.closest("[data-rc]");if(!
   if(anchor) anchor.insertAdjacentHTML("afterend",html); else el.insertAdjacentHTML("beforeend",html);
   rcPaint();if(!RC.maint&&!RC.loading) rcLoad()}}
 
+/* ===== Open maintenance → lost rides counted automatically.
+   Every day from the opening date to the closing date (both included) of a maintenance request, the day's shortfall is
+   attributed to «أعطال» (or to «متوقف بدون سائق» when the request type is «عدم وجود سائق») without anyone recording it.
+   Same rule in the database (fleet.days_calc) so the weekly report matches. ===== */
+["متوقفة للفحص","عدم وجود سائق"].forEach(c=>{if(typeof M_CATS!=="undefined"&&!M_CATS.includes(c))M_CATS.splice(M_CATS.length-1,0,c)});
+const MK={iv:{},at:0};
+async function mkLoad(){try{const L=await api("fleet_maint_list",{f:{from:"2000-01-01"}})||[];const iv={};
+  L.forEach(m=>{if(!m.vehicle_id||!m.opened_on)return;(iv[m.vehicle_id]=iv[m.vehicle_id]||[]).push([m.opened_on,m.status==="closed"&&m.closed_on?m.closed_on:"9999-12-31",m.category||""])});
+  MK.iv=iv;MK.at=Date.now();if(typeof render==="function")render()}catch(e){}}
+function mkOn(vid,iso){const a=MK.iv[vid];if(!a)return null;for(const x of a)if(x[0]<=iso&&iso<=x[1])return x;return null}
+function mkReasonIdx(cfg,cat){const R=cfg.reasons||[];const find=re=>R.findIndex(r=>re.test(r.name||""));
+  if(/سائق/.test(cat)){const i=find(/سائق/);if(i>=0)return i}const i=find(/عطل|أعطال|عطال/);return i}
+{const _cd=calcDay;calcDay=function(cfg,v,iso,day,today){const x=_cd(cfg,v,iso,day,today);if(!x.t||!v)return x;const m=mkOn(v.id,iso);if(!m)return x;
+  const i=mkReasonIdx(cfg,m[2]);if(i<0)return x;const r=Array.isArray(day&&day.r)?day.r.slice():[];while(r.length<(cfg.reasons||[]).length)r.push(null);
+  r[i]=Math.max(+r[i]||0,x.t);const y=_cd(cfg,v,iso,{...(day||{}),r},today);y.inMaint=m[2]||"صيانة";y.missing=0;return y}}
+setTimeout(mkLoad,1500);setInterval(()=>{if(!document.hidden)mkLoad()},300000);
+
 /* ===== Top menu in groups: each group is one button that opens its pages ===== */
 const FNAV_G=[["التوصيل",["ops","orders","plan","reserve","dreports"]],["الأسطول والأداء",["dashboard","entry","vehicle","drivers","maint","costs","docs","carrier"]],["التقارير",["report","log"]],["الإدارة",["places","admin","setup"]]];
 (function(){const st=document.createElement("style");st.textContent=`nav.tabs.grouped{overflow:visible;mask-image:none;-webkit-mask-image:none;flex-wrap:wrap}
@@ -2877,6 +2894,79 @@ document.addEventListener("click",e=>{const h=e.target.closest&&e.target.closest
 document.addEventListener("keydown",e=>{if(e.key==="Escape")fnavClose()});
 const _fnavSetup=setupNav;setupNav=function(){_fnavSetup.apply(this,arguments);fnavGroup()};
 new MutationObserver(()=>fnavMark()).observe(document.querySelector("nav.tabs")||document.body,{attributes:true,subtree:true,attributeFilter:["aria-current"]});
+
+/* ===== Live GPS tracking (Sactracking): map, status, today's km / idle, route of the day, vehicle ↔ tracker links, token setup ===== */
+const GPS={d:null,assets:null,map:null,layer:null,route:null,busy:false,timer:null,sel:null,day:null};
+VIEWS.push("gps");
+["sysadmin","ops_mgr","dispatcher","sales_sup"].forEach(r=>{const a=TABS_BY_ROLE[r];if(a&&!a.includes("gps"))a.splice(Math.max(0,a.indexOf("ops")+1),0,"gps")});
+(function(){const nav=document.querySelector("nav.tabs");if(nav&&!nav.querySelector('[data-v="gps"]')){const b=document.createElement("button");b.type="button";b.dataset.v="gps";b.textContent="التتبع المباشر (GPS)";const ops=nav.querySelector('[data-v="ops"]');ops?ops.after(b):nav.appendChild(b)}
+  const main=document.querySelector("main");if(main&&!document.getElementById("v-gps")){const s=document.createElement("section");s.id="v-gps";s.hidden=true;main.appendChild(s)}
+  if(typeof FNAV_G!=="undefined"){const g=FNAV_G.find(x=>x[1].includes("ops"));if(g&&!g[1].includes("gps"))g[1].splice(g[1].indexOf("ops")+1,0,"gps")}
+  const st=document.createElement("style");st.textContent=`#gps-map{height:460px;border-radius:12px;border:1px solid var(--line,#e3e6ea)}.gps-dot{width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)}.gps-lbl{font:700 11px system-ui;background:#fff;border-radius:6px;padding:1px 5px;box-shadow:0 1px 3px rgba(0,0,0,.25);white-space:nowrap}.gps-st{display:inline-block;width:9px;height:9px;border-radius:50%;margin-inline-end:5px}`;document.head.appendChild(st)})();
+const GPS_C={MOVING:"#1F9D55",RUNNING:"#1F9D55",IDLE:"#C27C00",IDLING:"#C27C00",STOPPED:"#B42318",OFF:"#6B7280"};
+const GPS_L={MOVING:"تتحرك",RUNNING:"تتحرك",IDLE:"تشغيل بدون حركة",IDLING:"تشغيل بدون حركة",STOPPED:"واقفة"};
+const gpsOff=v=>!v.last_seen||(Date.now()-new Date(v.last_seen).getTime())>30*60000;
+const gpsSt=v=>!v.gps_id?["غير مربوطة","#9CA3AF"]:!v.lat?["بانتظار أول قراءة","#9CA3AF"]:gpsOff(v)?["لا يوجد اتصال","#6B7280"]:[GPS_L[String(v.status).toUpperCase()]||v.status||"—",GPS_C[String(v.status).toUpperCase()]||"#1F6FB2"];
+const gpsAgo=t=>{if(!t)return"—";const m=Math.round((Date.now()-new Date(t).getTime())/60000);return m<1?"الآن":m<60?`قبل ${m} د`:m<1440?`قبل ${Math.floor(m/60)} س`:`قبل ${Math.floor(m/1440)} يوم`};
+const gpsCan=()=>["sysadmin","ops_mgr"].includes(ME&&ME.role);
+function gpsLeaflet(){return new Promise((ok,no)=>{if(window.L&&window.L.map)return ok();const c=document.createElement("link");c.rel="stylesheet";c.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";document.head.appendChild(c);
+  const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";s.onload=ok;s.onerror=()=>no(new Error("تعذر تحميل الخريطة"));document.head.appendChild(s)})}
+async function gpsLoad(){if(GPS.busy)return;GPS.busy=true;try{GPS.d=await api("gps_live",{});if(gpsCan()&&GPS.d.token)GPS.assets=await api("gps_assets_list",{})}catch(e){GPS.err=errMsg?errMsg(e):e.message}GPS.busy=false;if(S.view==="gps")renderGps()}
+function renderGps(){const el=$("#v-gps");if(!el)return;if(!GPS.d){el.innerHTML=`<div class="panel"><div class="empty">جاري تحميل بيانات التتبع…</div></div>`;gpsLoad();return}
+  const d=GPS.d;const V=(d.vehicles||[]).filter(v=>S.f.branch==="الكل"||v.branch===S.f.branch);
+  if(!d.token){el.innerHTML=`<div class="panel"><h2>التتبع المباشر (GPS)</h2><p>الربط مع منصة التتبع (Sactracking) جاهز، ويحتاج مفتاح الربط اللي أرسلته شركة الأجهزة.</p>
+     ${gpsCan()&&(ME.role==="sysadmin")?gpsTokenForm():`<p class="muted">يدخل المفتاح مدير النظام من هذه الصفحة.</p>`}</div>`;return}
+  const linked=V.filter(v=>v.gps_id),on=linked.filter(v=>v.lat&&!gpsOff(v)),mov=on.filter(v=>/MOV|RUN/i.test(v.status||"")),off=linked.filter(v=>v.lat&&gpsOff(v));
+  const km=V.reduce((s,v)=>s+(+v.km_today||0),0),idle=V.reduce((s,v)=>s+(+v.idle_today||0),0);
+  const last=(d.log||[]).find(l=>l.action==="positions");const bad=(d.log||[]).find(l=>!l.ok);
+  el.innerHTML=`<div class="panel"><h2>التتبع المباشر (GPS) <span class="q">يتحدث كل 5 دقائق من منصة Sactracking${last?` · آخر تحديث ${gpsAgo(last.at)}`:""}</span></h2>
+   <div class="kpis">${kpiBox("مربوطة بجهاز تتبع",`${linked.length} / ${V.length}`)}${kpiBox("تتحرك الحين",mov.length)}${kpiBox("متصلة وواقفة",on.length-mov.length)}${kpiBox("بدون اتصال (+30 دقيقة)",off.length)}${kpiBox("كم اليوم (الأسطول)",fmt(km,0))}${kpiBox("ساعات تشغيل بدون حركة اليوم",fmt(idle,1))}</div>
+   ${bad&&(Date.now()-new Date(bad.at).getTime())<3600000?`<div class="banner warn">آخر خطأ من منصة التتبع (${gpsAgo(bad.at)}): ${esc(bad.msg||"")}</div>`:""}
+   <div class="row" style="gap:8px;margin:8px 0"><button class="btn sm" data-gps="refresh">تحديث الشاشة</button>${["sysadmin","ops_mgr","dispatcher"].includes(ME.role)?`<button class="btn sm" data-gps="sync">مزامنة من المنصة الآن</button>`:""}
+    <span class="grow"></span><label class="small">مسار يوم <input type="date" id="gps-day" value="${GPS.day||localToday()}"></label>${GPS.sel?`<button class="btn sm ghost" data-gps="clear">إخفاء المسار</button>`:""}</div>
+   <div id="gps-map"></div></div>
+   <div class="panel"><h2>السيارات</h2><div class="tablewrap"><table class="tbl"><thead><tr><th>السيارة</th><th>الفرع</th><th>السائق</th><th>الحالة</th><th>السرعة</th><th>آخر إشارة</th><th>كم اليوم</th><th>تشغيل بدون حركة</th><th>الحمولة</th><th></th></tr></thead><tbody>
+   ${V.sort((a,b)=>(b.gps_id?1:0)-(a.gps_id?1:0)||String(a.id).localeCompare(String(b.id))).map(v=>{const [l,c]=gpsSt(v);const w=((v.sensors||{}).weight||[])[0];
+     return `<tr><td><b>${esc(vehLabel(v))}</b>${v.plate&&vehLabel(v)!==v.plate?`<div class="small muted">${esc(v.plate)}</div>`:""}</td><td>${esc(v.branch)}</td><td class="small">${esc(v.driver||"")}</td><td><span class="gps-st" style="background:${c}"></span>${esc(l)}</td>
+      <td>${v.lat&&!gpsOff(v)?fmt(+v.speed||0,0)+" كم/س":"—"}</td><td class="small">${gpsAgo(v.last_seen)}</td><td>${v.km_today!=null?fmt(+v.km_today,1):"—"}</td><td>${v.idle_today!=null?fmt(+v.idle_today,1)+" س":"—"}</td>
+      <td class="small">${w?`${fmt(+w.cargoKG||0,0)} كجم`:"—"}</td><td>${v.lat?`<button class="btn xs" data-gps="track" data-id="${esc(v.id)}">مسار اليوم</button>`:""}</td></tr>`}).join("")}</tbody></table></div>
+   <p class="small muted">الوقت والكيلومترات من منصة Sactracking. «تشغيل بدون حركة» = ساعات المحرك شغال والسيارة واقفة، حسب المنصة. الحمولة تظهر للسيارات اللي فيها حساس وزن.</p></div>
+   ${gpsCan()?gpsAdminHtml():""}`;
+  gpsMap(V)}
+function kpiBox(l,v){return `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div></div>`}
+function gpsTokenForm(){return `<div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap"><label class="f" style="min-width:320px">مفتاح الربط (x-token)<input type="password" id="gps-token" autocomplete="off" dir="ltr" placeholder="الصق المفتاح هنا"></label><button class="btn" data-gps="token">حفظ المفتاح</button></div>
+  <p class="small muted">المفتاح ينحفظ مشفراً في خزنة الخادم ولا يرجع لأي متصفح. بعد الحفظ تبدأ المزامنة تلقائياً.</p>`}
+function gpsAdminHtml(){const A=GPS.assets||[];const veh=(GPS.d.vehicles||[]);const used=new Set(A.filter(a=>a.vehicle_id).map(a=>a.vehicle_id));
+  return `<div class="panel"><h2>ربط أجهزة التتبع بالسيارات <span class="q">الربط التلقائي بالأرقام في اللوحة — راجعه وعدّل المختلف</span></h2>
+   ${A.length?`<div class="tablewrap"><table class="tbl"><thead><tr><th>الجهاز في المنصة</th><th>اللوحة في المنصة</th><th>IMEI</th><th>السيارة في النظام</th></tr></thead><tbody>
+   ${A.map(a=>`<tr><td>${esc(a.name||a.gps_id)}</td><td>${esc(a.plate||"")}</td><td class="small" dir="ltr">${esc(a.imei||"")}</td><td><select data-gpslink="${esc(a.gps_id)}"><option value="">— غير مربوط —</option>${veh.map(v=>`<option value="${esc(v.id)}" ${a.vehicle_id===v.id?"selected":""} ${used.has(v.id)&&a.vehicle_id!==v.id?"disabled":""}>${esc(vehLabel(v))}${v.plate&&vehLabel(v)!==v.plate?" · "+esc(v.plate):""}</option>`).join("")}</select>${a.auto&&a.vehicle_id?' <span class="small muted">(تلقائي)</span>':""}</td></tr>`).join("")}</tbody></table></div>`
+   :`<div class="empty">ما وصلت قائمة الأجهزة من المنصة للحين. اضغط «مزامنة من المنصة الآن» وانتظر دقيقة.</div>`}
+   <h3 style="margin-top:14px">سجل المزامنة</h3><div class="small">${(GPS.d.log||[]).map(l=>`<div>${l.ok?"✓":"✗"} ${esc(gpsAgo(l.at))} · ${esc(l.action)} · ${esc(l.msg||"")}</div>`).join("")||"—"}</div>
+   ${ME.role==="sysadmin"?`<details style="margin-top:12px"><summary>تغيير مفتاح الربط</summary>${gpsTokenForm()}</details>`:""}</div>`}
+async function gpsMap(V){const box=document.getElementById("gps-map");if(!box)return;try{await gpsLeaflet()}catch(e){box.innerHTML=`<div class="empty">${esc(e.message)}</div>`;return}
+  if(GPS.map){try{GPS.map.remove()}catch(e){}GPS.map=null}
+  const m=L.map(box,{zoomControl:true});GPS.map=m;L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(m);
+  const pts=[];V.filter(v=>v.lat&&v.lng).forEach(v=>{const [l,c]=gpsSt(v);const ic=L.divIcon({className:"",html:`<div style="display:flex;align-items:center;gap:3px"><div class="gps-dot" style="background:${c}"></div><span class="gps-lbl">${esc(vehLabel(v))}</span></div>`,iconSize:[10,10],iconAnchor:[7,7]});
+    L.marker([v.lat,v.lng],{icon:ic}).addTo(m).bindPopup(`<b>${esc(vehLabel(v))}</b> · ${esc(v.plate||"")}<br>${esc(v.driver||"")}<br>${esc(l)}${!gpsOff(v)?` · ${fmt(+v.speed||0,0)} كم/س`:""}<br>آخر إشارة: ${gpsAgo(v.last_seen)}${v.km_today!=null?`<br>كم اليوم: ${fmt(+v.km_today,1)}`:""}`);pts.push([v.lat,v.lng])});
+  if(pts.length)m.fitBounds(pts,{padding:[30,30],maxZoom:13});else m.setView([21.45,39.85],9);
+  if(GPS.sel)gpsDrawTrack()}
+async function gpsDrawTrack(){if(!GPS.map||!GPS.sel)return;const day=($("#gps-day")||{}).value||localToday();GPS.day=day;let t=[];try{t=await api("gps_track",{p_vehicle:GPS.sel,p_date:day})}catch(e){toast(errMsg(e),"err");return}
+  if(GPS.route){try{GPS.route.remove()}catch(e){}}if(!t.length){toast("ما فيه نقاط مسجلة لهذي السيارة في اليوم المختار","err");return}
+  GPS.route=L.layerGroup().addTo(GPS.map);L.polyline(t.map(p=>[p[0],p[1]]),{color:"#1F6FB2",weight:4,opacity:.8}).addTo(GPS.route);
+  t.forEach((p,i)=>{if(i===0||i===t.length-1||(i%6===0))L.circleMarker([p[0],p[1]],{radius:i===0||i===t.length-1?6:3,color:i===0?"#1F9D55":i===t.length-1?"#B42318":"#1F6FB2"}).bindTooltip(`${p[2]} · ${fmt(+p[3]||0,0)} كم/س`).addTo(GPS.route)});
+  GPS.map.fitBounds(t.map(p=>[p[0],p[1]]),{padding:[30,30]})}
+document.addEventListener("click",async e=>{const b=e.target.closest("[data-gps]");if(!b)return;const a=b.dataset.gps;
+  if(a==="refresh"){GPS.d=null;renderGps()}
+  if(a==="sync"){try{await api("gps_sync_now",{p_action:"all"});toast("بدأت المزامنة، تظهر النتائج خلال دقيقة");setTimeout(()=>{GPS.d=null;if(S.view==="gps")renderGps()},25000)}catch(x){toast(errMsg(x),"err")}}
+  if(a==="token"){const v=($("#gps-token")||{}).value||"";try{const r=await api("gps_token_set",{p_token:v.trim()});if(r&&r.ok===false)throw new Error(r.error);toast("تم حفظ المفتاح، وبدأت أول مزامنة");$("#gps-token").value="";setTimeout(()=>{GPS.d=null;if(S.view==="gps")renderGps()},20000);GPS.d=null;renderGps()}catch(x){toast(errMsg(x),"err")}}
+  if(a==="track"){GPS.sel=b.dataset.id;gpsDrawTrack();document.getElementById("gps-map")?.scrollIntoView({behavior:"smooth",block:"center"})}
+  if(a==="clear"){GPS.sel=null;if(GPS.route){GPS.route.remove();GPS.route=null}renderGps()}});
+document.addEventListener("change",async e=>{const s=e.target.closest("[data-gpslink]");if(s){const gid=s.dataset.gpslink;const vid=s.value;try{
+    if(vid)await api("gps_link_set",{p_vehicle:vid,p_gps_id:gid});else{const cur=(GPS.assets||[]).find(a=>a.gps_id===gid);if(cur&&cur.vehicle_id)await api("gps_link_set",{p_vehicle:cur.vehicle_id,p_gps_id:""})}
+    toast("تم تحديث الربط");GPS.d=null;renderGps()}catch(x){toast(errMsg(x),"err")}}
+  if(e.target.id==="gps-day"&&GPS.sel)gpsDrawTrack()});
+{const _dr=doRender;doRender=function(){if(S.view==="gps"){try{renderBanner();updateSyncBadge()}catch(e){}renderGps();return}return _dr.apply(this,arguments)}}
+setInterval(()=>{if(S.view==="gps"&&!document.hidden){gpsLoad()}},60000);
 
 start();
 
