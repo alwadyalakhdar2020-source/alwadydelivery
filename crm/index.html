@@ -4526,6 +4526,73 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target&&e.target.i
 NAV.push(['commset','db',()=>L('إعدادات مركز التواصل','Communication settings'),()=>isAdmin()],['commphones','users',()=>L('تنظيف أرقام العملاء','Client phone cleanup'),()=>isAdmin()||role()==='mgr']);
 {const h=(location.hash||'').slice(1);if(['commset','commphones'].includes(h)){route=h;setTimeout(render,0)}}
 
+/* ============ Communication Center — phases 5–7: client history, call outcome, dashboard ============ */
+const CM_OUT=[['reached','تم التواصل'],['interested','مهتم'],['quote','يطلب عرض سعر'],['visit','يطلب زيارة'],['complaint','شكوى / ملاحظة'],['not_interested','غير مهتم'],['no_answer','لم يرد'],['wrong','رقم خاطئ']];
+const CM_ST={ringing:['يرن','info'],answered:['تم الرد','ok'],completed:['مكتملة','ok'],missed:['فائتة','bad'],busy:['مشغول','warn'],failed:['فشلت','bad'],transferred:['محوّلة','info'],
+  received:['واردة','info'],queued:['بالانتظار',''],sent:['أُرسلت',''],delivered:['وصلت','info'],read:['قُرئت','ok']};
+const cmDur=s=>{s=Math.round(+s||0);if(!s)return '—';const m=Math.floor(s/60),x=s%60;return m?`${m}:${String(x).padStart(2,'0')}`:`${x} ث`};
+const cmSt=s=>{const v=CM_ST[s];return v?pill(v[0],v[1]):pill(s||'—')};
+const CMT={};  // client id -> timeline cache
+
+function cmTimelineHtml(id){const t=CMT[id];const manual=(S.comms||[]).filter(c=>c.clientId===id);const tasks=(typeof tkAll==='function'?tkAll():(S.tasks||[])).filter(x=>x.clientId===id);
+  if(!t)return `<div class="muted small">${L('جاري تحميل سجل التواصل…','Loading…')}</div>`;
+  if(t.err)return `<div class="muted small">${esc(t.err)}</div>`;
+  const items=[
+    ...(t.calls||[]).map(c=>({at:c.at,h:`<div class="li"><div class="main"><div class="t">📞 ${c.dir==='in'?L('مكالمة واردة','Incoming call'):L('مكالمة صادرة','Outgoing call')} ${cmSt(c.status)} <span class="small muted">${cmDur(c.duration_s)}</span></div>
+      <div class="m">${fdt(c.at)} · ${esc(c.user||'—')} · <span dir="ltr">${esc(c.number||'')}</span></div>${(c.notes||[]).map(n=>`<div class="m">📝 ${esc((CM_OUT.find(o=>o[0]===n.outcome)||[,n.outcome||''])[1])}${n.note?' — '+esc(n.note):''} <span class="muted">(${esc(n.by||'')})</span></div>`).join('')}</div>
+      <div class="end"><button class="btn s" data-act="cmOutcome" data-id="${c.id}" data-c="${esc(id)}">${L('النتيجة','Outcome')}</button></div></div>`})),
+    ...(t.messages||[]).map(m=>({at:m.at,h:`<div class="li"><div class="main"><div class="t">${m.channel==='whatsapp'?'🟢 WhatsApp':'✉️ SMS'} ${m.dir==='in'?L('وارد','in'):L('صادر','out')} ${cmSt(m.status)}</div><div class="m">${esc(m.template?'['+m.template+'] ':'')}${esc(m.body||(m.type!=='text'?m.type:''))}</div><div class="m">${fdt(m.at)} · ${esc(m.user||'—')}</div></div></div>`})),
+    ...manual.map(c=>({at:c.at,h:`<div class="li" data-open="comm" data-id="${c.id}"><div class="main"><div class="t">🗒️ ${L('ملاحظة تواصل','Logged contact')} · ${lab(CHANNELS,c.channel)} ${c.dir==='in'?L('وارد','in'):L('صادر','out')}</div><div class="m">${esc(c.summary||'')}</div><div class="m">${fdt(c.at)} · ${esc(tName(c.repId))}</div></div></div>`})),
+    ...tasks.map(x=>({at:(x.date||'')+'T'+(x.time||'00:00'),h:`<div class="li" data-act="tkOpen" data-id="${x.id}"><div class="main"><div class="t">${(TASK_KINDS[x.kind]||[])[2]||'📌'} ${esc(x.title||'')}</div><div class="m">${fdate(x.date)}${x.time?' '+x.time:''} · ${esc(tName(x.repId))}</div></div><div class="end">${x.status==='done'?pill(L('منجزة','Done'),'ok'):pill(L('مفتوحة','Open'),'info')}</div></div>`}))
+  ].sort((a,b)=>String(b.at||'').localeCompare(String(a.at||''))).slice(0,60);
+  return items.length?`<div class="list">${items.map(i=>i.h).join('')}</div>`:`<div class="muted small">${L('لا يوجد تواصل مسجّل بعد','Nothing yet')}</div>`}
+async function cmTimelineLoad(id){try{CMT[id]=await cmRpc('comm_timeline',{p_client:id})}catch(e){CMT[id]={err:e.message}}const el=document.getElementById('cm-tl');if(el&&el.dataset.c===id)el.innerHTML=cmTimelineHtml(id)}
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const mb=document.getElementById('mbody');if(!mb||!byId('clients',id))return;
+  const h=sec(L('سجل التواصل','Communication history'),`<button class="btn s" data-act="newComm" data-c="${esc(id)}">+ ${L('ملاحظة','Note')}</button>`,`<div id="cm-tl" data-c="${esc(id)}">${cmTimelineHtml(id)}</div>`);
+  const first=mb.querySelector('.sec');if(first)first.insertAdjacentHTML('beforebegin',h);else mb.insertAdjacentHTML('beforeend',h);
+  if(!refresh||!CMT[id])cmTimelineLoad(id)}}
+if(!ACT.newComm)ACT.newComm=d=>editComm(null,{clientId:d.c});
+
+ACT.cmOutcome=d=>openForm({title:L('نتيجة المكالمة','Call outcome'),data:{outcome:'',task:false,tdate:TODAY()},fields:[
+  {k:'outcome',l:L('النتيجة','Outcome'),t:'sel',opts:CM_OUT},{k:'note',l:L('ملاحظات','Notes'),t:'area'},
+  {k:'task',l:L('مهمة متابعة','Follow-up'),t:'check',cl:L('إنشاء مهمة متابعة','Create a follow-up task')},{k:'tdate',l:L('تاريخ المتابعة','Follow-up date'),t:'date'}],
+  onSave:async v=>{let tid=null;if(v.task){const c=byId('clients',d.c);tid='tk-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      await save('tasks',{id:tid,kind:'followup',title:L('متابعة مكالمة: ','Call follow-up: ')+(c?c.name:''),clientId:d.c,repId:me().id,date:v.tdate||TODAY(),time:'',status:'open',repeat:'none',remind:'15',source:'comm-outcome'})}
+    await cmRpc('comm_call_outcome',{p_call:d.id,p_outcome:v.outcome||'',p_note:v.note||'',p_task:tid});toast(L('تم الحفظ','Saved'));delete CMT[d.c];cmTimelineLoad(d.c)}});
+
+/* ---- dashboard ---- */
+const CD={d:null,busy:false,err:null,key:''};
+function cdF(){const t=TODAY();return {from:fv('cd_from',t.slice(0,8)+'01'),to:fv('cd_to',t),user:fv('cd_user',''),sup:fv('cd_sup',''),region:fv('cd_reg',''),ch:fv('cd_ch','')}}
+async function cdLoad(){const f=cdF(),k=JSON.stringify(f);if(CD.busy)return;CD.busy=true;
+  try{CD.d=await cmRpc('comm_dashboard',{p_from:f.from,p_to:f.to,p_user:f.user||null,p_sup:f.sup||null,p_region:f.region||null,p_channel:f.ch||null});CD.err=null;CD.key=k}catch(e){CD.err=e.message;CD.key=k}
+  CD.busy=false;if(route==='commdash')render()}
+const cdT=s=>{s=+s;if(!s&&s!==0||isNaN(s))return '—';if(s<60)return Math.round(s)+L(' ث',' s');if(s<3600)return Math.round(s/60)+L(' د',' min');return (s/3600).toFixed(1)+L(' س',' h')};
+const cdN=v=>v==null?'—':(+v).toLocaleString('en-US');
+V.commdash=()=>{const f=cdF(),k=JSON.stringify(f);if(CD.key!==k&&!CD.busy)cdLoad();
+  const sel=(id,opts,val,all)=>`<select id="${id}" data-act="filtSel" data-k="${id}">${`<option value="">${all}</option>`}${opts.map(([v,l])=>`<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const team=S.team.filter(t=>t.id===me().id||inScope({repId:t.id}));const sups=S.team.filter(t=>t.role==='sup');
+  const bar=`<div class="toolbar" style="flex-wrap:wrap;gap:6px"><label class="small">${L('من','From')} <input type="date" id="cd_from" data-act="filtSel" data-k="cd_from" value="${f.from}"></label><label class="small">${L('إلى','To')} <input type="date" id="cd_to" data-act="filtSel" data-k="cd_to" value="${f.to}"></label>
+    ${team.length>1?sel('cd_user',team.map(t=>[t.id,t.username||t.name]),f.user,L('كل الموظفين','All employees')):''}${isMgr()||isAdmin()?sel('cd_sup',sups.map(t=>[t.id,t.username||t.name]),f.sup,L('كل المشرفين','All supervisors')):''}
+    ${sel('cd_reg',REGIONS.map(r=>[r.id,L(r.ar,r.en)]),f.region,L('كل المناطق','All regions'))}${sel('cd_ch',[['call',L('مكالمات','Calls')],['whatsapp','WhatsApp'],['sms','SMS']],f.ch,L('كل القنوات','All channels'))}</div>`;
+  const d=CD.d;if(!d)return bar+`<div class="card empty">${CD.err?esc(CD.err):L('جاري التحميل…','Loading…')}</div>`;
+  const T=d.totals||{};const k2=(l,v,cls)=>`<div class="kpi"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div></div>`;
+  const cost=(+T.cost_calls||0)+(+T.cost_msgs||0);
+  return bar+(!d.live?`<div class="banner info"><span class="sp">${L('لا يوجد مزوّد اتصالات فعلي مفعّل بعد، فاللوحة فاضية. تعرض بيانات حقيقية فقط وتبدأ تمتلئ تلقائياً بعد ربط المزوّد (المرحلتان 3 و4).','No live provider yet — the dashboard shows real data only and fills once a provider is connected.')}</span></div>`:'')
+   +(!d.hours_set?`<div class="banner warn"><span class="sp">${L('ساعات العمل الرسمية غير محددة، فالتنبيهات والتصعيد متوقفة. حددها من «إعدادات مركز التواصل».','Working hours are not set, so alerts are paused.')}</span></div>`:'')
+   +`<div class="kpis">${k2(L('إجمالي المكالمات','Calls'),cdN(T.calls))}${k2(L('واردة / صادرة','In / out'),`${cdN(T.c_in)} / ${cdN(T.c_out)}`)}${k2(L('مجابة / فائتة (الوارد)','Answered / missed'),`${cdN(T.ans_in)} / ${cdN(T.miss_in)}`)}
+     ${k2(L('نسبة الرد على الوارد','Answer rate'),T.answer_rate==null?'—':T.answer_rate+'%')}${k2(L('متوسط زمن الرد','Avg time to answer'),cdT(T.avg_ring_s))}${k2(L('متوسط مدة المكالمة','Avg call length'),cdT(T.avg_dur_s))}
+     ${k2(L('رسائل واردة / صادرة','Messages in / out'),`${cdN(T.msg_in)} / ${cdN(T.msg_out)}`)}${k2(L('رسائل بلا رد','Unanswered messages'),cdN(T.no_reply),T.no_reply?'bad':'')}${k2(L('متوسط زمن الاستجابة للرسائل','Avg reply time'),cdT(T.avg_reply_s))}
+     ${k2(L('فائتة لم يُعد الاتصال بها','Missed, not returned'),cdN(T.missed_not_returned),T.missed_not_returned?'bad':'')}${k2(L('مهام متابعة مفتوحة','Open follow-ups'),cdN(T.tasks_open))}${k2(L('تنبيهات متأخرة (مصعّدة)','Escalated alerts'),cdN(T.alerts_late),T.alerts_late?'bad':'')}
+     ${k2(L('تكلفة الاتصالات','Cost'),cost?cost.toLocaleString('en-US',{maximumFractionDigits:2}):'—')}</div>
+   <div class="card"><h3>${L('مقارنة الموظفين','By employee')}</h3>${table([{l:L('الموظف','Employee'),f:u=>`<b>${esc(u.name)}</b>`},{l:L('مكالمات','Calls'),f:u=>cdN(u.calls)},{l:L('وارد','In'),f:u=>cdN(u.in)},{l:L('صادر','Out'),f:u=>cdN(u.out)},
+     {l:L('نسبة الرد','Answer rate'),f:u=>u.in?Math.round(u.answered/u.in*100)+'%':'—'},{l:L('فائتة','Missed'),f:u=>cdN(u.missed)},{l:L('متوسط المدة','Avg length'),f:u=>cdT(u.avg_dur_s)},
+     {l:L('رسائل وارد/صادر','Msgs in/out'),f:u=>`${cdN(u.msg_in)} / ${cdN(u.msg_out)}`},{l:L('بلا رد','Unanswered'),f:u=>cdN(u.no_reply)},{l:L('زمن الاستجابة','Reply time'),f:u=>cdT(u.avg_reply_s)},{l:L('تنبيهات مفتوحة','Open alerts'),f:u=>cdN(u.alerts)}],d.by_user||[])}</div>
+   <div class="card"><h3>${L('مقارنة المناطق','By region')}</h3>${table([{l:L('المنطقة','Region'),f:r=>esc(r.region?regName(r.region):L('غير محددة','Not set'))},{l:L('مكالمات','Calls'),f:r=>cdN(r.calls)},{l:L('وارد','In'),f:r=>cdN(r.in)},{l:L('نسبة الرد','Answer rate'),f:r=>r.in?Math.round(r.answered/r.in*100)+'%':'—'},{l:L('فائتة','Missed'),f:r=>cdN(r.missed)},{l:L('رسائل','Messages'),f:r=>cdN(r.msgs)}],d.by_region||[])}</div>
+   <div class="card"><h3>${L('مكالمات فائتة لم يُعد الاتصال بها','Missed calls not returned')}</h3>${table([{l:L('الوقت','Time'),f:m=>fdt(m.at)},{l:L('العميل','Client'),f:m=>m.client_id?`<a href="#" data-open="client" data-id="${esc(m.client_id)}">${esc(m.client||'')}</a>`:`<span class="muted">${L('غير محدد','Unknown')}</span>`},{l:L('الرقم','Number'),f:m=>`<span dir="ltr">${esc(m.number||'')}</span>`},{l:L('الموظف','Employee'),f:m=>esc(m.user||'—')}],d.missed||[])}</div>`};
+
+NAV.push(['commdash','dash',()=>L('لوحة الاتصالات','Communication dashboard'),()=>isAdmin()||['rep','sup','mgr'].includes(role())]);
+{const h=(location.hash||'').slice(1);if(h==='commdash'){route=h;setTimeout(render,0)}}
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -4601,7 +4668,7 @@ const NAV_TREE=[
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
   ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
-  ['pin',()=>L('مركز التواصل','Communication center'),['commset','commphones']],
+  ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
   ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
   ['build',null,['prodplan']]];
 const DROP=new Set(['dlvvehicle','dlvdrivers']);
