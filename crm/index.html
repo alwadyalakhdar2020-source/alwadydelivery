@@ -4593,6 +4593,51 @@ V.commdash=()=>{const f=cdF(),k=JSON.stringify(f);if(CD.key!==k&&!CD.busy)cdLoad
 NAV.push(['commdash','dash',()=>L('لوحة الاتصالات','Communication dashboard'),()=>isAdmin()||['rep','sup','mgr'].includes(role())]);
 {const h=(location.hash||'').slice(1);if(h==='commdash'){route=h;setTimeout(render,0)}}
 
+/* ============ Project radar: candidate projects from free public news sources, by region ============ */
+const RD={d:null,busy:false,key:'',err:null,qs:null};
+const RD_ST={new:['جديد','info'],review:['قيد المراجعة','warn'],converted:['تحوّل لمشروع','ok'],dismissed:['مستبعد','']};
+const RD_STAGE={tender:['طرح / منافسة','warn'],award:['ترسية / عقد','ok'],execution:['تنفيذ / تدشين','info'],design:['تصميم / تخطيط',''],done:['مكتمل','']};
+const RD_PSTAGE={tender:'tender',award:'award',execution:'execution',design:'design',done:'done'};
+const rdCan=()=>isAdmin()||['rep','sup','mgr'].includes(role());
+const rdF=()=>({st:fv('rd_st','new'),reg:fv('rd_reg',''),q:fv('rd_q','')});
+async function rdLoad(){const f=rdF(),k=JSON.stringify(f);if(RD.busy)return;RD.busy=true;
+  try{RD.d=await cmRpc('radar_list',{p_status:f.st,p_region:f.reg||null,p_q:f.q,p_limit:80,p_offset:0});RD.err=null}catch(e){RD.err=e.message}RD.key=k;RD.busy=false;if(route==='radar')render()}
+V.radar=()=>{if(!rdCan())return `<div class="card empty">${L('غير مصرح','Not allowed')}</div>`;
+  const f=rdF(),k=JSON.stringify(f);if(RD.key!==k&&!RD.busy)rdLoad();const d=RD.d;
+  const tab=(s,l)=>`<button class="tab ${f.st===s?'on':''}" data-act="filt" data-k="rd_st" data-v="${s}">${l}${d&&d.counts&&d.counts[s]?` ${d.counts[s]}`:''}</button>`;
+  const head=`<div class="banner info"><span class="sp">${L('رادار المشاريع يجمع يومياً (5:10 صباحاً) أخبار المشاريع الجديدة من مصادر عامة مجانية (بحث الأخبار العربية — أخبار الصحف والجهات الحكومية)، ويصنّفها حسب المنطقة ونوع المشروع والمرحلة ويرتّبها حسب مناسبتها لمنتجاتنا. هذه ترشيحات من الأخبار تحتاج تحقق قبل التواصل.','The radar collects new-project news daily from free public sources, classifies it by region/type/stage and ranks it. These are leads to verify.')}</span></div>
+   <div class="toolbar" style="flex-wrap:wrap;gap:6px"><div class="tabs">${tab('new',L('جديد','New'))}${tab('review',L('قيد المراجعة','Reviewing'))}${tab('converted',L('تحوّل لمشروع','Converted'))}${tab('dismissed',L('مستبعد','Dismissed'))}${tab('all',L('الكل','All'))}</div>
+    <span class="grow" style="flex:1"></span><select data-act="filtSel" data-k="rd_reg"><option value="">${L('كل المناطق','All regions')}</option>${(d?.regions||[]).map(r=>`<option value="${esc(r.region==='غير محددة'?'':r.region)}" ${f.reg===r.region?'selected':''}>${esc(r.region)} (${r.n})</option>`).join('')}<option value="jed" ${f.reg==='jed'?'selected':''}>${L('جدة فقط','Jeddah only')}</option><option value="mak" ${f.reg==='mak'?'selected':''}>${L('مكة فقط','Makkah only')}</option></select>
+    <input type="search" id="rd_q" placeholder="${L('بحث في العناوين','Search titles')}" value="${esc(f.q)}"><button class="btn s" data-act="rdFind">${L('بحث','Search')}</button>
+    ${isAdmin()||['mgr','sup'].includes(role())?`<button class="btn s" data-act="rdRun">${L('تحديث الآن','Refresh now')}</button>`:''}${isAdmin()||role()==='mgr'?`<button class="btn s" data-act="rdQs">${L('عبارات البحث','Search phrases')}</button>`:''}</div>
+   ${d&&d.last_run?`<div class="small muted" style="margin:4px 0">${L('آخر تحديث','Last run')}: ${fdt(d.last_run.at)} — ${esc(d.last_run.msg||'')}</div>`:''}`;
+  if(!d)return head+`<div class="card empty">${RD.err?esc(RD.err):L('جاري التحميل…','Loading…')}</div>`;
+  return head+`<div class="list">${(d.rows||[]).map(r=>{const sg=RD_STAGE[r.stage];return `<div class="card" style="padding:12px">
+    <div style="display:flex;gap:8px;align-items:flex-start"><div style="min-width:44px;text-align:center"><div style="font-size:20px;font-weight:800;color:${r.score>=60?'var(--ok,#1e8e3e)':r.score>=35?'var(--warn,#b26a00)':'var(--muted,#888)'}">${r.score}</div><div class="small muted">${L('أولوية','score')}</div></div>
+     <div style="flex:1"><a href="${esc(r.link)}" target="_blank" rel="noopener" style="font-weight:700">${esc(r.title)}</a>
+      <div class="small muted" style="margin:3px 0">${esc(r.source||'')} · ${r.published_at?fdt(r.published_at):''}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${r.region?pill(r.region+(r.city?' — '+r.city.replace(/ه( |$)/g,'ة$1'):''),'info'):pill(L('منطقة غير محددة','Region unknown'))}${r.ptype?pill(r.ptype):''}${sg?pill(sg[0],sg[1]):''}${pill(RD_ST[r.status][0],RD_ST[r.status][1])}</div>
+      ${r.snippet?`<div class="small" style="margin-top:4px">${esc(r.snippet.slice(0,220))}</div>`:''}${r.note?`<div class="small muted">📝 ${esc(r.note)}</div>`:''}</div>
+     <div style="display:flex;flex-direction:column;gap:4px">${r.status!=='converted'?`<button class="btn p s" data-act="rdConv" data-id="${r.id}">${L('تحويل لمشروع','Make project')}</button>`:''}${r.status==='new'?`<button class="btn s" data-act="rdSet" data-id="${r.id}" data-s="review">${L('للمراجعة','Review')}</button>`:''}${r.status!=='dismissed'&&r.status!=='converted'?`<button class="btn s" data-act="rdSet" data-id="${r.id}" data-s="dismissed">${L('استبعاد','Dismiss')}</button>`:''}${r.status==='dismissed'?`<button class="btn s" data-act="rdSet" data-id="${r.id}" data-s="new">${L('إرجاع','Restore')}</button>`:''}</div></div></div>`}).join('')||`<div class="card empty">${L('لا توجد مشاريع في هذا التصنيف','Nothing here')}</div>`}</div>`};
+ACT.rdFind=()=>{F.rd_q=(document.getElementById('rd_q')||{}).value||'';render()};
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target&&e.target.id==='rd_q'){e.preventDefault();ACT.rdFind()}});
+ACT.rdSet=async d=>{let note=null;if(d.s==='dismissed'){note=prompt(L('سبب الاستبعاد (اختياري):','Reason (optional):'));if(note===null)return}
+  try{await cmRpc('radar_set',{p_id:d.id,p_status:d.s,p_note:note||null});RD.key='';render()}catch(e){toast(e.message)}};
+ACT.rdRun=async()=>{try{await cmRpc('radar_run_now');toast(L('بدأ التحديث، النتائج خلال دقيقة','Started — results in a minute'));setTimeout(()=>{RD.key='';if(route==='radar')render()},45000)}catch(e){toast(e.message)}};
+ACT.rdConv=d=>{const r=(RD.d.rows||[]).find(x=>x.id===d.id);if(!r)return;
+  editProject(null,{name:r.title.slice(0,120),stage:RD_PSTAGE[r.stage]||'design',region:r.crm_region||'',notes:`${L('من رادار المشاريع','From project radar')}: ${r.source||''} — ${r.link}${r.region?`\n${L('المنطقة','Region')}: ${r.region}${r.city?' / '+r.city:''}`:''}`,radarId:r.id});
+  toast(L('اختر مالك المشروع (العميل) ثم احفظ — يتحول الترشيح تلقائياً','Pick the owner client, then save'))};
+ACT.rdQs=async()=>{try{RD.qs=await cmRpc('radar_queries_get')}catch(e){return toast(e.message)}
+  openModal(L('عبارات البحث','Search phrases'),`<div class="small muted">${L('كل عبارة تُبحث يومياً في الأخبار العربية لآخر 14 يوماً. الأفضل عبارات فيها نوع المشروع والمدينة.','Each phrase is searched daily in Arabic news (last 14 days).')}</div>
+   <div class="list" style="margin:8px 0">${RD.qs.map(q=>`<div class="li"><div class="main"><div class="t">${esc(q.q)}</div></div><div class="end"><label class="small"><input type="checkbox" data-act="rdQTog" data-id="${q.id}" ${q.active?'checked':''}> ${L('مفعّلة','On')}</label> <button class="btn s" data-act="rdQDel" data-id="${q.id}">✕</button></div></div>`).join('')}</div>
+   <div style="display:flex;gap:6px"><input id="rd_newq" placeholder="${L('مثال: ترسية مشروع طرق الطائف','e.g. road project award Taif')}" style="flex:1"><button class="btn p" data-act="rdQAdd">${L('إضافة','Add')}</button></div>`)};
+ACT.rdQAdd=async()=>{const v=(document.getElementById('rd_newq')||{}).value||'';try{await cmRpc('radar_query_save',{p_id:null,p_q:v,p_active:true,p_delete:false});ACT.rdQs()}catch(e){toast(e.message)}};
+ACT.rdQDel=async d=>{if(!confirm(L('حذف العبارة؟','Delete phrase?')))return;try{await cmRpc('radar_query_save',{p_id:d.id,p_q:'xxxx',p_active:false,p_delete:true});ACT.rdQs()}catch(e){toast(e.message)}};
+document.addEventListener('change',e=>{const t=e.target;if(t&&t.dataset&&t.dataset.act==='rdQTog'){const q=(RD.qs||[]).find(x=>x.id===t.dataset.id);if(q)cmRpc('radar_query_save',{p_id:q.id,p_q:q.q,p_active:t.checked,p_delete:false}).catch(err=>toast(err.message))}},true);
+NAV.push(['radar','pin',()=>L('رادار المشاريع','Project radar'),rdCan]);
+{const h=(location.hash||'').slice(1);if(h==='radar'){route=h;setTimeout(render,0)}}
+ACT.rdQTog=ACT.rdQTog||(()=>{});
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -4663,7 +4708,7 @@ document.addEventListener('click',e=>{if(e.target.closest('[data-act="aiToggle"]
 const NAV_TREE=[
   [null,null,['mydash','dash','alerts','recs']],
   ['users',()=>L('العملاء','Customers'),['clients','leads','custmap']],
-  ['pipe',()=>L('البايب لاين','Pipeline'),['pipeline','opps','oppboard','projects']],
+  ['pipe',()=>L('البايب لاين','Pipeline'),['pipeline','opps','oppboard','projects','radar']],
   ['pin',()=>L('الزيارات الميدانية','Field visits'),['plan','visits','calendar','complaints','comms','field']],
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
   ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
