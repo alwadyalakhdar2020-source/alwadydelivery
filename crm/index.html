@@ -5284,6 +5284,319 @@ Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSub
  @media(max-width:700px){.sapdoc .sd-hd,.sapdoc .sd-ft{grid-template-columns:1fr}}`;document.head.appendChild(st)})();
 NAV.push(['sapdocs','doc',()=>L('مستندات ساب (البيع والتحصيل)','SAP sales documents'),()=>sdLvl()>=1]);
 
+/* ===== Marketing (التسويق) — inside the CRM: content calendar, posts written with the AI assistant, approval before
+   publishing, campaigns, the company's social pages and campaign performance. Posts are published by the team on each
+   platform (copy + open page) and the live post links are recorded here; automatic publishing needs each platform's
+   business account connected first. Writes go through mk_* database functions only. ===== */
+const MK_PL={instagram:['إنستقرام','Instagram','#C13584',2200],x:['إكس','X','#111111',280],tiktok:['تيك توك','TikTok','#000000',2200],snapchat:['سناب شات','Snapchat','#E6C800',250],
+  linkedin:['لينكدإن','LinkedIn','#0A66C2',3000],facebook:['فيسبوك','Facebook','#1877F2',5000],youtube:['يوتيوب','YouTube','#FF0000',5000],whatsapp:['واتساب','WhatsApp','#25D366',1000],google:['خرائط قوقل','Google Business','#4285F4',1500]};
+const MK_KIND={post:['منشور','Post'],reel:['ريلز / فيديو قصير','Reel'],story:['ستوري','Story'],carousel:['ألبوم صور','Carousel'],video:['فيديو','Video'],article:['مقال','Article']};
+const MK_ST={draft:['مسودة',''],review:['بانتظار الاعتماد','warn'],returned:['مرجع للتعديل','bad'],approved:['معتمد — جاهز للنشر','info'],rejected:['مرفوض','bad'],published:['منشور','ok']};
+const MK_CST={planned:['مخططة',''],active:['جارية','ok'],done:['منتهية','info'],cancelled:['ملغاة','bad']};
+const MKX={loaded:false,busy:false,err:null,posts:[],camps:[],accts:[],metrics:[],log:[],me:{},users:{}};
+const mkN=(o,k)=>o[k]?L(o[k][0],o[k][1]):(k||'');
+const mkPl=k=>MK_PL[k]?`<span class="mk-pl" style="--c:${MK_PL[k][2]}">${L(MK_PL[k][0],MK_PL[k][1])}</span>`:esc(k);
+const mkSt=s=>pill(L(MK_ST[s]?.[0]||s,s),MK_ST[s]?.[1]||'');
+const mkInt=v=>{const n=+v;return isFinite(n)?n:0};
+const mkLocal=iso=>{if(!iso)return'';const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(iso)).map(x=>[x.type,x.value]));return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`};
+const mkDay=iso=>mkLocal(iso).slice(0,10);
+const mkTime=iso=>mkLocal(iso).slice(11,16);
+const mkWhen=iso=>iso?`${fdate(mkDay(iso))} ${mkTime(iso)}`:L('بدون موعد','Not scheduled');
+const mkRpc=async(fn,args)=>{const {data,error}=await window.__sb.rpc(fn,args);if(error)throw error;if(data&&data.ok===false)throw new Error((data.errors||[]).join(' · '));return data};
+async function mkLoad(force){if(MKX.busy||(MKX.loaded&&!force))return;MKX.busy=true;
+  try{const sb=window.__sb;const [p,c,a,m,me,lg]=await Promise.all([sb.from('mk_posts').select('*').order('scheduled_at',{ascending:true,nullsFirst:false}).limit(3000),sb.from('mk_campaigns').select('*').order('id',{ascending:false}),
+      sb.from('mk_accounts').select('*').order('platform'),sb.from('mk_metrics').select('*').order('at',{ascending:false}).limit(5000),sb.rpc('mk_me'),sb.from('mk_log').select('*').order('id',{ascending:false}).limit(500)]);
+    for(const r of [p,c,a,m,me,lg])if(r.error)throw r.error;
+    Object.assign(MKX,{posts:p.data||[],camps:c.data||[],accts:a.data||[],metrics:m.data||[],me:me.data||{},log:lg.data||[],loaded:true,err:null});
+    const ids=[...new Set([...MKX.posts.flatMap(x=>[x.created_by,x.reviewed_by]),...MKX.log.map(x=>x.by)].filter(Boolean))].filter(id=>!MKX.users[id]);
+    if(ids.length){const {data}=await sb.from('profiles').select('id,full_name').in('id',ids);(data||[]).forEach(u=>MKX.users[u.id]=u.full_name)}}
+  catch(e){MKX.err=e.message;MKX.loaded=true}MKX.busy=false;render()}
+const mkUser=id=>esc(MKX.users[id]||(id&&me()&&id===me().id?me().name:'')||'—');
+const mkCamp=id=>MKX.camps.find(c=>c.id===+id);
+const mkHead=()=>!window.__sb?`<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`:!MKX.loaded?(mkLoad(),`<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`):MKX.err?`<div class="banner bad"><span class="sp">${esc(MKX.err)}</span></div>`:'';
+const mkCanPost=()=>(MKX.me.posts||0)>=3;
+
+/* ---------- content calendar ---------- */
+V.mkcal=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;
+  const m=fv('mkMonth',TODAY().slice(0,7));const [y,mo]=m.split('-').map(Number);const first=new Date(Date.UTC(y,mo-1,1));const days=new Date(Date.UTC(y,mo,0)).getUTCDate();
+  const lead=(first.getUTCDay()+1)%7; // weeks start on Saturday
+  const plat=fv('mkCalPl','');const posts=MKX.posts.filter(p=>p.scheduled_at&&mkDay(p.scheduled_at).startsWith(m)&&(!plat||p.platforms.includes(plat)));
+  const byDay={};posts.forEach(p=>(byDay[mkDay(p.scheduled_at)]=byDay[mkDay(p.scheduled_at)]||[]).push(p));
+  const prev=new Date(Date.UTC(y,mo-2,1)).toISOString().slice(0,7),next=new Date(Date.UTC(y,mo,1)).toISOString().slice(0,7);
+  const wd=['السبت','الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];let cells='';for(let i=0;i<lead;i++)cells+='<div class="mk-cell off"></div>';
+  for(let d=1;d<=days;d++){const k=`${m}-${String(d).padStart(2,'0')}`;const list=(byDay[k]||[]).sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
+    cells+=`<div class="mk-cell ${k===TODAY()?'today':''}"><div class="mk-dn">${d}${mkCanPost()?`<button class="mk-add" data-act="mkNew" data-d="${k}" title="${L('منشور جديد','New post')}">+</button>`:''}</div>
+      ${list.map(p=>`<button class="mk-chip st-${p.status}" data-act="mkOpen" data-id="${p.id}"><b>${mkTime(p.scheduled_at)}</b> ${esc(p.title)}<span>${p.platforms.map(x=>`<i style="background:${MK_PL[x]?.[2]}"></i>`).join('')}</span></button>`).join('')}</div>`}
+  const unsched=MKX.posts.filter(p=>!p.scheduled_at&&p.status!=='published');
+  return (h||'')+`<div class="toolbar"><button class="btn s" data-act="filt" data-k="mkMonth" data-v="${prev}">‹</button><b style="min-width:140px;text-align:center">${new Intl.DateTimeFormat('ar-SA-u-ca-gregory',{month:'long',year:'numeric'}).format(first)}</b><button class="btn s" data-act="filt" data-k="mkMonth" data-v="${next}">›</button>
+    <button class="btn s" data-act="filt" data-k="mkMonth" data-v="${TODAY().slice(0,7)}">${L('الشهر الحالي','This month')}</button>
+    <select data-act="filtSel" data-k="mkCalPl" style="width:auto">${opt(Object.keys(MK_PL).map(k=>[k,mkN(MK_PL,k)]),plat,L('كل المنصات','All platforms'))}</select><span class="grow"></span>
+    ${mkCanPost()?`<button class="btn s" data-act="mkPlan" data-m="${m}">✦ ${L('اقترح خطة الشهر بالذكاء الاصطناعي','AI month plan')}</button><button class="btn p" data-act="mkNew">+ ${L('منشور جديد','New post')}</button>`:''}</div>
+   <div class="mk-legend">${Object.entries(MK_ST).map(([k,v])=>`<span class="mk-chip st-${k}">${L(v[0],k)}</span>`).join('')}</div>
+   <div class="mk-cal">${wd.map(w=>`<div class="mk-wd">${w}</div>`).join('')}${cells}</div>
+   ${unsched.length?`<div class="card"><b>${L('منشورات بدون موعد','Unscheduled posts')}</b><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${unsched.map(p=>`<button class="mk-chip st-${p.status}" data-act="mkOpen" data-id="${p.id}">${esc(p.title)}</button>`).join('')}</div></div>`:''}`};
+
+/* ---------- posts list ---------- */
+V.mkposts=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;
+  const st=fv('mkSt',''),cp=fv('mkCp',''),pl=fv('mkPl',''),q=normTxt(fv('mkQ',''));
+  const rows=MKX.posts.filter(p=>(!st||p.status===st)&&(!cp||String(p.campaign_id)===cp)&&(!pl||p.platforms.includes(pl))&&(!q||normTxt(p.title+' '+(p.body_ar||'')+' '+(p.body_en||'')).includes(q)))
+    .sort((a,b)=>String(b.scheduled_at||b.created_at).localeCompare(String(a.scheduled_at||a.created_at)));
+  const cnt=k=>MKX.posts.filter(p=>p.status===k).length;
+  return (h||'')+`<div class="kpis">${['draft','review','returned','approved','published'].map(k=>`<div class="kpi" data-act="filt" data-k="mkSt" data-v="${st===k?'':k}" style="cursor:pointer"><div class="kl">${L(MK_ST[k][0],k)}</div><div class="kv">${cnt(k)}</div></div>`).join('')}</div>
+   <div class="fbar"><label class="fl">${L('بحث','Search')}<input data-act="filtIn" data-k="mkQ" value="${esc(fv('mkQ',''))}"></label>
+    <label class="fl">${L('الحالة','Status')}<select data-act="filtSel" data-k="mkSt">${opt(Object.keys(MK_ST).map(k=>[k,L(MK_ST[k][0],k)]),st,L('— الكل —','— all —'))}</select></label>
+    <label class="fl">${L('الحملة','Campaign')}<select data-act="filtSel" data-k="mkCp">${opt(MKX.camps.map(c=>[String(c.id),c.name]),cp,L('— الكل —','— all —'))}</select></label>
+    <label class="fl">${L('المنصة','Platform')}<select data-act="filtSel" data-k="mkPl">${opt(Object.keys(MK_PL).map(k=>[k,mkN(MK_PL,k)]),pl,L('— الكل —','— all —'))}</select></label>
+    <span class="grow"></span>${mkCanPost()?`<button class="btn p" data-act="mkNew">+ ${L('منشور جديد','New post')}</button>`:''}</div>
+   <div class="card">${rows.length?table([{l:L('الموعد','Scheduled'),c:'nw',f:p=>mkWhen(p.scheduled_at)},{l:L('العنوان','Title'),f:p=>`<a href="#" data-act="mkOpen" data-id="${p._id}"><b>${esc(p.title)}</b></a> <span class="small muted">${mkN(MK_KIND,p.kind)}</span>`},
+     {l:L('المنصات','Platforms'),f:p=>p.platforms.map(mkPl).join(' ')},{l:L('الحملة','Campaign'),f:p=>esc(mkCamp(p.campaign_id)?.name||'—')},{l:L('الحالة','Status'),f:p=>mkSt(p.status)},{l:L('الكاتب','Author'),f:p=>mkUser(p.created_by)}],rows.map(p=>({...p,_id:p.id,id:null}))):`<div class="empty">${L('ما فيه منشورات','No posts')}</div>`}</div>`};
+
+/* ---------- post editor ---------- */
+let MKE=null;
+function mkEditor(p,preset){const ro=p&&(p.status==='approved'||p.status==='published'||(p.status==='review'&&!MKX.me.approve));MKE={id:p?.id||null,ro};
+  const d=p||{platforms:preset?.platforms||['instagram','x'],kind:'post',scheduled_at:preset?.date?new Date(preset.date+'T19:00:00+03:00').toISOString():null,campaign_id:preset?.campaign||null};
+  const media=(d.media||[]).join('\n');
+  openModal(p?`${esc(p.title)}`:L('منشور جديد','New post'),`<div class="mk-ed">
+   <div class="mk-ed-main">
+    ${p?`<div class="toolbar">${mkSt(p.status)}<span class="small muted">${L('كتبه','By')} ${mkUser(p.created_by)}</span>${p.reviewed_by?`<span class="small muted">· ${L('راجعه','Reviewed by')} ${mkUser(p.reviewed_by)} ${fdt(p.reviewed_at)}</span>`:''}</div>`:''}
+    ${p?.review_note?`<div class="banner ${p.status==='approved'?'':'warn'}"><span class="sp"><b>${L('ملاحظة المعتمد:','Reviewer note:')}</b> ${esc(p.review_note)}</span></div>`:''}
+    <div class="fgrid"><div class="fld" style="grid-column:1/-1"><label>${L('عنوان داخلي','Internal title')} <span class="req">*</span></label><input id="mk_title" value="${esc(d.title||'')}" ${ro?'readonly':''}></div>
+     <div class="fld"><label>${L('النوع','Type')}</label><select id="mk_kind" ${ro?'disabled':''}>${opt(Object.keys(MK_KIND).map(k=>[k,mkN(MK_KIND,k)]),d.kind)}</select></div>
+     <div class="fld"><label>${L('موعد النشر (توقيت مكة)','Publish time (Makkah)')}</label><input type="datetime-local" id="mk_when" value="${esc(mkLocal(d.scheduled_at))}" ${ro?'readonly':''}></div>
+     <div class="fld"><label>${L('الحملة','Campaign')}</label><select id="mk_camp" ${ro?'disabled':''}>${opt(MKX.camps.filter(c=>c.status!=='cancelled'||c.id===d.campaign_id).map(c=>[String(c.id),c.name]),d.campaign_id?String(d.campaign_id):'',L('— بدون —','— none —'))}</select></div></div>
+    <div class="fld"><label>${L('المنصات','Platforms')} <span class="req">*</span></label><div class="mk-pls">${Object.keys(MK_PL).map(k=>`<label class="mk-plck" style="--c:${MK_PL[k][2]}"><input type="checkbox" class="mk_pl" value="${k}" ${d.platforms.includes(k)?'checked':''} ${ro?'disabled':''}> ${mkN(MK_PL,k)}</label>`).join('')}</div></div>
+    <div class="fld"><label>${L('النص العربي','Arabic text')} <span class="small muted" id="mk_cnt_ar"></span></label><textarea id="mk_ar" rows="6" ${ro?'readonly':''}>${esc(d.body_ar||'')}</textarea></div>
+    <div class="fld"><label>${L('النص الإنجليزي','English text')} <span class="small muted" id="mk_cnt_en"></span></label><textarea id="mk_en" rows="4" dir="ltr" ${ro?'readonly':''}>${esc(d.body_en||'')}</textarea></div>
+    <div class="fgrid"><div class="fld"><label>${L('الوسوم','Hashtags')}</label><input id="mk_tags" value="${esc(d.hashtags||'')}" ${ro?'readonly':''}></div><div class="fld"><label>${L('الدعوة لإجراء (CTA)','Call to action')}</label><input id="mk_cta" value="${esc(d.cta||'')}" ${ro?'readonly':''}></div></div>
+    <div class="fld"><label>${L('وصف التصميم للمصمم','Design brief')}</label><textarea id="mk_brief" rows="3" ${ro?'readonly':''}>${esc(d.design_brief||'')}</textarea></div>
+    <div class="fld"><label>${L('روابط التصاميم والصور (رابط بكل سطر)','Design / image links (one per line)')}</label><textarea id="mk_media" rows="2" dir="ltr" ${ro?'readonly':''}>${esc(media)}</textarea></div>
+    ${p&&p.status==='published'&&Object.keys(p.post_urls||{}).length?`<div class="card"><b>${L('روابط المنشور','Post links')}</b>${Object.entries(p.post_urls).map(([k,u])=>`<div>${mkPl(k)} <a href="${esc(u)}" target="_blank" rel="noopener" dir="ltr">${esc(u)}</a></div>`).join('')}</div>`:''}
+    <div id="mk_err" class="flag"></div>
+    <div class="formbar">${p&&!ro&&['draft','returned','rejected'].includes(p.status)?`<button class="btn d" data-act="mkDel" data-id="${p.id}">${L('حذف','Delete')}</button>`:''}<span class="grow"></span>
+     ${p&&(p.status==='approved'||p.status==='published')&&mkCanPost()?`<button class="btn p" data-act="mkPub" data-id="${p.id}">${p.status==='published'?L('تعديل روابط النشر','Edit post links'):L('نشر الآن','Publish now')}</button>`:''}
+     ${!ro&&mkCanPost()?`<button class="btn s" data-act="mkSave">${L('حفظ كمسودة','Save draft')}</button>${p?.status==='review'?'':`<button class="btn p" data-act="mkSave" data-submit="1">${L('إرسال للاعتماد','Send for approval')}</button>`}`:''}
+     ${p&&p.status==='review'&&MKX.me.approve?`<button class="btn p" data-act="mkDecideOpen" data-id="${p.id}">${L('اعتماد / إرجاع','Approve / return')}</button>`:''}</div>
+   </div>
+   ${!ro&&mkCanPost()?`<div class="mk-ai"><b>✦ ${L('اكتب بالذكاء الاصطناعي','Write with AI')}</b>
+     <div class="fld"><label>${L('الموضوع أو الفكرة','Topic / idea')}</label><textarea id="mk_ai_q" rows="3" placeholder="${L('مثال: مميزات البلك البركاني في العزل الحراري للفلل','e.g. thermal insulation of volcanic block')}"></textarea></div>
+     <div class="fld"><label>${L('المنتج','Product')}</label><select id="mk_ai_fam">${opt(Object.entries(typeof FAMILIES!=='undefined'?FAMILIES:{}).map(([k,v])=>[k,L(v[0],v[1])]),'',L('— عام —','— general —'))}</select></div>
+     <div class="fld"><label>${L('النبرة','Tone')}</label><select id="mk_ai_tone">${opt([['pro',L('مهنية للمقاولين والاستشاريين','Professional')],['friendly',L('قريبة من الناس','Friendly')],['promo',L('عرض ترويجي','Promotional')],['edu',L('تثقيفية ونصائح','Educational')]],'pro')}</select></div>
+     <button class="btn p" data-act="mkAi" data-t="post" style="width:100%">${L('اكتب المنشور','Write the post')}</button>
+     <div class="fld" style="margin-top:10px"><label>${L('أو عدّل النص الحالي','Or rewrite the current text')}</label><input id="mk_ai_rw" placeholder="${L('مثال: اختصره، خله أقرب للمقاولين','e.g. shorter, aimed at contractors')}"></div>
+     <button class="btn s" data-act="mkAi" data-t="rewrite" style="width:100%">${L('أعد الصياغة','Rewrite')}</button>
+     <div id="mk_ai_out" class="small" style="margin-top:8px"></div>
+     <div class="small muted" style="margin-top:8px">${L('النص المقترح مسودة؛ راجع أي معلومة فنية قبل الإرسال للاعتماد. ما يُكتب بين [يُستكمل] لازم يتعبأ.','AI text is a draft; check any technical claim.')}</div></div>`:''}
+  </div>`);
+  const upd=()=>{const pls=[...document.querySelectorAll('.mk_pl:checked')].map(x=>x.value);const lim=Math.min(...pls.map(k=>MK_PL[k][3]),99999);
+    const extra=((document.getElementById('mk_tags').value||'').length?1+document.getElementById('mk_tags').value.length:0);
+    [['mk_ar','mk_cnt_ar'],['mk_en','mk_cnt_en']].forEach(([a,b])=>{const n=document.getElementById(a).value.length+extra;const el=document.getElementById(b);el.textContent=`${n}${lim<99999?' / '+lim:''} ${L('حرف مع الوسوم','chars incl. hashtags')}`;el.style.color=n>lim?'#D92D20':''})};
+  ['mk_ar','mk_en','mk_tags'].forEach(id=>document.getElementById(id).addEventListener('input',upd));document.querySelectorAll('.mk_pl').forEach(x=>x.addEventListener('change',upd));upd()}
+function mkForm(){const g=id=>(document.getElementById(id)||{}).value||'';const w=g('mk_when');
+  return {id:MKE.id,title:g('mk_title').trim(),kind:g('mk_kind'),campaign_id:g('mk_camp')||null,platforms:[...document.querySelectorAll('.mk_pl:checked')].map(x=>x.value),
+    scheduled_at:w?w+':00+03:00':null,body_ar:g('mk_ar'),body_en:g('mk_en'),hashtags:g('mk_tags'),cta:g('mk_cta'),design_brief:g('mk_brief'),media:g('mk_media').split('\n').map(s=>s.trim()).filter(Boolean)}}
+const mkJson=t=>{const s=String(t||'').replace(/```(json)?/g,'');const a=s.indexOf('{'),b=s.lastIndexOf('}');if(a<0||b<a)throw new Error(L('رد المساعد مو بالصيغة المتوقعة، جرّب مرة ثانية','Unexpected AI reply; try again'));return JSON.parse(s.slice(a,b+1))};
+async function mkAi(task,question,context){const {data,error}=await window.__sb.functions.invoke('ai-assist',{body:{app:'mk',task,question,context}});
+  if(error){let m=error.message;try{const j=await error.context.json();m=j.error||m}catch(e){}throw new Error(m)}if(data?.error)throw new Error(data.error);return data.answer||''}
+function mkCtx(extra){const camp=mkCamp((document.getElementById('mk_camp')||{}).value);const fam=(document.getElementById('mk_ai_fam')||{}).value||camp?.product_family||'';
+  const items=(S.items||[]).filter(x=>x.active!==false&&(!fam||x.family===fam)).slice(0,60).map(x=>({name:x.name,family:x.family,size:x.size,unit:x.unit}));
+  return {company:{name:'الوادي الأخضر المميز',name_en:'Al Wady Al Akhdar Al Momayaz',branches:['مكة المكرمة','عسفان']},campaign:camp?{name:camp.name,goal:camp.goal,audience:camp.audience,product_family:camp.product_family}:null,
+    products:items,recent_titles:MKX.posts.slice(-30).map(p=>p.title),...extra}}
+
+/* ---------- AI month plan ---------- */
+async function mkPlan(m){openModal(L('خطة محتوى الشهر','Month content plan'),`<div class="fgrid"><div class="fld"><label>${L('عدد المنشورات','Number of posts')}</label><input type="number" id="mkp_n" value="12" min="1" max="40"></div>
+  <div class="fld"><label>${L('الحملة','Campaign')}</label><select id="mk_camp">${opt(MKX.camps.filter(c=>c.status==='active'||c.status==='planned').map(c=>[String(c.id),c.name]),'',L('— بدون —','— none —'))}</select></div></div>
+  <div class="fld"><label>${L('المنصات','Platforms')}</label><div class="mk-pls">${Object.keys(MK_PL).map(k=>`<label class="mk-plck" style="--c:${MK_PL[k][2]}"><input type="checkbox" class="mk_pl" value="${k}" ${['instagram','x','linkedin','tiktok'].includes(k)?'checked':''}> ${mkN(MK_PL,k)}</label>`).join('')}</div></div>
+  <div class="fld"><label>${L('توجيهات إضافية','Extra guidance')}</label><textarea id="mkp_q" rows="2" placeholder="${L('مثال: ركز على البلك البركاني والإنترلوك، وموسم بداية المشاريع','e.g. focus on volcanic block')}"></textarea></div>
+  <div class="formbar"><span class="grow"></span><button class="btn p" data-act="mkPlanRun" data-m="${m}">${L('اقترح الخطة','Suggest plan')}</button></div><div id="mkp_out"></div>`)}
+async function mkPlanRun(m){const out=document.getElementById('mkp_out');const n=Math.min(40,Math.max(1,+document.getElementById('mkp_n').value||12));const pls=[...document.querySelectorAll('.mk_pl:checked')].map(x=>x.value);
+  if(!pls.length)return toast(L('اختر منصة','Pick a platform'));out.innerHTML=`<div class="small muted">${L('جاري التخطيط…','Planning…')}</div>`;
+  try{const [y,mo]=m.split('-').map(Number);const last=new Date(Date.UTC(y,mo,0)).toISOString().slice(0,10);
+    const ans=await mkAi('calendar',`الفترة من ${m}-01 إلى ${last}. عدد المنشورات ${n}. المنصات: ${pls.join(', ')}. ${document.getElementById('mkp_q').value||''}`,mkCtx({period:{from:m+'-01',to:last},platforms:pls,already_scheduled:MKX.posts.filter(p=>p.scheduled_at&&mkDay(p.scheduled_at).startsWith(m)).map(p=>({date:mkDay(p.scheduled_at),title:p.title}))}));
+    const j=mkJson(ans);MKE={plan:(j.posts||[]).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)).slice(0,n),camp:document.getElementById('mk_camp').value};
+    out.innerHTML=`<div class="card">${MKE.plan.map((x,i)=>`<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="checkbox" class="mkp_ck" value="${i}" checked style="width:auto;margin-top:4px"><span><b>${fdate(x.date)} ${esc(x.time||'')}</b> — ${esc(x.title||'')} <span class="small muted">${mkN(MK_KIND,x.kind)}</span><br>${(x.platforms||[]).filter(k=>MK_PL[k]).map(mkPl).join(' ')}<div class="small">${esc(x.idea||'')}</div></span></label>`).join('')}
+      ${j.notes?`<div class="small muted">${esc(j.notes)}</div>`:''}</div><div class="formbar"><span class="grow"></span><button class="btn p" data-act="mkPlanSave">${L('أنشئ المحدد كمسودات','Create selected as drafts')}</button></div>`}
+  catch(e){out.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+
+/* ---------- approval ---------- */
+V.mkapprove=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;
+  const q=MKX.posts.filter(p=>p.status==='review').sort((a,b)=>String(a.scheduled_at||'9').localeCompare(String(b.scheduled_at||'9')));
+  const ready=MKX.posts.filter(p=>p.status==='approved').sort((a,b)=>String(a.scheduled_at||'9').localeCompare(String(b.scheduled_at||'9')));
+  const card=p=>`<div class="card mk-rev"><div class="toolbar"><b>${esc(p.title)}</b>${mkSt(p.status)}<span class="small muted">${mkWhen(p.scheduled_at)} · ${L('الكاتب','By')} ${mkUser(p.created_by)}</span><span class="grow"></span>${p.platforms.map(mkPl).join(' ')}</div>
+    <div class="mk-prev">${p.body_ar?`<div class="mk-txt">${esc(p.body_ar)}</div>`:''}${p.body_en?`<div class="mk-txt" dir="ltr">${esc(p.body_en)}</div>`:''}${p.hashtags?`<div class="mk-tags">${esc(p.hashtags)}</div>`:''}${p.cta?`<div class="small"><b>CTA:</b> ${esc(p.cta)}</div>`:''}
+     ${p.design_brief?`<div class="small"><b>${L('التصميم:','Design:')}</b> ${esc(p.design_brief)}</div>`:''}${(p.media||[]).map(u=>`<div class="small"><a href="${esc(u)}" target="_blank" rel="noopener" dir="ltr">${esc(u)}</a></div>`).join('')}</div>
+    <div class="formbar"><button class="btn s" data-act="mkOpen" data-id="${p.id}">${L('فتح','Open')}</button><span class="grow"></span>
+     ${p.status==='review'&&MKX.me.approve?`<button class="btn d" data-act="mkDecide" data-id="${p.id}" data-d="rejected">${L('رفض','Reject')}</button><button class="btn s" data-act="mkDecide" data-id="${p.id}" data-d="returned">${L('إرجاع للتعديل','Return')}</button><button class="btn p" data-act="mkDecide" data-id="${p.id}" data-d="approved">${L('اعتماد','Approve')}</button>`:''}
+     ${p.status==='approved'&&MKX.me.approve?`<button class="btn s" data-act="mkDecide" data-id="${p.id}" data-d="reopen">${L('إرجاع للتعديل','Reopen')}</button>`:''}${p.status==='approved'&&mkCanPost()?`<button class="btn p" data-act="mkPub" data-id="${p.id}">${L('نشر الآن','Publish now')}</button>`:''}</div></div>`;
+  return (h||'')+`${!MKX.me.approve?`<div class="banner"><span class="sp">${L('تقدر تشوف قائمة الاعتماد؛ الاعتماد نفسه لصاحب صلاحية «تعديل» على هذه الصفحة.','You can view; approving needs edit access on this page.')}</span></div>`:''}
+   <h3>${L('بانتظار الاعتماد','Waiting for approval')} (${q.length})</h3>${q.length?q.map(card).join(''):`<div class="card empty">${L('ما فيه منشورات بانتظار الاعتماد','Nothing waiting')}</div>`}
+   <h3>${L('معتمدة وجاهزة للنشر','Approved, ready to publish')} (${ready.length})</h3>${ready.length?ready.map(card).join(''):`<div class="card empty">${L('ما فيه','None')}</div>`}`};
+function mkDecide(id,d){const p=MKX.posts.find(x=>x.id===id);const need=d!=='approved';
+  openModal(`${{approved:L('اعتماد','Approve'),returned:L('إرجاع للتعديل','Return'),rejected:L('رفض','Reject'),reopen:L('إرجاع للتعديل','Reopen')}[d]} — ${esc(p?.title||'')}`,
+   `<div class="fld"><label>${need?L('السبب (يشوفه الكاتب)','Reason (shown to the author)'):L('ملاحظة (اختياري)','Note (optional)')}</label><textarea id="mk_dn" rows="3"></textarea></div><div id="mk_err" class="flag"></div>
+    <div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="mkDecideGo" data-id="${id}" data-d="${d}">${L('تأكيد','Confirm')}</button></div>`)}
+
+/* ---------- publishing (copy text, open the page, record the live link) ---------- */
+function mkPublish(id){const p=MKX.posts.find(x=>x.id===id);if(!p)return;
+  const txt=(lang)=>[lang==='en'?p.body_en:p.body_ar,p.cta,p.hashtags].filter(Boolean).join('\n\n');
+  openModal(`${L('نشر','Publish')} — ${esc(p.title)}`,`<div class="banner"><span class="sp">${L('انسخ النص، افتح الصفحة، انشر، ثم الصق رابط المنشور هنا. النشر التلقائي يحتاج ربط حساب الأعمال لكل منصة أولاً.','Copy, open the page, publish, then paste the post link here.')}</span></div>
+   ${p.platforms.map(k=>{const acc=MKX.accts.filter(a=>a.platform===k&&a.active&&a.url);const lim=MK_PL[k][3];const n=txt('ar').length;
+     return `<div class="card"><div class="toolbar">${mkPl(k)}<span class="small ${n>lim?'flag':'muted'}">${n} / ${lim}</span><span class="grow"></span>
+       <button class="btn s" data-act="mkCopy" data-id="${p.id}" data-l="ar">${L('نسخ النص العربي','Copy Arabic')}</button>${p.body_en?`<button class="btn s" data-act="mkCopy" data-id="${p.id}" data-l="en">${L('نسخ الإنجليزي','Copy English')}</button>`:''}
+       ${acc.map(a=>`<a class="btn s" href="${esc(a.url)}" target="_blank" rel="noopener">${L('فتح','Open')} ${esc(a.name)}</a>`).join('')}</div>
+       <div class="fld"><label>${L('رابط المنشور بعد النشر','Live post link')}</label><input class="mk_url" data-k="${k}" dir="ltr" value="${esc((p.post_urls||{})[k]||'')}" placeholder="https://"></div></div>`}).join('')}
+   <div id="mk_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إغلاق','Close')}</button><span class="grow"></span><button class="btn p" data-act="mkPubGo" data-id="${p.id}">${L('تم النشر','Mark published')}</button></div>`)}
+
+/* ---------- campaigns ---------- */
+V.mkcamp=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;const can=(MKX.me.camp||0)>=3;
+  const agg=c=>{const ps=MKX.posts.filter(p=>p.campaign_id===c.id);const t=mkTotals(MKX.metrics.filter(m=>m.campaign_id===c.id||ps.some(p=>p.id===m.post_id)));return {n:ps.length,pub:ps.filter(p=>p.status==='published').length,...t}};
+  return (h||'')+`<div class="toolbar"><span class="grow"></span>${can?`<button class="btn p" data-act="mkCampEd">+ ${L('حملة جديدة','New campaign')}</button>`:''}</div>
+   <div class="card">${MKX.camps.length?table([{l:L('الحملة','Campaign'),f:c=>`<a href="#" data-act="mkCampEd" data-id="${c._id}"><b>${esc(c.name)}</b></a><div class="small muted">${esc(c.goal||'')}</div>`},
+     {l:L('الفترة','Period'),c:'nw',f:c=>`${c.start_date?fdate(c.start_date):'—'} ← ${c.end_date?fdate(c.end_date):'—'}`},{l:L('المنصات','Platforms'),f:c=>(c.platforms||[]).map(mkPl).join(' ')},
+     {l:L('المنشورات','Posts'),c:'n',f:c=>`${c.a.pub} / ${c.a.n}`},{l:L('الميزانية','Budget'),c:'n',f:c=>c.budget!=null?money(c.budget):'—'},{l:L('المصروف','Spend'),c:'n',f:c=>c.a.spend?money(c.a.spend):'—'},
+     {l:L('العملاء المحتملون','Leads'),c:'n',f:c=>c.a.leads?num(c.a.leads):'—'},{l:L('الحالة','Status'),f:c=>pill(L(MK_CST[c.status]?.[0]||c.status,c.status),MK_CST[c.status]?.[1]||'')}],MKX.camps.map(c=>({...c,_id:c.id,id:null,a:agg(c)}))):`<div class="empty">${L('ما فيه حملات بعد','No campaigns yet')}</div>`}</div>`};
+function mkCampEd(id){const c=mkCamp(id)||{platforms:['instagram','x','linkedin'],status:'planned'};const can=(MKX.me.camp||0)>=3;const ro=can?'':'readonly';
+  openModal(c.id?esc(c.name):L('حملة جديدة','New campaign'),`<div class="fgrid"><div class="fld" style="grid-column:1/-1"><label>${L('اسم الحملة','Name')} <span class="req">*</span></label><input id="mc_name" value="${esc(c.name||'')}" ${ro}></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('الهدف','Goal')}</label><input id="mc_goal" value="${esc(c.goal||'')}" ${ro} placeholder="${L('مثال: زيادة طلبات عروض الأسعار للبلك البركاني في جدة','e.g. more quote requests')}"></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('الجمهور المستهدف','Audience')}</label><input id="mc_aud" value="${esc(c.audience||'')}" ${ro}></div>
+    <div class="fld"><label>${L('المنتج','Product')}</label><select id="mc_fam" ${can?'':'disabled'}>${opt(Object.entries(typeof FAMILIES!=='undefined'?FAMILIES:{}).map(([k,v])=>[k,L(v[0],v[1])]),c.product_family||'',L('— عام —','— general —'))}</select></div>
+    <div class="fld"><label>${L('الحالة','Status')}</label><select id="mc_st" ${can?'':'disabled'}>${opt(Object.keys(MK_CST).map(k=>[k,L(MK_CST[k][0],k)]),c.status)}</select></div>
+    <div class="fld"><label>${L('من','From')}</label><input type="date" id="mc_from" value="${esc(c.start_date||'')}" ${ro}></div><div class="fld"><label>${L('إلى','To')}</label><input type="date" id="mc_to" value="${esc(c.end_date||'')}" ${ro}></div>
+    <div class="fld"><label>${L('الميزانية (ر.س)','Budget (SAR)')}</label><input type="number" id="mc_budget" value="${esc(c.budget??'')}" ${ro}></div></div>
+   <div class="fld"><label>${L('المنصات','Platforms')}</label><div class="mk-pls">${Object.keys(MK_PL).map(k=>`<label class="mk-plck" style="--c:${MK_PL[k][2]}"><input type="checkbox" class="mc_pl" value="${k}" ${(c.platforms||[]).includes(k)?'checked':''} ${can?'':'disabled'}> ${mkN(MK_PL,k)}</label>`).join('')}</div></div>
+   <div class="fld"><label>${L('ملاحظات وموجز الحملة','Notes / brief')}</label><textarea id="mc_notes" rows="6" ${ro}>${esc(c.notes||'')}</textarea></div>
+   <div id="mk_err" class="flag"></div><div class="formbar">${can&&mkCanPost()?`<button class="btn s" data-act="mkCampAi">✦ ${L('اكتب موجز الحملة بالذكاء الاصطناعي','AI campaign brief')}</button>`:''}${c.id&&mkCanPost()?`<button class="btn s" data-act="mkNewIn" data-c="${c.id}">+ ${L('منشور في الحملة','Post in campaign')}</button>`:''}<span class="grow"></span>${can?`<button class="btn p" data-act="mkCampSave" data-id="${c.id||''}">${L('حفظ','Save')}</button>`:''}</div>`)}
+
+/* ---------- social pages ---------- */
+V.mkacct=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;const can=(MKX.me.acct||0)>=3;const mon=TODAY().slice(0,7);
+  return (h||'')+`<div class="banner"><span class="sp">${L('هنا صفحات الشركة على كل منصة وروابطها وأرقام متابعيها. النشر حالياً يدوي من شاشة «نشر الآن» (نسخ النص وفتح الصفحة وتسجيل الرابط). النشر والقراءة التلقائية تحتاج ربط حساب أعمال لكل منصة (Meta Business لإنستقرام وفيسبوك، وحسابات المطورين لـ X وتيك توك ولينكدإن)، وهذا يتطلب تسجيل دخول صاحب الحساب نفسه.','Company pages, links and followers. Publishing is manual for now; automatic publishing needs each platform business account connected.')}</span></div>
+   <div class="toolbar"><span class="grow"></span>${can?`<button class="btn p" data-act="mkAcctEd">+ ${L('إضافة صفحة','Add page')}</button>`:''}</div>
+   <div class="mk-accts">${MKX.accts.length?MKX.accts.map(a=>{const f=MKX.metrics.filter(m=>m.account_id===a.id&&m.followers!=null).sort((x,y)=>y.at.localeCompare(x.at));const pub=MKX.posts.filter(p=>p.status==='published'&&p.platforms.includes(a.platform)&&mkDay(p.published_at||p.scheduled_at).startsWith(mon)).length;
+     return `<div class="card mk-acct" style="--c:${MK_PL[a.platform]?.[2]}"><div class="toolbar">${mkPl(a.platform)}${a.active?'':pill(L('موقوفة','Inactive'),'bad')}<span class="grow"></span>${can?`<button class="btn s" data-act="mkAcctEd" data-id="${a.id}">${L('تعديل','Edit')}</button>`:''}</div>
+      <b>${esc(a.name)}</b><div class="small muted" dir="ltr">${esc(a.handle||'')}</div>${a.url?`<a class="small" href="${esc(a.url)}" target="_blank" rel="noopener" dir="ltr">${esc(a.url)}</a>`:''}
+      <div class="mk-accn"><span>${L('المتابعون','Followers')}<b>${f[0]?num(f[0].followers):'—'}</b><i>${f[0]?fdate(f[0].at):''}</i></span><span>${L('منشورات هذا الشهر','Posts this month')}<b>${pub}</b></span>${f[1]?`<span>${L('التغير','Change')}<b>${num(f[0].followers-f[1].followers)}</b></span>`:''}</div>
+      ${a.owner_name?`<div class="small muted">${L('المسؤول:','Owner:')} ${esc(a.owner_name)}</div>`:''}</div>`}).join(''):`<div class="card empty">${L('ما فيه صفحات مضافة بعد','No pages yet')}</div>`}</div>`};
+function mkAcctEd(id){const a=MKX.accts.find(x=>x.id===+id)||{platform:'instagram',active:true};
+  openModal(a.id?esc(a.name):L('إضافة صفحة','Add page'),`<div class="fgrid"><div class="fld"><label>${L('المنصة','Platform')}</label><select id="ma_pl">${opt(Object.keys(MK_PL).map(k=>[k,mkN(MK_PL,k)]),a.platform)}</select></div>
+   <div class="fld"><label>${L('اسم الصفحة','Page name')} <span class="req">*</span></label><input id="ma_name" value="${esc(a.name||'')}"></div><div class="fld"><label>${L('المعرف','Handle')}</label><input id="ma_handle" dir="ltr" value="${esc(a.handle||'')}" placeholder="@"></div>
+   <div class="fld"><label>${L('رابط الصفحة','Page link')}</label><input id="ma_url" dir="ltr" value="${esc(a.url||'')}" placeholder="https://"></div><div class="fld"><label>${L('المسؤول عنها','Owner')}</label><input id="ma_owner" value="${esc(a.owner_name||'')}"></div>
+   <div class="fld"><label>${L('الحالة','Status')}</label><select id="ma_act">${opt([['1',L('نشطة','Active')],['0',L('موقوفة','Inactive')]],a.active?'1':'0')}</select></div></div>
+   <div class="fld"><label>${L('ملاحظات','Notes')}</label><textarea id="ma_notes" rows="2">${esc(a.notes||'')}</textarea></div>
+   <div class="small muted">${L('لا تكتب كلمات المرور هنا؛ الصفحة تحفظ الروابط فقط.','Never store passwords here.')}</div>
+   <div id="mk_err" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn p" data-act="mkAcctSave" data-id="${a.id||''}">${L('حفظ','Save')}</button></div>`)}
+
+/* ---------- performance reports ---------- */
+function mkTotals(rows){const last={};rows.forEach(m=>{const k=m.post_id?`p${m.post_id}:${m.platform||''}`:m.account_id?`a${m.account_id}`:`r${m.id}`;if(!last[k]||last[k].at<m.at||(last[k].at===m.at&&last[k].id<m.id))last[k]=m});
+  const t={impressions:0,reach:0,engagements:0,clicks:0,leads:0,spend:0};Object.values(last).forEach(m=>{if(m.account_id&&!m.post_id&&!m.campaign_id)return;for(const k in t)t[k]+=mkInt(m[k])});return t}
+V.mkreport=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;const can=(MKX.me.report||0)>=3;
+  const from=fv('mkrFrom',addDays(TODAY(),-30)),to=fv('mkrTo',TODAY()),cp=fv('mkrCp','');
+  const pub=MKX.posts.filter(p=>p.status==='published'&&(!cp||String(p.campaign_id)===cp)&&(()=>{const d=mkDay(p.published_at||p.scheduled_at);return d>=from&&d<=to})());
+  const ms=MKX.metrics.filter(m=>m.at>=from&&m.at<=to&&(!cp||String(m.campaign_id)===cp||pub.some(p=>p.id===m.post_id)));const t=mkTotals(ms);
+  const er=t.reach?t.engagements/t.reach*100:null;const cpl=t.leads?t.spend/t.leads:null;
+  const byPl={};pub.forEach(p=>p.platforms.forEach(k=>{byPl[k]=byPl[k]||{n:0,...mkTotals([])};byPl[k].n++}));
+  Object.keys(byPl).forEach(k=>Object.assign(byPl[k],mkTotals(ms.filter(m=>m.platform===k&&m.post_id))));
+  const postRow=p=>{const r=mkTotals(MKX.metrics.filter(m=>m.post_id===p.id));return {...p,_id:p.id,id:null,r}};
+  return (h||'')+`<div class="fbar"><label class="fl">${L('من','From')}<input type="date" data-act="filtIn" data-k="mkrFrom" value="${esc(from)}"></label><label class="fl">${L('إلى','To')}<input type="date" data-act="filtIn" data-k="mkrTo" value="${esc(to)}"></label>
+    <label class="fl">${L('الحملة','Campaign')}<select data-act="filtSel" data-k="mkrCp">${opt(MKX.camps.map(c=>[String(c.id),c.name]),cp,L('— الكل —','— all —'))}</select></label><span class="grow"></span>
+    ${can?`<button class="btn s" data-act="mkTpl">${L('نموذج Excel للأرقام','Excel template')}</button><label class="btn s">${L('استيراد أرقام من Excel','Import from Excel')}<input type="file" id="mk_imp" accept=".xlsx,.xls,.csv" hidden></label><button class="btn p" data-act="mkMet">+ ${L('إدخال أرقام','Enter figures')}</button>`:''}</div>
+   <div class="kpis"><div class="kpi"><div class="kl">${L('منشورات منشورة','Published posts')}</div><div class="kv">${pub.length}</div></div><div class="kpi"><div class="kl">${L('الظهور','Impressions')}</div><div class="kv">${num(t.impressions)}</div></div>
+    <div class="kpi"><div class="kl">${L('الوصول','Reach')}</div><div class="kv">${num(t.reach)}</div></div><div class="kpi"><div class="kl">${L('التفاعل','Engagements')}</div><div class="kv">${num(t.engagements)}</div></div>
+    <div class="kpi"><div class="kl">${L('نسبة التفاعل','Engagement rate')}</div><div class="kv">${er==null?'—':er.toFixed(1)+'%'}</div></div><div class="kpi"><div class="kl">${L('النقرات','Clicks')}</div><div class="kv">${num(t.clicks)}</div></div>
+    <div class="kpi"><div class="kl">${L('عملاء محتملون','Leads')}</div><div class="kv">${num(t.leads)}</div></div><div class="kpi"><div class="kl">${L('المصروف','Spend')}</div><div class="kv">${money(t.spend)}</div></div>
+    <div class="kpi"><div class="kl">${L('تكلفة العميل المحتمل','Cost per lead')}</div><div class="kv">${cpl==null?'—':money(cpl)}</div></div></div>
+   ${!MKX.metrics.length?`<div class="banner warn"><span class="sp">${L('ما فيه أرقام أداء مدخلة بعد. الأرقام تُدخل من إحصائيات كل منصة (يدوياً أو من ملف Excel) لين تنربط الحسابات تلقائياً.','No figures entered yet.')}</span></div>`:''}
+   <div class="card"><b>${L('حسب المنصة','By platform')}</b>${Object.keys(byPl).length?table([{l:L('المنصة','Platform'),f:x=>mkPl(x.k)},{l:L('منشورات','Posts'),c:'n',f:x=>x.n},{l:L('الوصول','Reach'),c:'n',f:x=>num(x.reach)},{l:L('التفاعل','Engagements'),c:'n',f:x=>num(x.engagements)},
+     {l:L('نسبة التفاعل','ER'),c:'n',f:x=>x.reach?(x.engagements/x.reach*100).toFixed(1)+'%':'—'},{l:L('النقرات','Clicks'),c:'n',f:x=>num(x.clicks)},{l:L('عملاء محتملون','Leads'),c:'n',f:x=>num(x.leads)}],Object.entries(byPl).map(([k,v])=>({k,...v,id:null}))):`<div class="small muted">${L('ما فيه منشورات في الفترة','No posts in period')}</div>`}</div>
+   <div class="card"><b>${L('المنشورات','Posts')}</b>${pub.length?table([{l:L('التاريخ','Date'),c:'nw',f:p=>fdate(mkDay(p.published_at||p.scheduled_at))},{l:L('المنشور','Post'),f:p=>`<a href="#" data-act="mkOpen" data-id="${p._id}">${esc(p.title)}</a>`},{l:L('المنصات','Platforms'),f:p=>p.platforms.map(mkPl).join(' ')},
+     {l:L('الوصول','Reach'),c:'n',f:p=>p.r.reach?num(p.r.reach):'—'},{l:L('التفاعل','Eng.'),c:'n',f:p=>p.r.engagements?num(p.r.engagements):'—'},{l:L('النقرات','Clicks'),c:'n',f:p=>p.r.clicks?num(p.r.clicks):'—'},{l:L('عملاء','Leads'),c:'n',f:p=>p.r.leads?num(p.r.leads):'—'},
+     {l:'',f:p=>can?`<button class="btn s" data-act="mkMet" data-p="${p._id}">${L('أرقام','Figures')}</button>`:''}],pub.map(postRow)):`<div class="small muted">${L('ما فيه','None')}</div>`}</div>
+   <div class="card"><b>${L('آخر الأرقام المدخلة','Latest entries')}</b>${ms.length?table([{l:L('التاريخ','Date'),f:m=>fdate(m.at)},{l:L('على','For'),f:m=>m.post_id?esc(MKX.posts.find(p=>p.id===m.post_id)?.title||'#'+m.post_id):m.account_id?esc(MKX.accts.find(a=>a.id===m.account_id)?.name||''):esc(mkCamp(m.campaign_id)?.name||'')},
+     {l:L('المنصة','Platform'),f:m=>m.platform?mkPl(m.platform):''},{l:L('الوصول','Reach'),c:'n',f:m=>m.reach??''},{l:L('التفاعل','Eng.'),c:'n',f:m=>m.engagements??''},{l:L('النقرات','Clicks'),c:'n',f:m=>m.clicks??''},{l:L('عملاء','Leads'),c:'n',f:m=>m.leads??''},{l:L('متابعون','Followers'),c:'n',f:m=>m.followers??''},{l:L('مصروف','Spend'),c:'n',f:m=>m.spend??''},
+     {l:'',f:m=>can?`<button class="btn s d" data-act="mkMetDel" data-id="${m._id}">×</button>`:''}],ms.slice(0,100).map(m=>({...m,_id:m.id,id:null}))):`<div class="small muted">${L('ما فيه','None')}</div>`}
+    <div class="small muted" style="margin-top:6px">${L('لكل منشور ومنصة تُحسب آخر قراءة فقط (الأرقام تراكمية من المنصة)، فإدخال قراءة جديدة ما يضاعف الأرقام.','The latest reading per post and platform is used, so new readings do not double count.')}</div></div>`};
+function mkMet(postId){const p=MKX.posts.find(x=>x.id===+postId);
+  openModal(L('إدخال أرقام الأداء','Enter figures'),`<div class="fgrid"><div class="fld"><label>${L('على','For')}</label><select id="mm_for">${opt([...MKX.posts.filter(x=>x.status==='published').map(x=>['p'+x.id,L('منشور: ','Post: ')+x.title]),...MKX.accts.map(a=>['a'+a.id,L('صفحة: ','Page: ')+a.name+' ('+mkN(MK_PL,a.platform)+')']),...MKX.camps.map(c=>['c'+c.id,L('حملة (مصروف/عملاء): ','Campaign: ')+c.name])],p?'p'+p.id:'')}</select></div>
+   <div class="fld"><label>${L('المنصة','Platform')}</label><select id="mm_pl">${opt(Object.keys(MK_PL).map(k=>[k,mkN(MK_PL,k)]),p?.platforms?.[0]||'',L('—','—'))}</select></div><div class="fld"><label>${L('تاريخ القراءة','Reading date')}</label><input type="date" id="mm_at" value="${TODAY()}"></div>
+   ${[['impressions','الظهور','Impressions'],['reach','الوصول','Reach'],['engagements','التفاعل (إعجاب+تعليق+مشاركة+حفظ)','Engagements'],['clicks','النقرات','Clicks'],['leads','عملاء محتملون (رسائل/اتصالات/طلبات)','Leads'],['followers','عدد المتابعين (للصفحة)','Followers'],['spend','المصروف الإعلاني (ر.س)','Ad spend (SAR)']].map(([k,a,e])=>`<div class="fld"><label>${L(a,e)}</label><input type="number" min="0" step="any" id="mm_${k}"></div>`).join('')}</div>
+   <div class="fld"><label>${L('ملاحظات','Notes')}</label><input id="mm_notes"></div><div id="mk_err" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn p" data-act="mkMetSave">${L('حفظ','Save')}</button></div>`)}
+function mkTpl(){if(typeof XLSX==='undefined')return toast(L('مكتبة Excel غير متاحة','Excel library unavailable'));
+  const rows=MKX.posts.filter(p=>p.status==='published').flatMap(p=>p.platforms.map(k=>({'رقم المنشور':p.id,'المنشور':p.title,'المنصة':k,'التاريخ':TODAY(),'الظهور':'','الوصول':'','التفاعل':'','النقرات':'','عملاء محتملون':'','المصروف':''})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.length?rows:[{'رقم المنشور':'','المنشور':'','المنصة':'instagram','التاريخ':TODAY(),'الظهور':'','الوصول':'','التفاعل':'','النقرات':'','عملاء محتملون':'','المصروف':''}]),'الأرقام');XLSX.writeFile(wb,'marketing-figures.xlsx')}
+async function mkImport(file){if(typeof XLSX==='undefined')return toast(L('مكتبة Excel غير متاحة','Excel library unavailable'));
+  try{const wb=XLSX.read(await file.arrayBuffer(),{cellDates:true});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true});
+    const pick=(r,...ks)=>{for(const k of ks)if(r[k]!==undefined&&r[k]!=='')return r[k];return ''};const bad=[];
+    const out=rows.map((r,i)=>{const id=+pick(r,'رقم المنشور','post_id');const pl=String(pick(r,'المنصة','platform')).trim().toLowerCase();const at=pick(r,'التاريخ','date');
+      const d=at instanceof Date?at.toISOString().slice(0,10):String(at).slice(0,10);if(!MKX.posts.some(p=>p.id===id)){bad.push(i+2);return null}
+      return {post_id:id,platform:MK_PL[pl]?pl:'',at:/^\d{4}-\d{2}-\d{2}$/.test(d)?d:TODAY(),impressions:pick(r,'الظهور','impressions'),reach:pick(r,'الوصول','reach'),engagements:pick(r,'التفاعل','engagements'),clicks:pick(r,'النقرات','clicks'),leads:pick(r,'عملاء محتملون','leads'),spend:pick(r,'المصروف','spend')}}).filter(x=>x&&['impressions','reach','engagements','clicks','leads','spend'].some(k=>x[k]!==''));
+    if(!out.length)return toast(L('ما فيه صفوف فيها أرقام','No rows with figures'));
+    const r=await mkRpc('mk_metrics_save',{p:out.map(x=>{const o={...x};for(const k in o)o[k]=String(o[k]);o.campaign_id=String(MKX.posts.find(p=>p.id===x.post_id)?.campaign_id||'');return o})});
+    toast(`${L('تم استيراد','Imported')} ${r.n}${bad.length?` — ${L('صفوف بدون رقم منشور صحيح:','rows with unknown post:')} ${bad.join(', ')}`:''}`);mkLoad(true)}catch(e){toast(e.message)}}
+document.addEventListener('change',e=>{if(e.target&&e.target.id==='mk_imp'&&e.target.files[0]){mkImport(e.target.files[0]);e.target.value=''}});
+
+Object.assign(ACT,{
+  mkNew:d=>mkEditor(null,{date:d.d}),mkNewIn:d=>{closeModal();mkEditor(null,{campaign:+d.c,platforms:mkCamp(d.c)?.platforms?.length?mkCamp(d.c).platforms:undefined})},mkOpen:d=>{const p=MKX.posts.find(x=>x.id===+d.id);if(p)mkEditor(p)},
+  mkSave:async d=>{const err=document.getElementById('mk_err');err.textContent='';const f=mkForm();f.submit=!!d.submit;BUSY=true;
+    try{await mkRpc('mk_post_save',{p:f});BUSY=false;closeModal();toast(f.submit?L('انرسل للاعتماد','Sent for approval'):L('انحفظ','Saved'));mkLoad(true)}catch(e){BUSY=false;err.textContent=e.message}},
+  mkDel:async d=>{if(!confirm(L('حذف المنشور؟','Delete post?')))return;try{await mkRpc('mk_post_delete',{p_id:+d.id});closeModal();mkLoad(true)}catch(e){toast(e.message)}},
+  mkAi:async d=>{const out=document.getElementById('mk_ai_out');const f=mkForm();if(!f.platforms.length)return toast(L('اختر المنصات أولاً','Pick platforms first'));
+    const tone={pro:'مهنية للمقاولين والاستشاريين',friendly:'قريبة من الناس',promo:'عرض ترويجي',edu:'تثقيفية ونصائح'}[document.getElementById('mk_ai_tone').value];
+    let q,ctx;if(d.t==='rewrite'){q=document.getElementById('mk_ai_rw').value.trim();if(!q)return toast(L('اكتب المطلوب من التعديل','Describe the change'));if(!f.body_ar&&!f.body_en)return toast(L('ما فيه نص لإعادة صياغته','Nothing to rewrite'));
+      ctx=mkCtx({platforms:f.platforms,current:{body_ar:f.body_ar,body_en:f.body_en,hashtags:f.hashtags,cta:f.cta}})}
+    else{const topic=document.getElementById('mk_ai_q').value.trim()||f.title;if(!topic)return toast(L('اكتب موضوع المنشور','Type the topic'));q=`${topic}. نوع المحتوى: ${MK_KIND[f.kind][0]}. النبرة: ${tone}. المنصات: ${f.platforms.map(k=>MK_PL[k][0]).join('، ')}.`;ctx=mkCtx({platforms:f.platforms,kind:f.kind})}
+    out.innerHTML=`<span class="muted">${L('جاري الكتابة…','Writing…')}</span>`;
+    try{const j=mkJson(await mkAi(d.t,q,ctx));const set=(id,v)=>{if(v!=null&&v!==''){const el=document.getElementById(id);el.value=v;el.dispatchEvent(new Event('input'))}};
+      if(d.t==='post')set('mk_title',document.getElementById('mk_title').value||j.title);set('mk_ar',j.body_ar);set('mk_en',j.body_en);set('mk_tags',j.hashtags);set('mk_cta',j.cta);if(j.design_brief)set('mk_brief',j.design_brief);
+      out.innerHTML=j.notes?`<div class="banner warn"><span class="sp"><b>${L('يلزم تأكيده:','To confirm:')}</b> ${esc(j.notes)}</span></div>`:`<span style="color:#38AC57">${L('تمت الكتابة في الحقول؛ راجعها قبل الإرسال.','Filled in; review before sending.')}</span>`}
+    catch(e){out.innerHTML=`<span class="flag">${esc(e.message)}</span>`}},
+  mkPlan:d=>mkPlan(d.m),mkPlanRun:d=>mkPlanRun(d.m),
+  mkPlanSave:async()=>{const ids=[...document.querySelectorAll('.mkp_ck:checked')].map(x=>+x.value);if(!ids.length)return;let n=0;BUSY=true;
+    try{for(const i of ids){const x=MKE.plan[i];const pls=(x.platforms||[]).filter(k=>MK_PL[k]);
+      await mkRpc('mk_post_save',{p:{title:x.title||x.idea||'منشور',kind:MK_KIND[x.kind]?x.kind:'post',platforms:pls.length?pls:['instagram'],campaign_id:MKE.camp||null,scheduled_at:`${x.date}T${/^\d{2}:\d{2}$/.test(x.time||'')?x.time:'19:00'}:00+03:00`,design_brief:x.idea||''}});n++}
+      BUSY=false;toast(`${L('انضافت','Created')} ${n} ${L('مسودة في التقويم','drafts')}`);closeModal()}catch(e){BUSY=false;toast(e.message)}mkLoad(true)},
+  mkDecideOpen:d=>mkDecide(+d.id,'approved'),mkDecide:d=>{if(d.d==='approved'){mkRpc('mk_post_decide',{p_id:+d.id,p_decision:'approved',p_note:null}).then(()=>{toast(L('اعتُمد','Approved'));closeModal();mkLoad(true)}).catch(e=>toast(e.message));return}mkDecide(+d.id,d.d)},
+  mkDecideGo:async d=>{try{await mkRpc('mk_post_decide',{p_id:+d.id,p_decision:d.d,p_note:document.getElementById('mk_dn').value});closeModal();mkLoad(true)}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkPub:d=>mkPublish(+d.id),
+  mkCopy:d=>{const p=MKX.posts.find(x=>x.id===+d.id);const t=[d.l==='en'?p.body_en:p.body_ar,p.cta,p.hashtags].filter(Boolean).join('\n\n');try{navigator.clipboard.writeText(t);toast(L('تم النسخ','Copied'))}catch(e){toast(L('ما قدرت أنسخ','Copy failed'))}},
+  mkPubGo:async d=>{const urls={};document.querySelectorAll('.mk_url').forEach(i=>{if(i.value.trim())urls[i.dataset.k]=i.value.trim()});
+    try{await mkRpc('mk_post_published',{p_id:+d.id,p_urls:urls});closeModal();toast(L('تم تسجيل النشر','Marked published'));mkLoad(true)}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkCampEd:d=>mkCampEd(d.id?+d.id:null),
+  mkCampSave:async d=>{const g=id=>(document.getElementById(id)||{}).value||'';
+    try{await mkRpc('mk_campaign_save',{p:{id:d.id||null,name:g('mc_name'),goal:g('mc_goal'),audience:g('mc_aud'),product_family:g('mc_fam'),status:g('mc_st'),start_date:g('mc_from'),end_date:g('mc_to'),budget:g('mc_budget'),notes:g('mc_notes'),platforms:[...document.querySelectorAll('.mc_pl:checked')].map(x=>x.value)}});
+      closeModal();toast(L('انحفظت الحملة','Saved'));mkLoad(true)}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkCampAi:async()=>{const g=id=>(document.getElementById(id)||{}).value||'';const err=document.getElementById('mk_err');if(!g('mc_goal')&&!g('mc_name'))return toast(L('اكتب اسم الحملة وهدفها','Name and goal first'));err.textContent=L('جاري الكتابة…','Writing…');
+    try{const fam=g('mc_fam');const ans=await mkAi('campaign',`الحملة: ${g('mc_name')}. الهدف: ${g('mc_goal')}. الجمهور: ${g('mc_aud')}. الفترة: ${g('mc_from')} إلى ${g('mc_to')}. الميزانية: ${g('mc_budget')||'غير محددة'}.`,
+        {company:{name:'الوادي الأخضر المميز',branches:['مكة المكرمة','عسفان']},products:(S.items||[]).filter(x=>!fam||x.family===fam).slice(0,60).map(x=>({name:x.name,family:x.family,size:x.size})),platforms:[...document.querySelectorAll('.mc_pl:checked')].map(x=>x.value)});
+      const n=document.getElementById('mc_notes');n.value=(n.value?n.value+'\n\n':'')+ans;err.textContent=''}catch(e){err.textContent=e.message}},
+  mkAcctEd:d=>mkAcctEd(d.id),
+  mkAcctSave:async d=>{const g=id=>(document.getElementById(id)||{}).value||'';
+    try{await mkRpc('mk_account_save',{p:{id:d.id||null,platform:g('ma_pl'),name:g('ma_name'),handle:g('ma_handle'),url:g('ma_url').trim(),owner_name:g('ma_owner'),notes:g('ma_notes'),active:g('ma_act')==='1'}});closeModal();mkLoad(true)}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkMet:d=>mkMet(d.p),mkTpl:()=>mkTpl(),
+  mkMetSave:async()=>{const g=id=>(document.getElementById(id)||{}).value||'';const f=g('mm_for');const row={platform:g('mm_pl'),at:g('mm_at'),notes:g('mm_notes')};
+    ['impressions','reach','engagements','clicks','leads','followers','spend'].forEach(k=>row[k]=g('mm_'+k));
+    if(f[0]==='p'){row.post_id=f.slice(1);row.campaign_id=String(MKX.posts.find(p=>p.id===+f.slice(1))?.campaign_id||'')}else if(f[0]==='a'){row.account_id=f.slice(1);row.platform=row.platform||MKX.accts.find(a=>a.id===+f.slice(1))?.platform||''}else if(f[0]==='c')row.campaign_id=f.slice(1);
+    if(!['impressions','reach','engagements','clicks','leads','followers','spend'].some(k=>row[k]!==''))return document.getElementById('mk_err').textContent=L('اكتب رقم واحد على الأقل','Enter at least one figure');
+    try{await mkRpc('mk_metrics_save',{p:[row]});closeModal();toast(L('انحفظت الأرقام','Saved'));mkLoad(true)}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkMetDel:async d=>{if(!confirm(L('حذف هذه القراءة؟','Delete this reading?')))return;try{await mkRpc('mk_metric_delete',{p_id:+d.id});mkLoad(true)}catch(e){toast(e.message)}}});
+
+(()=>{const st=document.createElement('style');st.textContent=`.mk-pl{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:var(--c)}
+ .mk-pls{display:flex;flex-wrap:wrap;gap:6px}.mk-plck{display:flex;align-items:center;gap:5px;border:1.5px solid var(--c);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer}.mk-plck input{width:auto}
+ .mk-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.mk-wd{text-align:center;font-weight:700;font-size:12px;color:var(--muted,#667);padding:4px}
+ .mk-cell{min-height:104px;background:#fff;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:3px}.mk-cell.off{background:transparent;border:0}.mk-cell.today{border:2px solid #38AC57}
+ .mk-dn{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#051D48}.mk-add{border:0;background:#EDECED;border-radius:6px;width:20px;height:20px;cursor:pointer;line-height:1}
+ .mk-chip{display:block;text-align:start;width:100%;border:0;border-radius:6px;padding:3px 6px;font:12px Tajawal,system-ui,sans-serif;cursor:pointer;background:#EDECED;color:#0B1B33;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .mk-chip span{display:inline-flex;gap:2px;margin-inline-start:4px}.mk-chip i{width:7px;height:7px;border-radius:50%;display:inline-block}
+ .mk-chip.st-review{background:#FFF3D6}.mk-chip.st-approved{background:#DCEFFF}.mk-chip.st-published{background:#DDF3E3}.mk-chip.st-returned,.mk-chip.st-rejected{background:#FEE4E2}
+ .mk-legend{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.mk-legend .mk-chip{width:auto;cursor:default}
+ .mk-ed{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:14px}.mk-ai{background:linear-gradient(180deg,#F1F7FF,#F4FBF6);border:1px solid #D7E6F5;border-radius:12px;padding:10px;align-self:start;position:sticky;top:0}
+ .mk-prev{background:#FAFBFC;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}.mk-txt{white-space:pre-wrap;line-height:1.8}.mk-tags{color:#1d6fd1}
+ .mk-accts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.mk-acct{border-top:4px solid var(--c)}.mk-accn{display:flex;gap:14px;margin:8px 0}.mk-accn span{display:flex;flex-direction:column;font-size:11px;color:var(--muted,#667)}.mk-accn b{font-size:16px;color:#051D48}.mk-accn i{font-style:normal;font-size:10px}
+ @media(max-width:800px){.mk-ed{grid-template-columns:1fr}.mk-cell{min-height:70px}.mk-chip{font-size:10.5px}}`;document.head.appendChild(st)})();
+NAV.push(['mkcal','plan',()=>L('تقويم المحتوى','Content calendar')]);
+NAV.push(['mkposts','chat',()=>L('المنشورات','Posts')]);
+NAV.push(['mkapprove','shield',()=>L('اعتماد المنشورات','Post approvals')]);
+NAV.push(['mkcamp','trend',()=>L('الحملات','Campaigns')]);
+NAV.push(['mkacct','users',()=>L('صفحات السوشال ميديا','Social pages')]);
+NAV.push(['mkreport','report',()=>L('تقارير أداء الحملات','Campaign performance')]);
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -5361,6 +5674,7 @@ const NAV_TREE=[
   ['doc',()=>L('العقود القانونية','Legal contracts'),['credit','contracts','acctopen','letters','lcset']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
   ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
+  ['chat',()=>L('التسويق','Marketing'),['mkcal','mkposts','mkapprove','mkcamp','mkacct','mkreport']],
   ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
   ['build',null,['prodplan']]];
 const DROP=new Set(['dlvvehicle','dlvdrivers']);
