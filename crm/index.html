@@ -1,10 +1,10 @@
-<!DOCTYPE html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><title>الوادي الأخضر — المبيعات</title>
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#051D48"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="المندوب"><title>CRM الوادي الأخضر</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
 <script src="claude-shim.js"></script>
 <style>
@@ -4996,100 +4996,289 @@ NAV.push(['letters','chat',()=>L('خطابات العملاء','Customer letters
 NAV.push(['fvisit','pin',()=>L('طلبات زيارة المصنع','Factory visit requests'),()=>lcLvl('fvisit')>=1]);
 NAV.push(['lcset','db',()=>L('إعدادات الموافقات والقوالب','Approvals & templates'),()=>lcCfg()||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=1)]);
 
-/* ===== SAP documents (مستندات ساب): quotation, sales order and delivery entry screens backed by SAP Business One.
-   Customers, items, prices and open orders are read live from SAP (sap-read); documents are filed with sap_doc_submit and
-   posted by the database bridge (sap-sync), which writes the SAP number back. TEST company only until approved. ===== */
-const SD_T={quotation:['عرض سعر','Quotation'],order:['أمر بيع','Sales order'],delivery:['أمر تسليم','Delivery']};
+/* ===== SAP sales documents (مستندات ساب) — SAP-style entry screens for the sales chain:
+   quotation → sales order → (delivery) → A/R invoice → A/R credit note, plus return request, incoming payment and the
+   customer statement. Old documents are found and opened live from SAP (sap-read); new ones carry no number until SAP
+   assigns it on posting (sap_doc_submit → sap-sync). Credit limits and balances are SAP's own, checked here and again
+   on the server before posting. TEST company only until approved. ===== */
+const SD_T={quotation:['عرض سعر','Sales Quotation',23],order:['أمر بيع','Sales Order',17],delivery:['أمر تسليم','Delivery',15],retreq:['طلب إرجاع','Return Request',234000031],
+  invoice:['فاتورة عميل','A/R Invoice',13],creditnote:['إشعار دائن','A/R Credit Memo',14],payment:['سند تحصيل','Incoming Payment',24],statement:['كشف حساب','Statement of Account',0]};
+const SD_TABS=['quotation','order','delivery','invoice','creditnote','retreq','payment','statement'];
+const SD_TYPE_OF={23:'quotation',17:'order',15:'delivery',13:'invoice',14:'creditnote',234000031:'retreq'};
+const SD_BASES={order:['quotation'],delivery:['order'],invoice:['order','delivery'],retreq:['delivery','invoice'],creditnote:['invoice','retreq']};
+const SD_NEXT={quotation:['order'],order:['delivery','invoice'],delivery:['invoice','retreq'],invoice:['creditnote','retreq','payment'],retreq:['creditnote']};
+const SD_CREDIT=new Set(['order','delivery','invoice']);
 const SD_ST={pending:['جاري الترحيل لساب','info'],posted:['مرحّل لساب','ok'],awaiting_approval:['بانتظار اعتماد في ساب','warn'],failed:['تعذّر الترحيل','bad']};
-const SDX={rows:null,busy:false,err:null,at:0,poll:null};
+const SDX={rows:null,busy:false,err:null,at:0,poll:null,find:{},set:null};
+const SD_VAT={};
 const sdLvl=()=>typeof wadyLvl==='function'?wadyLvl('crm','sapdocs'):3;
+const sdN=t=>SD_T[t]?L(SD_T[t][0],SD_T[t][1]):t;
 const sdRead=async(action,args)=>{const {data,error}=await window.__sb.functions.invoke('sap-read',{body:{action,...args}});let m=data&&data.error;
   if(error&&!m){try{m=(await error.context.json()).error}catch(e){m=error.message}}if(m)throw new Error(m);return data};
 async function sdLoad(force){if(SDX.busy||(!force&&SDX.rows&&Date.now()-SDX.at<20000))return;SDX.busy=true;
-  try{const {data,error}=await window.__sb.rpc('sap_docs_list',{p_type:null});if(error)throw error;SDX.rows=data||[];SDX.err=null;SDX.at=Date.now()}catch(e){SDX.err=e.message;SDX.rows=SDX.rows||[]}
-  SDX.busy=false;render();if(SDX.rows.some(r=>r.status==='pending'))sdPoll()}
+  try{const [a,b]=await Promise.all([window.__sb.rpc('sap_docs_list',{p_type:null}),window.__sb.rpc('sap_settings')]);if(a.error)throw a.error;SDX.rows=a.data||[];SDX.set=b.data||null;SDX.err=null;SDX.at=Date.now()}
+  catch(e){SDX.err=e.message;SDX.rows=SDX.rows||[]}SDX.busy=false;render();if(SDX.rows.some(r=>r.status==='pending'))sdPoll()}
 function sdPoll(){clearTimeout(SDX.poll);SDX.poll=setTimeout(()=>{if(typeof route!=='undefined'&&route==='sapdocs')sdLoad(true)},4000)}
 const sdSt=r=>pill(SD_ST[r.status]?.[0]||r.status,SD_ST[r.status]?.[1]||'');
+const sdD=s=>s?fdate(String(s).slice(0,10)):'—';
+const sdSapSt=d=>d.cancelled?pill(L('ملغى','Cancelled'),'bad'):d.status==='bost_Open'?pill(L('مفتوح','Open'),'info'):d.status==='bost_Close'?pill(L('مقفل','Closed'),''):'';
+const sdNum=v=>{const n=+v;return isFinite(n)?n:0};
+const sdM=v=>sdNum(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sdClientList=id=>`<datalist id="${id}">${vis(S.clients).filter(c=>c.code).sort((a,b)=>a.name.localeCompare(b.name,'ar')).slice(0,5000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`;
+
+/* ---------- main screen ---------- */
 V.sapdocs=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
   if(!SDX.rows){sdLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
-  const tab=fv('sdTab','quotation');const rows=SDX.rows.filter(r=>r.type===tab);const can=sdLvl()>=3;
-  return `<div class="banner warn"><span class="sp">${L('مربوط حالياً بشركة الاختبار في ساب (TEST). المستندات اللي تنرحّل من هنا ما تأثر على ساب الفعلي لين يعتمد مدير النظام التشغيل الفعلي.','Connected to the SAP TEST company for now.')}</span></div>
+  const tab=fv('sdTab','quotation');const can=sdLvl()>=3;
+  const head=`<div class="banner warn"><span class="sp">${L('مربوط حالياً بشركة الاختبار في ساب (TEST). المستندات اللي تنرحّل من هنا ما تأثر على ساب الفعلي لين يعتمد مدير النظام التشغيل الفعلي.','Connected to the SAP TEST company for now.')}</span></div>
    ${SDX.err?`<div class="banner bad"><span class="sp">${esc(SDX.err)}</span></div>`:''}
-   <div class="tabs">${[['quotation',L('عروض الأسعار','Quotations')],['order',L('أوامر البيع','Sales orders')],['delivery',L('أوامر التسليم','Deliveries')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="sdTab" data-v="${k}">${l} (${SDX.rows.filter(r=>r.type===k).length})</button>`).join('')}</div>
-   <div class="toolbar">${can?`<button class="btn p" data-act="sdNew" data-k="${tab}">+ ${L(SD_T[tab][0]+' جديد',`New ${SD_T[tab][1]}`)}</button>`:''}<button class="btn s" data-act="sdRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
-     <span class="small muted">${tab==='delivery'?L('أمر التسليم يُبنى على أمر بيع مفتوح في ساب، ويرتبط بطلب التوصيل والسيارة في تطبيق الحركة.','Built on an open SAP sales order and tied to a fleet delivery.'):L('العميل والأصناف والأسعار تنسحب من ساب مباشرة.','Customer, items and prices come live from SAP.')}</span></div>
-   ${rows.length?`<div class="card">${table([{l:'#',f:r=>`<a href="#" data-act="sdOpen" data-id="${r._id}">${r._id}</a>`},{l:L('العميل','Customer'),f:r=>`${esc(r.card_name||'')} <span class="small muted">${esc(r.card_code||'')}</span>`},
-     ...(tab==='delivery'?[{l:L('أمر البيع','Sales order'),f:r=>r.base_num?esc(r.base_num):'—'},{l:L('السيارة','Vehicle'),f:r=>esc(r.payload?.fleet_ref||'—')}]:[{l:L('القيمة قبل الضريبة','Net'),c:'n',f:r=>r.total!=null?money(r.total):'—'}]),
-     {l:L('رقم ساب','SAP no.'),f:r=>r.sap_num?`<b>${r.sap_num}</b>`:r.draft?L('مسودة ','Draft ')+r.draft:'—'},{l:L('الحالة','Status'),f:sdSt},{l:L('بواسطة','By'),f:r=>esc(r.by_name||'')},{l:L('التاريخ','Date'),c:'nw',f:r=>fdt(r.at)}],
-     rows.map(r=>({...r,_id:r.id,id:null})))}</div>`:`<div class="card empty">${L('ما فيه مستندات','No documents')}</div>`}`};
+   <div class="tabs">${SD_TABS.map(k=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="sdTab" data-v="${k}">${sdN(k)}</button>`).join('')}
+   ${SDX.set?.can_edit?`<button class="tab ${tab==='settings'?'on':''}" data-act="filt" data-k="sdTab" data-v="settings">${L('إعدادات','Settings')}</button>`:''}</div>`;
+  if(tab==='statement')return head+sdStatementView();
+  if(tab==='settings')return head+sdSettingsView();
+  const f=SDX.find[tab]||{};const mine=SDX.rows.filter(r=>r.type===tab);
+  return head+`<div class="toolbar">${can?`<button class="btn p" data-act="sdNew" data-k="${tab}">+ ${L(SD_T[tab][0]+' جديد','New '+SD_T[tab][1])}</button>`:''}<button class="btn s" data-act="sdRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
+    <span class="small muted">${tab==='payment'?L('التحصيل يتوزع على فواتير العميل المفتوحة في ساب.','Payments are applied to open SAP invoices.'):SD_BASES[tab]?L('ينسخ من: ','Copies from: ')+SD_BASES[tab].map(sdN).join(L(' أو ',' or ')):L('بداية دورة البيع.','Start of the sales chain.')}</span></div>
+   <div class="card"><b>${L('بحث في ساب','Find in SAP')}</b>
+    <div class="fbar" style="margin-top:6px"><label class="fl">${L('رقم المستند','Doc no.')}<input id="sdf_num" type="number" value="${esc(f.num||'')}" style="width:120px"></label>
+     <label class="fl">${L('كود العميل','Customer code')}<input id="sdf_card" value="${esc(f.card||'')}" style="width:120px"></label><label class="fl">${L('اسم العميل','Customer name')}<input id="sdf_name" value="${esc(f.name||'')}"></label>
+     <label class="fl">${L('من','From')}<input id="sdf_from" type="date" value="${esc(f.from||'')}"></label><label class="fl">${L('إلى','To')}<input id="sdf_to" type="date" value="${esc(f.to||'')}"></label>
+     ${tab!=='payment'?`<label class="fl"><span>${L('المفتوح فقط','Open only')}</span><input id="sdf_open" type="checkbox" ${f.open?'checked':''} style="width:auto"></label>`:''}<button class="btn p" data-act="sdFind" data-k="${tab}">${L('بحث','Find')}</button></div>
+    <div id="sdf_res">${f.busy?`<div class="small muted">${L('جاري البحث في ساب…','Searching SAP…')}</div>`:f.err?`<span class="flag">${esc(f.err)}</span>`:f.res?sdFindTable(tab,f.res):''}</div></div>
+   <div class="card"><b>${L('المستندات المرسلة من الـ CRM','Documents sent from the CRM')}</b>${mine.length?table([{l:'#',f:r=>`<a href="#" data-act="sdMine" data-id="${r._id}">${r._id}</a>`},{l:L('العميل','Customer'),f:r=>`${esc(r.card_name||'')} <span class="small muted">${esc(r.card_code||'')}</span>`},
+     {l:L('القيمة قبل الضريبة','Net'),c:'n',f:r=>r.total!=null?sdM(r.total):'—'},{l:L('رقم ساب','SAP no.'),f:r=>r.sap_num?`<a href="#" data-act="sdOpen" data-t="${r.type}" data-e="${r.sap_entry}"><b>${r.sap_num}</b></a>`:r.draft?L('مسودة ','Draft ')+r.draft:'—'},
+     {l:L('الحالة','Status'),f:sdSt},{l:L('بواسطة','By'),f:r=>esc(r.by_name||'')},{l:L('التاريخ','Date'),c:'nw',f:r=>fdt(r.at)}],mine.map(r=>({...r,_id:r.id,id:null}))):`<div class="small muted">${L('ما فيه','None')}</div>`}</div>`};
+function sdFindTable(t,docs){if(!docs.length)return `<div class="small muted">${L('ما فيه نتائج','No results')}</div>`;
+  const cust={l:L('العميل','Customer'),f:d=>`${esc(d.name||'')} <span class="small muted">${esc(d.card)}</span>`};
+  const no={l:L('الرقم','No.'),f:d=>`<a href="#" data-act="sdOpen" data-t="${t}" data-e="${d.entry}"><b>${d.num}</b></a>`};
+  return table(t==='payment'?[no,{l:L('التاريخ','Date'),f:d=>sdD(d.date)},cust,{l:L('المبلغ','Amount'),c:'n',f:d=>sdM(d.total)},{l:'',f:d=>d.cancelled?pill(L('ملغى','Cancelled'),'bad'):''}]
+    :[no,{l:L('التاريخ','Date'),f:d=>sdD(d.date)},cust,{l:L('الإجمالي','Total'),c:'n',f:d=>sdM(d.total)},...(t==='invoice'?[{l:L('المسدد','Paid'),c:'n',f:d=>sdM(d.paid||0)}]:[]),{l:L('الحالة','Status'),f:sdSapSt}],docs.map(d=>({...d,id:null})))}
 
-/* ---- entry form ---- */
-let SDF=null;
-function sdForm(kind){const clients=vis(S.clients).filter(c=>c.code).sort((a,b)=>a.name.localeCompare(b.name,'ar'));SDF={kind,cust:null,lines:[],orders:[],order:null,fleet:[]};
-  openModal(L(SD_T[kind][0]+' جديد','New '+SD_T[kind][1]),`<div class="fgrid">
-    <div class="fld full"><label>${L('العميل','Customer')} <span class="req">*</span></label><input list="sd_cl" id="sd_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="sd_cl">${clients.slice(0,5000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist></div>
-    <div class="fld full" id="sd_cust"></div>
-    ${kind==='delivery'?`<div class="fld full"><label>${L('أمر البيع المفتوح في ساب','Open SAP sales order')} <span class="req">*</span></label><select id="sd_order" disabled><option value="">${L('اختر العميل أولاً','Pick the customer first')}</option></select></div>
-      <div class="fld full" id="sd_fleetbox"></div><div class="fld"><label>${L('تاريخ التسليم','Delivery date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div>`
-     :`<div class="fld"><label>${L('تاريخ المستند','Document date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div><div class="fld"><label>${kind==='quotation'?L('صالح حتى','Valid until'):L('تاريخ التسليم المطلوب','Delivery date')}</label><input type="date" id="sd_due" value="${addDays(TODAY(),kind==='quotation'?14:3)}"></div>
-       <div class="fld full"><label>${L('إضافة صنف من ساب','Add an item from SAP')}</label><input id="sd_q" type="search" autocomplete="off" placeholder="${L('اكتب جزء من اسم الصنف أو كوده (حرفين على الأقل)','Type part of the item name or code')}"><div id="sd_res" class="list" style="max-height:220px;overflow:auto"></div></div>`}
-    <div class="fld full"><div id="sd_lines"></div></div>
-    <div class="fld"><label>${L('مرجع العميل (اختياري)','Customer reference')}</label><input id="sd_ref" placeholder="${L('رقم طلب الشراء عند العميل','Customer PO no.')}"></div><div class="fld"><label>${L('ملاحظات','Notes')}</label><input id="sd_note"></div></div>
-    <div id="sd_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="sdSubmit">${L('ترحيل إلى ساب','Post to SAP')}</button></div>`);
+/* ---------- SAP-style document editor ---------- */
+let SDE=null;
+const sdLineNet=l=>sdNum(l.qty)*sdNum(l.price)*(1-sdNum(l.disc)/100);
+function sdTotals(){const net0=SDE.lines.reduce((s,l)=>s+sdLineNet(l),0);const hd=sdNum(SDE.disc);const net=net0*(1-hd/100);
+  const vat=SDE.lines.reduce((s,l)=>s+sdLineNet(l)*(1-hd/100)*(/0%|EX|ZR/i.test(l.vat_group||'')?0:0.15),0);return {net0,net,disc:net0-net,vat,total:net+vat}}
+function sdForm(kind,pre){SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]}};const isPay=kind==='payment';
+  openModal(`${sdN(kind)} — ${L('جديد','New')}`,`<div class="sapdoc">
+   <div class="sd-hd"><div class="sd-col">
+     <div class="sd-f"><label>${L('العميل','Customer')} <span class="req">*</span></label><input list="sd_cl" id="sd_client" placeholder="${L('الكود أو الاسم','Code or name')}" autocomplete="off">${sdClientList('sd_cl')}</div>
+     <div class="sd-f"><label>${L('بحث في عملاء ساب','Search SAP customers')}</label><input id="sd_bpq" type="search" placeholder="${L('لو العميل مو موجود في الـ CRM','If the customer is not in the CRM')}"><div id="sd_bpres" class="list" style="max-height:140px;overflow:auto"></div></div>
+     ${isPay?'':`<div class="sd-f"><label>${L('مرجع العميل','Customer Ref. No.')}</label><input id="sd_ref"></div>`}</div>
+    <div class="sd-col"><div class="sd-f"><label>${L('الرقم','No.')}</label><input value="${L('يُحدد من ساب عند الترحيل','Assigned by SAP on posting')}" readonly class="sd-ro"></div>
+     <div class="sd-f"><label>${L('الحالة','Status')}</label><input value="${L('جديد','New')}" readonly class="sd-ro"></div>
+     <div class="sd-f"><label>${L('تاريخ الترحيل','Posting Date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div>
+     ${isPay?'':`<div class="sd-f"><label>${kind==='quotation'?L('صالح حتى','Valid Until'):L('تاريخ الاستحقاق / التسليم','Due / Delivery Date')}</label><input type="date" id="sd_due" value="${addDays(TODAY(),kind==='quotation'?14:kind==='invoice'?30:3)}"></div>`}</div></div>
+   <div id="sd_cust"></div>
+   ${isPay?`<div id="sd_pay"></div>`:`<div class="toolbar" style="margin:8px 0">${SD_BASES[kind]?`<button class="btn s" data-act="sdCopyFrom">${L('نسخ من…','Copy From…')}</button>`:''}
+     ${kind!=='delivery'&&kind!=='retreq'?`<input id="sd_q" type="search" autocomplete="off" placeholder="${L('إضافة صنف: اكتب جزء من الاسم أو الكود','Add item: type part of the name or code')}" style="max-width:360px">`:`<span class="small muted">${L('أسطر هذا المستند تُنسخ من مستند أساسي فقط','Lines come from a base document only')}</span>`}<span class="grow"></span></div>
+     <div id="sd_res" class="list" style="max-height:220px;overflow:auto"></div><div id="sd_lines"></div>
+     ${kind==='delivery'?`<div class="sd-f" id="sd_fleetbox" style="margin-top:8px"></div>`:''}`}
+   <div class="sd-ft"><div class="sd-col"><div class="sd-f"><label>${L('ملاحظات','Remarks')}</label><textarea id="sd_note" rows="2"></textarea></div></div><div class="sd-col" id="sd_tot"></div></div>
+   <div id="sd_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="sdSubmit">${L('ترحيل إلى ساب','Add to SAP')}</button></div></div>`);
   sdPaint();const ci=document.getElementById('sd_client');ci.addEventListener('change',()=>sdPickClient(ci.value.split(' — ')[0].trim()));
   const qi=document.getElementById('sd_q');if(qi){let t=null;qi.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sdSearch(qi.value),450)})}
-  const so=document.getElementById('sd_order');if(so)so.addEventListener('change',()=>sdPickOrder(so.value))}
-async function sdPickClient(code){const box=document.getElementById('sd_cust');if(code&&SDF.cust&&SDF.cust.CardCode===code)return;if(SDF.loading===code)return;SDF.loading=code;SDF.cust=null;SDF.orders=[];SDF.order=null;SDF.lines=[];sdPaint();if(!code){box.innerHTML='';return}
+  const bq=document.getElementById('sd_bpq');{let t=null;bq.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sdBpSearch(bq.value),450)})}
+  if(pre)setTimeout(()=>sdPrefill(pre),0)}
+async function sdBpSearch(t){const box=document.getElementById('sd_bpres');if(!box)return;if((t||'').trim().length<2){box.innerHTML='';return}box.innerHTML=`<div class="small muted">${L('جاري البحث…','Searching…')}</div>`;
+  try{const r=await sdRead('bp_search',{q:t});box.innerHTML=(r.bps||[]).map(b=>`<div class="li" data-act="sdPickBp" data-c="${esc(b.CardCode)}"><div class="main"><div class="t">${esc(b.CardName)}</div><div class="m">${esc(b.CardCode)} · ${L('الرصيد','Balance')} ${sdM(b.CurrentAccountBalance||0)}</div></div></div>`).join('')||`<div class="small muted">${L('ما فيه','None')}</div>`}catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+async function sdPickClient(code){const box=document.getElementById('sd_cust');if(!box||!SDE)return;if(code&&SDE.cust&&SDE.cust.CardCode===code)return;if(code&&SDE.loading===code)return;SDE.loading=code;
+  SDE.cust=null;SDE.lines=SDE.lines.filter(l=>!l.base_entry);sdPaint();if(!code){box.innerHTML='';SDE.loading=null;return}
   box.innerHTML=`<span class="small muted">${L('جاري جلب بيانات العميل من ساب…','Loading the customer from SAP…')}</span>`;
-  try{const r=await sdRead('customer',{code});const c=r.customer;SDF.cust=c;
-    box.innerHTML=`<div class="card small" style="margin:0"><b>${esc(c.CardName)}</b> — ${esc(c.CardCode)} · ${L('قائمة الأسعار','Price list')}: ${esc(c.PriceListName||c.PriceListNum)} · ${L('الرصيد','Balance')}: ${money(c.CurrentAccountBalance||0)} · ${L('الحد الائتماني','Credit limit')}: ${money(c.CreditLimit||0)}
-      ${c.Frozen==='tYES'||c.Valid==='tNO'?` <span class="flag">${L('العميل موقوف في ساب','Customer is frozen in SAP')}</span>`:''}${c.CreditLimit>0&&c.CurrentAccountBalance>=c.CreditLimit?` <span class="flag">${L('الرصيد وصل الحد الائتماني','Balance reached the credit limit')}</span>`:''}</div>`;
-    if(SDF.kind==='delivery'){const sel=document.getElementById('sd_order');sel.innerHTML=`<option>${L('جاري جلب أوامر البيع المفتوحة…','Loading open orders…')}</option>`;
-      const o=await sdRead('orders',{code});SDF.orders=o.orders||[];sel.disabled=!SDF.orders.length;
-      sel.innerHTML=SDF.orders.length?`<option value="">${L('— اختر أمر البيع —','— choose —')}</option>`+SDF.orders.map(x=>`<option value="${x.entry}">${x.num} — ${fdate(String(x.date).slice(0,10))} — ${money(x.total)} (${x.lines.length} ${L('سطر مفتوح','open lines')})</option>`).join(''):`<option value="">${L('ما فيه أوامر بيع مفتوحة لهذا العميل في ساب','No open sales orders for this customer')}</option>`}
-  }catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}finally{SDF.loading=null}}
-async function sdSearch(t){const res=document.getElementById('sd_res');if(!res)return;if(!SDF.cust){res.innerHTML=`<div class="small muted">${L('اختر العميل أولاً عشان تطلع أسعار قائمته','Pick the customer first')}</div>`;return}
+  try{const r=await sdRead('customer',{code});SDE.cust=r.customer;SD_VAT[code]=r.customer.FederalTaxID||'';const ci=document.getElementById('sd_client');if(ci&&!ci.value.startsWith(code))ci.value=`${code} — ${r.customer.CardName}`;
+    if(SDE.kind==='payment')await sdPayLoad();sdPaint()}
+  catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}finally{SDE.loading=null}}
+/* credit panel — mirrors the server rule: orders always count; deliveries and invoices count unless every line is copied from a base */
+function sdCredit(){const box=document.getElementById('sd_cust');const c=SDE&&SDE.cust;SDE&&(SDE.over=false);if(!box||!c)return;
+  const credit=SD_CREDIT.has(SDE.kind)&&(SDE.kind==='order'||!(SDE.lines.length&&SDE.lines.every(l=>l.base_entry)));const t=credit?sdTotals().total:0;
+  const after=c.Exposure+t;const over=credit&&t>0&&after>sdNum(c.CreditLimit)+0.005;const frozen=c.Frozen==='tYES'||c.Valid==='tNO';
+  box.innerHTML=`<div class="sd-cr ${over||frozen?'over':''}"><div><b>${esc(c.CardName)}</b> — ${esc(c.CardCode)}${c.FederalTaxID?` · ${L('الرقم الضريبي','VAT no.')} ${esc(c.FederalTaxID)}`:''} · ${L('قائمة الأسعار','Price list')}: ${esc(c.PriceListName||c.PriceListNum)}</div>
+   <div class="sd-crg"><span>${L('الحد الائتماني','Credit limit')}<b>${sdM(c.CreditLimit||0)}</b></span><span>${L('رصيد الحساب','Account balance')}<b>${sdM(c.CurrentAccountBalance||0)}</b></span><span>${L('أوامر مفتوحة','Open orders')}<b>${sdM(c.OpenOrdersBalance||0)}</b></span>
+    <span>${L('تسليمات مفتوحة','Open deliveries')}<b>${sdM(c.OpenDeliveryNotesBalance||0)}</b></span><span>${L('المتاح','Available')}<b>${sdM(c.Available)}</b></span>${credit&&t>0?`<span>${L('المتاح بعد هذا المستند','Available after')}<b>${sdM(sdNum(c.CreditLimit)-after)}</b></span>`:''}</div>
+   ${frozen?`<div class="flag">${L('العميل موقوف في ساب','Customer is frozen in SAP')}</div>`:''}${over?`<div class="flag">${L('المستند يتجاوز الحد الائتماني للعميل في ساب، وما ينرحّل. خفّض الكمية، أو حصّل من العميل، أو قدّم طلب تسهيلات ائتمانية.','This document exceeds the customer credit limit in SAP and cannot be posted.')}</div>`:''}</div>`;
+  SDE.over=over||(frozen&&SDE.kind!=='payment')}
+async function sdSearch(t){const res=document.getElementById('sd_res');if(!res)return;if(!SDE.cust){res.innerHTML=`<div class="small muted">${L('اختر العميل أولاً','Pick the customer first')}</div>`;return}
   if((t||'').trim().length<2){res.innerHTML='';return}res.innerHTML=`<div class="small muted">${L('جاري البحث في ساب…','Searching SAP…')}</div>`;
-  try{const r=await sdRead('items',{q:t,price_list:SDF.cust.PriceListNum});SDF.found=r.items||[];
-    res.innerHTML=SDF.found.length?SDF.found.map((x,i)=>`<div class="li" data-act="sdAdd" data-i="${i}"><div class="main"><div class="t">${esc(x.name)}</div><div class="m">${esc(x.code)} · ${esc(x.unit||'')} · ${x.price!=null?L('السعر','Price')+' '+money(x.price):L('بدون سعر في قائمة العميل','no price in the list')} · ${L('المخزون','Stock')} ${num(x.stock||0)}</div></div></div>`).join(''):`<div class="small muted">${L('ما فيه أصناف مطابقة','No matching items')}</div>`}
+  try{const r=await sdRead('items',{q:t,price_list:SDE.cust.PriceListNum});SDE.found=r.items||[];
+    res.innerHTML=SDE.found.length?SDE.found.map((x,i)=>`<div class="li" data-act="sdAdd" data-i="${i}"><div class="main"><div class="t">${esc(x.name)}</div><div class="m">${esc(x.code)} · ${esc(x.unit||'')} · ${x.price!=null?L('السعر','Price')+' '+sdM(x.price):L('بدون سعر في قائمة العميل','no list price')} · ${L('المخزون','Stock')} ${num(x.stock||0)}</div></div></div>`).join(''):`<div class="small muted">${L('ما فيه أصناف مطابقة','No matching items')}</div>`}
   catch(e){res.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
-async function sdPickOrder(entry){SDF.order=SDF.orders.find(o=>String(o.entry)===String(entry))||null;SDF.lines=SDF.order?SDF.order.lines.filter(l=>l.open>0&&l.code!=='T0001').map(l=>({base_line:l.line,item_code:l.code,name:l.name,unit:l.unit,open:l.open,qty:l.open,price:l.price,vat_group:l.vat})):[];sdPaint();
-  const fb=document.getElementById('sd_fleetbox');fb.innerHTML='';if(!SDF.order)return;
-  try{const {data}=await window.__sb.rpc('sap_fleet_orders',{p_so:String(SDF.order.num)});SDF.fleet=data||[];
-    fb.innerHTML=`<label>${L('ربط بطلب التوصيل والسيارة (تطبيق الحركة)','Link to the fleet delivery & vehicle')}</label><select id="sd_fleet">${opt(SDF.fleet.map(f=>[f.id,`#${f.id} — ${f.date||''} — ${f.vehicle?L('سيارة ','Vehicle ')+f.vehicle:L('بدون سيارة','no vehicle')}${f.driver?' — '+f.driver:''} — ${f.status}${f.dlv?' — '+L('عليه أمر تسليم ','has delivery ')+f.dlv:''}`]),'',SDF.fleet.length?L('— بدون ربط —','— no link —'):L('ما فيه طلب توصيل لهذا الأمر في تطبيق الحركة','No fleet delivery for this order'))}</select>`}catch(e){fb.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
-function sdPaint(){const box=document.getElementById('sd_lines');if(!box)return;const d=SDF.kind==='delivery';
-  if(!SDF.lines.length){box.innerHTML=`<div class="small muted">${d?L('اختر أمر البيع عشان تطلع أسطره','Pick the sales order to load its lines'):L('ما فيه أصناف بعد','No items yet')}</div>`;return}
-  const net=SDF.lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0),vat=SDF.lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0)*(/15/.test(l.vat_group||'VAT 15%')?0.15:0),0);
-  box.innerHTML=`<div class="tw"><table><thead><tr><th>${L('الصنف','Item')}</th><th>${L('الوحدة','Unit')}</th>${d?`<th>${L('المتبقي','Open')}</th>`:''}<th>${L('الكمية','Qty')}</th><th>${L('السعر','Price')}</th><th>${L('الإجمالي','Total')}</th><th></th></tr></thead><tbody>
-   ${SDF.lines.map((l,i)=>`<tr><td>${esc(l.name||'')}<div class="small muted">${esc(l.item_code)}</div></td><td>${esc(l.unit||'')}</td>${d?`<td class="n">${num(l.open)}</td>`:''}
-     <td><input type="number" step="any" min="0" data-sdl="${i}" data-f="qty" value="${esc(l.qty)}" style="width:90px"></td>
-     <td>${d?money(l.price):`<input type="number" step="any" min="0" data-sdl="${i}" data-f="price" value="${esc(l.price??'')}" style="width:100px">`}</td><td class="n">${money((+l.qty||0)*(+l.price||0))}</td>
-     <td><button class="btn s d" data-act="sdDel" data-i="${i}">×</button></td></tr>`).join('')}</tbody></table></div>
-   <div class="small" style="margin-top:6px">${L('الإجمالي قبل الضريبة','Net')}: <b>${money(net)}</b> · ${L('الضريبة (تقديرية، ساب يحسبها)','VAT (estimate)')}: ${money(vat)} · ${L('الإجمالي','Total')}: <b>${money(net+vat)}</b></div>`}
-document.addEventListener('input',e=>{const el=e.target;if(!el.dataset||el.dataset.sdl==null||!SDF)return;const l=SDF.lines[+el.dataset.sdl];if(!l)return;l[el.dataset.f]=el.value;
-  const tr=el.closest('tr');if(tr){const tds=tr.querySelectorAll('td');tds[tds.length-2].textContent=money((+l.qty||0)*(+l.price||0))}},true);
-async function sdSubmit(){const err=document.getElementById('sd_err');err.textContent='';if(!SDF.cust){err.textContent=L('اختر العميل','Pick the customer');return}
-  const g=id=>(document.getElementById(id)||{}).value||'';const d=SDF.kind==='delivery';const fo=d?g('sd_fleet'):'';const f=SDF.fleet.find(x=>String(x.id)===String(fo));
-  const p={card_code:SDF.cust.CardCode,card_name:SDF.cust.CardName,ref:g('sd_ref'),note:g('sd_note'),
-    lines:SDF.lines.map(l=>({item_code:l.item_code,qty:l.qty,price:l.price,vat_group:l.vat_group,...(d?{base_line:l.base_line,open:l.open}:{})}))};
-  if(d){if(!SDF.order){err.textContent=L('اختر أمر البيع','Pick the sales order');return}Object.assign(p,{base_entry:SDF.order.entry,base_num:SDF.order.num,doc_date:g('sd_date')||TODAY(),fleet_order_id:fo||null,fleet_ref:f?`${L('طلب توصيل','Fleet order')} #${f.id}${f.vehicle?' — '+L('سيارة','vehicle')+' '+f.vehicle:''}${f.driver?' — '+f.driver:''}`:''})}
-  else Object.assign(p,{doc_date:g('sd_date'),due_date:g('sd_due')});
-  BUSY=true;try{const {data,error}=await window.__sb.rpc('sap_doc_submit',{p_type:SDF.kind,p});BUSY=false;if(error)throw error;
-    if(!data.ok){err.innerHTML=(data.errors||[]).map(esc).join('<br>');return}closeModal();toast(L('انرسل لساب، الرقم يطلع خلال ثواني','Sent to SAP; the number appears shortly'));sdLoad(true)}
+function sdPaint(){if(!SDE)return;const box=document.getElementById('sd_lines');if(box){
+  if(!SDE.lines.length)box.innerHTML=`<div class="small muted" style="padding:10px 0">${L('ما فيه أسطر بعد','No lines yet')}</div>`;
+  else box.innerHTML=`<div class="tw sd-grid"><table><thead><tr><th>#</th><th>${L('رقم الصنف','Item No.')}</th><th>${L('الوصف','Description')}</th><th>${L('الكمية','Quantity')}</th><th>${L('سعر الوحدة','Unit Price')}</th><th>${L('خصم %','Disc. %')}</th><th>${L('كود الضريبة','Tax Code')}</th><th>${L('الإجمالي','Total')}</th><th>${L('أساسه','Base')}</th><th></th></tr></thead><tbody>
+   ${SDE.lines.map((l,i)=>{const b=!!l.base_entry;return `<tr${b?' class="sd-based"':''}><td>${i+1}</td><td class="ltr">${esc(l.item_code||'')}</td><td>${esc(l.name||'')}</td>
+     <td><input type="number" step="any" min="0" data-sdl="${i}" data-f="qty" value="${esc(l.qty)}" style="width:80px">${b?`<div class="small muted">${L('متبقي','open')} ${num(l.open)}</div>`:''}</td>
+     <td>${b?sdM(l.price):`<input type="number" step="any" min="0" data-sdl="${i}" data-f="price" value="${esc(l.price??'')}" style="width:90px">`}</td>
+     <td>${b?num(l.disc||0):`<input type="number" step="any" min="0" max="100" data-sdl="${i}" data-f="disc" value="${esc(l.disc||0)}" style="width:60px">`}</td><td>${esc(l.vat_group||'')}</td>
+     <td class="n sd-lt">${sdM(sdLineNet(l))}</td><td class="small">${b?`${sdN(SD_TYPE_OF[l.base_type])} ${l.base_num||''}`:''}</td><td><button class="btn s d" data-act="sdDel" data-i="${i}">×</button></td></tr>`}).join('')}</tbody></table></div>`}
+  const tt=document.getElementById('sd_tot');if(tt&&SDE.kind!=='payment'){const t=sdTotals();tt.innerHTML=`<table class="sd-tt"><tr><th>${L('الإجمالي قبل الخصم','Total Before Discount')}</th><td>${sdM(t.net0)}</td></tr>
+    <tr><th>${L('خصم %','Discount %')}</th><td><input type="number" step="any" min="0" max="100" id="sd_disc" value="${esc(SDE.disc||0)}" style="width:70px"> <span class="small">${sdM(t.disc)}</span></td></tr>
+    <tr><th>${L('الضريبة (تقديرية، ساب يحسبها)','Tax (estimate; SAP computes it)')}</th><td>${sdM(t.vat)}</td></tr><tr class="sd-gt"><th>${L('الإجمالي','Total')}</th><td>${sdM(t.total)}</td></tr></table>`;
+    const di=document.getElementById('sd_disc');di.addEventListener('change',()=>{SDE.disc=di.value;sdPaint()})}
+  sdCredit()}
+document.addEventListener('input',e=>{const el=e.target;if(!el.dataset||el.dataset.sdl==null||!SDE)return;const l=SDE.lines[+el.dataset.sdl];if(!l)return;l[el.dataset.f]=el.value;
+  const tr=el.closest('tr');if(tr){const c=tr.querySelector('.sd-lt');if(c)c.textContent=sdM(sdLineNet(l))}
+  clearTimeout(SDE._t);SDE._t=setTimeout(()=>{const f=document.activeElement;const k=f&&f.dataset&&f.dataset.sdl!=null?[f.dataset.sdl,f.dataset.f]:null;sdPaint();
+    if(k){const n=document.querySelector(`[data-sdl="${k[0]}"][data-f="${k[1]}"]`);if(n){n.focus();try{n.setSelectionRange(n.value.length,n.value.length)}catch(x){}}}},600)},true);
+
+/* copy from / copy to */
+async function sdCopyFrom(){if(!SDE.cust)return toast(L('اختر العميل أولاً','Pick the customer first'));const types=SD_BASES[SDE.kind];
+  const box=document.getElementById('sd_res');box.innerHTML=`<div class="small muted">${L('جاري جلب المستندات المفتوحة…','Loading open documents…')}</div>`;
+  try{const all=[];for(const t of types){const r=await sdRead('open_docs',{type:t,card:SDE.cust.CardCode});(r.docs||[]).forEach(d=>all.push({...d,type:t}))}SDE.bases=all;
+    box.innerHTML=all.length?`<div class="small muted">${L('اختر المستند اللي تنسخ منه:','Choose the document to copy from:')}</div>`+all.map((d,i)=>`<div class="li" data-act="sdBase" data-i="${i}"><div class="main"><div class="t">${sdN(d.type)} ${d.num} — ${sdD(d.date)} — ${sdM(d.total)}</div><div class="m">${d.lines.length} ${L('سطر مفتوح','open lines')}${d.ref?' · '+esc(d.ref):''}</div></div></div>`).join('')
+      :`<div class="small muted">${L('ما فيه مستندات مفتوحة لهذا العميل','No open documents for this customer')} (${types.map(sdN).join(L(' أو ',' or '))})</div>`}catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+async function sdAddBase(d){const bt=SD_T[d.type][2];const add=d.lines.filter(l=>sdNum(l.open)>0&&l.code!=='T0001'&&!SDE.lines.some(x=>x.base_entry===d.entry&&x.base_line===l.line))
+    .map(l=>({item_code:l.code,name:l.name,qty:l.open,open:l.open,price:l.price,disc:l.disc||0,vat_group:l.vat,wh:l.wh,base_type:bt,base_entry:d.entry,base_line:l.line,base_num:d.num}));
+  if(!add.length)toast(L('ما فيه أسطر مفتوحة في هذا المستند','No open lines on this document'));
+  SDE.lines.push(...add);const r=document.getElementById('sd_ref');if(d.ref&&r&&!r.value)r.value=d.ref;
+  const res=document.getElementById('sd_res');if(res)res.innerHTML='';sdPaint();
+  if(SDE.kind==='delivery'&&d.type==='order'){SDE.order=d;const fb=document.getElementById('sd_fleetbox');try{const {data}=await window.__sb.rpc('sap_fleet_orders',{p_so:String(d.num)});SDE.fleet=data||[];
+    fb.innerHTML=`<label>${L('ربط بطلب التوصيل والسيارة (تطبيق الحركة)','Link to the fleet delivery & vehicle')}</label><select id="sd_fleet">${opt(SDE.fleet.map(f=>[f.id,`#${f.id} — ${f.date||''} — ${f.vehicle?L('سيارة ','Vehicle ')+f.vehicle:L('بدون سيارة','no vehicle')}${f.driver?' — '+f.driver:''} — ${f.status}${f.dlv?' — '+L('عليه تسليم ','has delivery ')+f.dlv:''}`]),'',SDE.fleet.length?L('— بدون ربط —','— no link —'):L('ما فيه طلب توصيل لهذا الأمر في تطبيق الحركة','No fleet delivery for this order'))}</select>`}catch(e){fb.innerHTML=''}}}
+async function sdPrefill(pre){const ci=document.getElementById('sd_client');ci.value=pre.card;await sdPickClient(pre.card);if(!SDE||!SDE.cust)return;
+  if(pre.doc&&SDE.kind!=='payment'){try{const r=await sdRead('doc',{type:pre.doc.type,entry:pre.doc.entry});const d={...r.doc,type:pre.doc.type};d.lines=d.lines.filter(l=>l.status!=='bost_Close');await sdAddBase(d)}catch(e){toast(e.message)}}
+  if(pre.doc&&SDE.kind==='payment'){const x=SDE.pay.invoices.find(i=>i.entry===pre.doc.entry);if(x){x.applied=x.due;sdPayPaint()}}}
+
+/* incoming payment */
+async function sdPayLoad(){const box=document.getElementById('sd_pay');box.innerHTML=`<div class="small muted">${L('جاري جلب الفواتير المفتوحة…','Loading open invoices…')}</div>`;
+  try{const r=await sdRead('docs',{type:'invoice',card:SDE.cust.CardCode,open:true,top:100});SDE.pay.invoices=(r.docs||[]).filter(d=>!d.cancelled).map(d=>({entry:d.entry,num:d.num,date:d.date,total:d.total,paid:d.paid||0,due:Math.round((d.total-(d.paid||0))*100)/100,applied:''}));sdPayPaint()}
+  catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+function sdPayPaint(){const box=document.getElementById('sd_pay');if(!box)return;const P=SDE.pay;const A=SDX.set?.pay_accounts||{cash:[],transfer:[]};
+  const sum=P.invoices.reduce((s,x)=>s+sdNum(x.applied),0);
+  box.innerHTML=`<div class="tw sd-grid"><table><thead><tr><th></th><th>${L('رقم الفاتورة','Invoice')}</th><th>${L('التاريخ','Date')}</th><th>${L('الإجمالي','Total')}</th><th>${L('المسدد','Paid')}</th><th>${L('المستحق','Balance Due')}</th><th>${L('المبلغ المسدد الآن','Applied')}</th></tr></thead><tbody>
+    ${P.invoices.length?P.invoices.map((x,i)=>`<tr><td><input type="checkbox" data-sdp="${i}" data-f="chk" ${sdNum(x.applied)>0?'checked':''} style="width:auto"></td><td>${x.num}</td><td>${sdD(x.date)}</td><td class="n">${sdM(x.total)}</td><td class="n">${sdM(x.paid)}</td><td class="n">${sdM(x.due)}</td>
+      <td><input type="number" step="any" min="0" data-sdp="${i}" data-f="applied" value="${esc(x.applied)}" style="width:110px"></td></tr>`).join(''):`<tr><td colspan="7" class="small muted">${L('ما فيه فواتير مفتوحة؛ التحصيل ينرحّل كدفعة على الحساب','No open invoices; the payment goes on account')}</td></tr>`}</tbody></table></div>
+   <div class="fgrid" style="margin-top:8px"><div class="fld"><label>${L('نقدي — المبلغ','Cash — amount')}</label><input type="number" step="any" min="0" id="sdp_cash" value="${esc(P.cash||'')}"></div>
+    <div class="fld"><label>${L('حساب النقدية','Cash account')}</label><select id="sdp_cacc">${opt((A.cash||[]).map(a=>[a.code,`${a.code} — ${a.name}`]),P.cacc||'',L('— اختر —','— choose —'))}</select></div>
+    <div class="fld"><label>${L('تحويل بنكي — المبلغ','Bank transfer — amount')}</label><input type="number" step="any" min="0" id="sdp_tr" value="${esc(P.tr||'')}"></div>
+    <div class="fld"><label>${L('حساب البنك','Bank account')}</label><select id="sdp_tacc">${opt((A.transfer||[]).map(a=>[a.code,`${a.code} — ${a.name}`]),P.tacc||'',L('— اختر —','— choose —'))}</select></div>
+    <div class="fld"><label>${L('مرجع التحويل','Transfer reference')}</label><input id="sdp_tref" value="${esc(P.tref||'')}"></div><div class="fld"><label>${L('تاريخ التحويل','Transfer date')}</label><input type="date" id="sdp_tdate" value="${esc(P.tdate||TODAY())}"></div></div>
+   ${!(A.cash||[]).length&&!(A.transfer||[]).length?`<div class="flag">${L('حسابات النقدية والبنك ما تحددت بعد؛ مدير النظام يحددها من تبويب «إعدادات».','Cash and bank accounts are not set yet (Settings tab).')}</div>`:''}`;
+  const tt=document.getElementById('sd_tot');const tot=sdNum(P.cash)+sdNum(P.tr);tt.innerHTML=`<table class="sd-tt"><tr><th>${L('إجمالي التحصيل','Total Amount')}</th><td>${sdM(tot)}</td></tr><tr><th>${L('الموزع على الفواتير','Applied to invoices')}</th><td>${sdM(sum)}</td></tr><tr class="sd-gt"><th>${L('دفعة على الحساب','On account')}</th><td>${sdM(tot-sum)}</td></tr></table>`;
+  const K={sdp_cash:'cash',sdp_tr:'tr',sdp_tref:'tref',sdp_tdate:'tdate',sdp_cacc:'cacc',sdp_tacc:'tacc'};
+  Object.keys(K).forEach(id=>{const el=document.getElementById(id);el.addEventListener('change',()=>{P[K[id]]=el.value;sdPayPaint()})})}
+document.addEventListener('change',e=>{const el=e.target;if(!el.dataset||el.dataset.sdp==null||!SDE)return;const x=SDE.pay.invoices[+el.dataset.sdp];if(!x)return;
+  if(el.dataset.f==='chk')x.applied=el.checked?x.due:'';else x.applied=el.value;sdPayPaint()},true);
+
+async function sdSubmit(){const err=document.getElementById('sd_err');err.textContent='';if(!SDE.cust){err.textContent=L('اختر العميل','Pick the customer');return}
+  const g=id=>(document.getElementById(id)||{}).value||'';const k=SDE.kind;let p;
+  if(k==='payment'){const P=SDE.pay;p={card_code:SDE.cust.CardCode,card_name:SDE.cust.CardName,doc_date:g('sd_date'),note:g('sd_note'),cash_sum:P.cash||'0',cash_account:P.cacc||'',transfer_sum:P.tr||'0',transfer_account:P.tacc||'',transfer_ref:P.tref||'',transfer_date:P.tdate||g('sd_date'),
+    invoices:P.invoices.filter(x=>sdNum(x.applied)>0).map(x=>({entry:x.entry,num:x.num,applied:x.applied,type:'invoice'}))}}
+  else{if(!SDE.lines.length){err.textContent=L('أضف سطر واحد على الأقل','Add at least one line');return}
+    if(SDE.over){err.textContent=L('المستند يتجاوز الحد الائتماني للعميل في ساب أو العميل موقوف','Exceeds the SAP credit limit or the customer is frozen');return}
+    const fo=k==='delivery'?g('sd_fleet'):'';const f=SDE.fleet.find(x=>String(x.id)===String(fo));
+    p={card_code:SDE.cust.CardCode,card_name:SDE.cust.CardName,doc_date:g('sd_date'),due_date:g('sd_due'),ref:g('sd_ref'),note:g('sd_note'),disc:SDE.disc||0,
+      lines:SDE.lines.map(l=>({item_code:l.item_code,qty:l.qty,price:l.price,disc:l.disc||0,vat_group:l.vat_group,wh:l.wh,...(l.base_entry?{base_type:l.base_type,base_entry:l.base_entry,base_line:l.base_line,open:l.open,base_num:l.base_num}:{})}))};
+    if(k==='delivery'&&SDE.order)Object.assign(p,{base_num:SDE.order.num,fleet_order_id:fo||null,fleet_ref:f?`${L('طلب توصيل','Fleet order')} #${f.id}${f.vehicle?' — '+L('سيارة','vehicle')+' '+f.vehicle:''}${f.driver?' — '+f.driver:''}`:''})}
+  BUSY=true;try{const {data,error}=await window.__sb.rpc('sap_doc_submit',{p_type:k,p});BUSY=false;if(error)throw error;
+    if(!data.ok){err.innerHTML=(data.errors||[]).map(esc).join('<br>');return}closeModal();toast(L('انرسل لساب، الرقم يطلع خلال ثواني','Sent to SAP; the number appears shortly'));F.sdTab=k;sdLoad(true)}
   catch(e){BUSY=false;err.textContent=e.message}}
-function sdOpen(id){const r=SDX.rows.find(x=>x.id===+id);if(!r)return;const p=r.payload||{};const kv=(l,v)=>v==null||v===''?'':`<dt>${l}</dt><dd>${v}</dd>`;
-  openModal(`${L(SD_T[r.type][0],SD_T[r.type][1])} #${r.id}`,`<div class="toolbar">${sdSt(r)}<span class="grow"></span>${r.status==='failed'&&(r.by===me().id||isMgr())?`<button class="btn s" data-act="sdRetry" data-id="${r.id}">${L('إعادة المحاولة','Retry')}</button>`:''}</div>
-   ${r.error?`<div class="banner ${r.status==='failed'?'bad':'warn'}"><span class="sp">${esc(r.error)}</span></div>`:''}
-   <dl class="kv card">${kv(L('العميل','Customer'),`${esc(r.card_name||'')} — ${esc(r.card_code||'')}`)}${kv(L('رقم ساب','SAP no.'),r.sap_num?`<b>${r.sap_num}</b>`:r.draft?L('مسودة بانتظار الاعتماد ','Draft ')+r.draft:'')}
-    ${kv(L('أمر البيع','Sales order'),r.base_num||'')}${kv(L('طلب التوصيل والسيارة','Fleet link'),esc(p.fleet_ref||''))}${kv(L('مسار الترحيل','Route'),r.route==='APPR'?L('يمر على اعتماد ساب','Through SAP approval'):r.route==='DIRECT'?L('مباشر','Direct'):'')}
-    ${kv(L('الضريبة','VAT'),r.sap_vat!=null?`${money(r.sap_vat)} ${r.vat_ok===false?`<span class="flag">${L('فرق عن حساب CRM','differs from CRM')} ${money(r.crm_vat)}</span>`:''}`:'')}
-    ${kv(L('مرجع العميل','Customer ref.'),esc(p.ref||''))}${kv(L('ملاحظات','Notes'),esc(p.note||''))}${kv(L('بواسطة','By'),esc(r.by_name||'')+' · '+fdt(r.at))}</dl>
-   <div class="card">${table([{l:L('الصنف','Item'),f:l=>esc(l.item_code||'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(+l.qty||0)},{l:L('السعر','Price'),c:'n',f:l=>l.price!=null&&l.price!==''?money(+l.price):'—'}],(p.lines||[]).map(l=>({...l,id:null})))}</div>`)}
-Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdOpen:d=>sdOpen(d.id),sdSubmit:()=>sdSubmit(),
-  sdAdd:d=>{const x=(SDF.found||[])[+d.i];if(!x)return;if(SDF.lines.some(l=>l.item_code===x.code))return toast(L('الصنف مضاف','Already added'));SDF.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,vat_group:x.vat});sdPaint()},
-  sdDel:d=>{SDF.lines.splice(+d.i,1);sdPaint()},
-  sdRetry:async d=>{try{const {data,error}=await window.__sb.rpc('sap_doc_retry',{p_id:+d.id});if(error)throw error;if(!data.ok)return toast((data.errors||[]).join(' · '));closeModal();sdLoad(true)}catch(e){toast(e.message)}}});
-NAV.push(['sapdocs','doc',()=>L('مستندات ساب (عروض، أوامر بيع، تسليم)','SAP documents'),()=>sdLvl()>=1]);
+
+/* ---------- open an SAP document (read-only, SAP layout) ---------- */
+async function sdOpenSap(t,entry){openModal(sdN(t),`<div class="empty">${L('جاري التحميل من ساب…','Loading from SAP…')}</div>`);
+  try{const r=await sdRead('doc',{type:t,entry});const d=r.doc;SDX.cur={...d,type:t};const can=sdLvl()>=3;
+    if(SD_VAT[d.card]==null&&t!=='payment')sdRead('customer',{code:d.card}).then(x=>{SD_VAT[d.card]=x.customer.FederalTaxID||''}).catch(()=>{});
+    if(t==='payment'){openModal(`${sdN(t)} ${d.num}`,`<dl class="kv card"><dt>${L('العميل','Customer')}</dt><dd>${esc(d.name)} — ${esc(d.card)}</dd><dt>${L('التاريخ','Date')}</dt><dd>${sdD(d.date)}</dd>
+      <dt>${L('نقدي','Cash')}</dt><dd>${sdM(d.cash||0)}</dd><dt>${L('تحويل','Transfer')}</dt><dd>${sdM(d.transfer||0)}${d.transfer_ref?' — '+esc(d.transfer_ref):''}</dd><dt>${L('الإجمالي','Total')}</dt><dd><b>${sdM(d.total)}</b></dd>
+      <dt>${L('ملاحظات','Remarks')}</dt><dd>${esc(d.remarks||'')}</dd>${d.cancelled?`<dt></dt><dd>${pill(L('ملغى','Cancelled'),'bad')}</dd>`:''}</dl>
+      ${d.invoices.length?`<div class="card">${table([{l:L('الفاتورة (DocEntry)','Invoice entry'),f:x=>x.entry},{l:L('المبلغ','Applied'),c:'n',f:x=>sdM(x.applied)}],d.invoices.map(x=>({...x,id:null})))}</div>`:''}
+      <div class="formbar"><span class="grow"></span><button class="btn p" data-act="sdPrint">${L('طباعة سند القبض','Print receipt')}</button></div>`);return}
+    const next=(SD_NEXT[t]||[]).filter(n=>can&&!d.cancelled&&(d.status==='bost_Open'||(t==='invoice'&&n!=='payment')||(t==='invoice'&&n==='payment'&&sdNum(d.total)-sdNum(d.paid)>0.005)));
+    openModal(`${sdN(t)} ${d.num}`,`<div class="sapdoc">
+     <div class="sd-hd"><div class="sd-col"><div class="sd-f"><label>${L('العميل','Customer')}</label><input readonly class="sd-ro" value="${esc(d.card)} — ${esc(d.name)}"></div><div class="sd-f"><label>${L('مرجع العميل','Customer Ref. No.')}</label><input readonly class="sd-ro" value="${esc(d.ref||'')}"></div></div>
+      <div class="sd-col"><div class="sd-f"><label>${L('الرقم','No.')}</label><input readonly class="sd-ro" value="${d.num}"></div><div class="sd-f"><label>${L('الحالة','Status')}</label><div>${sdSapSt(d)}</div></div>
+       <div class="sd-f"><label>${L('تاريخ الترحيل','Posting Date')}</label><input readonly class="sd-ro" value="${sdD(d.date)}"></div><div class="sd-f"><label>${L('تاريخ الاستحقاق','Due Date')}</label><input readonly class="sd-ro" value="${sdD(d.due)}"></div></div></div>
+     <div class="tw sd-grid"><table><thead><tr><th>#</th><th>${L('رقم الصنف','Item No.')}</th><th>${L('الوصف','Description')}</th><th>${L('الكمية','Quantity')}</th><th>${L('المتبقي','Open')}</th><th>${L('سعر الوحدة','Unit Price')}</th><th>${L('خصم %','Disc. %')}</th><th>${L('كود الضريبة','Tax Code')}</th><th>${L('الإجمالي','Total')}</th></tr></thead><tbody>
+      ${d.lines.map((l,i)=>`<tr><td>${i+1}</td><td class="ltr">${esc(l.code)}</td><td>${esc(l.name||'')}</td><td class="n">${num(l.qty)}</td><td class="n">${num(l.open??0)}</td><td class="n">${sdM(l.price)}</td><td class="n">${num(l.disc||0)}</td><td>${esc(l.vat||'')}</td><td class="n">${sdM(l.total)}</td></tr>`).join('')}</tbody></table></div>
+     <div class="sd-ft"><div class="sd-col"><div class="sd-f"><label>${L('ملاحظات','Remarks')}</label><div class="small">${esc(d.comments||'')}</div></div></div>
+      <div class="sd-col"><table class="sd-tt"><tr><th>${L('الإجمالي قبل الضريبة','Total Before Tax')}</th><td>${sdM(d.total-d.vat)}</td></tr><tr><th>${L('الضريبة','Tax')}</th><td>${sdM(d.vat)}</td></tr><tr class="sd-gt"><th>${L('الإجمالي','Total')}</th><td>${sdM(d.total)}</td></tr>${t==='invoice'?`<tr><th>${L('المسدد','Paid')}</th><td>${sdM(d.paid||0)}</td></tr>`:''}</table></div></div>
+     <div class="formbar">${next.map(n=>`<button class="btn s" data-act="sdCopyTo" data-n="${n}">${L('نسخ إلى ','Copy To ')}${sdN(n)}</button>`).join('')}<span class="grow"></span><button class="btn p" data-act="sdPrint">${L('طباعة','Print')}</button></div></div>`)}
+  catch(e){openModal(sdN(t),`<div class="flag">${esc(e.message)}</div>`)}}
+
+/* ---------- prints: branded quotation / order / invoice / credit note / receipt ---------- */
+const SD_PRINT_CSS=`@page{size:A4;margin:12mm}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:12px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+ .top{display:flex;align-items:center;gap:14px;padding-bottom:10px;border-bottom:4px solid #051D48}.top img{height:64px}.co{display:flex;flex-direction:column;gap:2px}.co b{font-size:17px;color:#051D48}.co span{font-size:11px;color:#38AC57;font-weight:700;letter-spacing:.5px}.co small{color:#555;font-size:10px}
+ .ttl{margin-inline-start:auto;text-align:center;background:#051D48;color:#fff;border-radius:10px;padding:8px 18px}.ttl b{display:block;font-size:18px}.ttl span{font-size:10.5px;color:#9FE0B3;letter-spacing:1px}
+ .bar{height:4px;background:linear-gradient(90deg,#38AC57,#051D48);margin:2px 0 12px}table{border-collapse:collapse;width:100%}.meta th,.meta td{border:1px solid #D7DEE8;padding:6px 8px;text-align:right}.meta th{background:#F3F6FA;width:16%;color:#051D48;font-weight:600}
+ .lines{margin-top:12px}.lines th{background:#051D48;color:#fff;padding:7px 6px;font-weight:600}.lines td{border-bottom:1px solid #E3E8EF;padding:6px}.lines tr:nth-child(even) td{background:#F7FAF8}.n{text-align:left;font-variant-numeric:tabular-nums}.ltr{direction:ltr;text-align:right}
+ .sum{display:flex;gap:16px;margin-top:12px;align-items:flex-start}.sum .note{flex:1;font-size:11px;line-height:1.8}.sum table{width:42%}.sum th,.sum td{border:1px solid #D7DEE8;padding:6px 8px}.sum th{background:#F3F6FA;text-align:right;font-weight:600}.sum td{text-align:left}.sum .gt th,.sum .gt td{background:#38AC57;color:#fff;font-weight:700;font-size:13px}
+ .words{margin-top:6px;font-weight:700;color:#051D48}.zatca{margin-top:10px;font-size:10px;color:#8A5A00;background:#FFF7E6;border:1px solid #F2C46D;border-radius:6px;padding:6px 8px}
+ .sig{display:flex;justify-content:space-between;margin-top:44px}.sig div{width:40%;border-top:1px solid #051D48;padding-top:6px;text-align:center;color:#051D48}.foot{position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:9px;color:#888;border-top:2px solid #38AC57;padding-top:4px}`;
+function sdPrintWin(title,ar,en,body,footNum){const k=typeof qCfg==='function'?qCfg():{};const logo=window.WADY_LOGO_DATA||'';const w=window.open('','_blank');if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
+  const coName=k.coName||'مصنع الوادي الأخضر المميز';
+  const co=`<div class="co"><b>${esc(coName)}</b>${k.coNameEn?`<span>${esc(k.coNameEn)}</span>`:''}<small>${[k.crNo&&'س.ت '+k.crNo,k.vatNo&&'الرقم الضريبي '+k.vatNo].filter(Boolean).map(esc).join(' · ')}</small><small>${[k.addr,k.phone,k.email].filter(Boolean).map(esc).join(' · ')}</small></div>`;
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${SD_PRINT_CSS}</style></head><body>
+   <div class="top">${logo?`<img src="${logo}" alt="">`:''}${co}<div class="ttl"><b>${ar}</b><span>${en.toUpperCase()}</span></div></div><div class="bar"></div>${body}
+   <div class="foot">${esc(coName)}${footNum?' — مستند صادر من نظام ساب برقم '+footNum:''}</div><script>onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
+const sdWords=v=>typeof lcWords==='function'?`فقط ${lcWords(Math.round(sdNum(v)*100)/100)} ريال سعودي لا غير`:'';
+function sdPrint(){const d=SDX.cur;if(!d)return;const t=d.type;const k=typeof qCfg==='function'?qCfg():{};
+  const TT={quotation:['عرض سعر','Quotation'],order:['أمر بيع','Sales Order'],invoice:['فاتورة ضريبية','Tax Invoice'],creditnote:['إشعار دائن','Credit Note'],delivery:['أمر تسليم','Delivery Note'],retreq:['طلب إرجاع','Return Request'],payment:['سند قبض','Receipt Voucher']}[t];
+  if(t==='payment')return sdPrintWin(`${TT[0]} ${d.num}`,TT[0],TT[1],`<table class="meta"><tr><th>رقم السند</th><td><b>${d.num}</b></td><th>التاريخ</th><td>${sdD(d.date)}</td></tr><tr><th>استلمنا من</th><td colspan="3">${esc(d.name)} — ${esc(d.card)}</td></tr>
+    <tr><th>نقدي</th><td>${sdM(d.cash||0)}</td><th>تحويل بنكي</th><td>${sdM(d.transfer||0)}${d.transfer_ref?' — مرجع '+esc(d.transfer_ref):''}</td></tr><tr><th>المبلغ</th><td colspan="3"><b>${sdM(d.total)} ريال</b><div class="words">${sdWords(d.total)}</div></td></tr><tr><th>البيان</th><td colspan="3">${esc(d.remarks||'')}</td></tr></table>
+    <div class="sig"><div>المستلم</div><div>المحاسب</div></div>`,d.num);
+  const net=sdNum(d.total)-sdNum(d.vat);const vatNo=SD_VAT[d.card];
+  const body=`<table class="meta"><tr><th>رقم ${TT[0]}</th><td><b>${d.num}</b></td><th>التاريخ</th><td>${sdD(d.date)}</td></tr><tr><th>العميل</th><td>${esc(d.name)}</td><th>كود العميل</th><td>${esc(d.card)}</td></tr>
+    <tr><th>${t==='quotation'?'صالح حتى':t==='invoice'?'تاريخ الاستحقاق':t==='order'?'تاريخ التسليم':'التاريخ المرجعي'}</th><td>${sdD(d.due)}</td><th>مرجع العميل</th><td>${esc(d.ref||'—')}</td></tr>
+    ${(t==='invoice'||t==='creditnote')?`<tr><th>الرقم الضريبي للعميل</th><td colspan="3">${vatNo?esc(vatNo):'<span style="color:#999">غير مسجل في ساب</span>'}</td></tr>`:''}</table>
+   <table class="lines"><thead><tr><th>#</th><th>الصنف</th><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th>خصم %</th><th>الإجمالي قبل الضريبة</th></tr></thead><tbody>
+    ${d.lines.map((l,i)=>`<tr><td>${i+1}</td><td class="ltr">${esc(l.code)}</td><td>${esc(l.name||'')}</td><td class="n">${num(l.qty)}${l.unit?' '+esc(l.unit):''}</td><td class="n">${sdM(l.price)}</td><td class="n">${num(l.disc||0)}</td><td class="n">${sdM(l.total)}</td></tr>`).join('')}</tbody></table>
+   <div class="sum"><div class="note">${d.comments?`<b>ملاحظات:</b> ${esc(d.comments)}<br>`:''}${k.bank&&t!=='creditnote'?`<b>الحساب البنكي:</b> ${esc(k.bank)}<br>`:''}${t==='quotation'&&k.foot?esc(k.foot):''}<div class="words">${sdWords(d.total)}</div></div>
+    <table>${sdNum(d.disc)?`<tr><th>خصم المستند</th><td>${num(d.disc)}%</td></tr>`:''}<tr><th>الإجمالي قبل الضريبة</th><td>${sdM(net)}</td></tr><tr><th>ضريبة القيمة المضافة</th><td>${sdM(d.vat)}</td></tr><tr class="gt"><th>الإجمالي شامل الضريبة</th><td>${sdM(d.total)}</td></tr></table></div>
+   ${t==='invoice'||t==='creditnote'?`<div class="zatca">نسخة صادرة من بيانات ساب. ${t==='invoice'?'الفاتورة الضريبية المعتمدة':'الإشعار المعتمد'} ورمز QR الخاص بهيئة الزكاة والضريبة والجمارك يصدران من نظام ساب.</div>`:''}
+   <div class="sig"><div>${t==='quotation'||t==='order'?'إدارة المبيعات':'المحاسب'}</div><div>${t==='quotation'?'العميل (الموافقة والختم)':'المستلم'}</div></div>`;
+  sdPrintWin(`${TT[0]} ${d.num}`,TT[0],TT[1],body,d.num)}
+
+/* ---------- statement of account ---------- */
+function sdStatementView(){const s=SDX.stmt||{};
+  return `<div class="card"><div class="fbar"><label class="fl">${L('العميل','Customer')}<input list="sds_cl" id="sds_card" value="${esc(s.cardIn||'')}" placeholder="${L('الكود أو الاسم','Code or name')}">${sdClientList('sds_cl')}</label>
+   <label class="fl">${L('من','From')}<input type="date" id="sds_from" value="${esc(s.from||TODAY().slice(0,4)+'-01-01')}"></label><label class="fl">${L('إلى','To')}<input type="date" id="sds_to" value="${esc(s.to||TODAY())}"></label>
+   <button class="btn p" data-act="sdStmt">${L('عرض الكشف من ساب','Show from SAP')}</button>${s.res?`<button class="btn s" data-act="sdStmtPrint">${L('طباعة','Print')}</button>`:''}</div>
+   ${s.busy?`<div class="small muted">${L('جاري الجلب من ساب…','Loading from SAP…')}</div>`:s.err?`<span class="flag">${esc(s.err)}</span>`:s.res?sdStmtTable(s.res):''}</div>`}
+const SD_MV={invoice:'فاتورة',creditnote:'إشعار دائن',payment:'سند قبض'};
+function sdStmtTable(r){const rows=[{_o:1,date:r.from,balance:r.opening},...r.rows,{_c:1,date:r.to,balance:r.closing}];
+  return `<div class="small" style="margin:8px 0"><b>${esc(r.customer.CardName)}</b> — ${esc(r.customer.CardCode)} · ${L('الحد الائتماني','Credit limit')} ${sdM(r.customer.CreditLimit||0)} · ${L('الرصيد الحالي في ساب','Current SAP balance')} <b>${sdM(r.current)}</b></div>
+  ${table([{l:L('التاريخ','Date'),f:x=>sdD(x.date)},{l:L('المستند','Document'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:x._c?`<b>${L('الرصيد في نهاية الفترة','Closing balance')}</b>`:`${SD_MV[x.type]} <a href="#" data-act="sdOpen" data-t="${x.type}" data-e="${x.entry}">${x.num}</a>`},
+   {l:L('المرجع','Ref.'),f:x=>esc(x.ref||'')},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?sdM(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?sdM(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${sdM(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
+  <div class="small muted" style="margin-top:6px">${esc(r.note)}</div>`}
+function sdStmtPrint(){const r=SDX.stmt?.res;if(!r)return;
+  const rows=r.rows.map(x=>`<tr><td>${sdD(x.date)}</td><td>${SD_MV[x.type]} ${x.num}</td><td>${esc(x.ref||'')}</td><td class="n">${x.debit?sdM(x.debit):''}</td><td class="n">${x.credit?sdM(x.credit):''}</td><td class="n">${sdM(x.balance)}</td></tr>`).join('');
+  const dr=r.rows.reduce((s,x)=>s+x.debit,0),cr=r.rows.reduce((s,x)=>s+x.credit,0);
+  sdPrintWin(`كشف حساب ${r.customer.CardCode}`,'كشف حساب عميل','Statement of Account',`<table class="meta"><tr><th>العميل</th><td><b>${esc(r.customer.CardName)}</b></td><th>كود العميل</th><td>${esc(r.customer.CardCode)}</td></tr>
+    <tr><th>الفترة</th><td>من ${sdD(r.from)} إلى ${sdD(r.to)}</td><th>الحد الائتماني</th><td>${sdM(r.customer.CreditLimit||0)}</td></tr></table>
+   <table class="lines"><thead><tr><th>التاريخ</th><th>المستند</th><th>المرجع</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody><tr><td>${sdD(r.from)}</td><td colspan="4"><b>رصيد افتتاحي</b></td><td class="n"><b>${sdM(r.opening)}</b></td></tr>${rows}
+    <tr><td></td><td colspan="2"><b>إجمالي الحركات</b></td><td class="n"><b>${sdM(dr)}</b></td><td class="n"><b>${sdM(cr)}</b></td><td></td></tr></tbody></table>
+   <div class="sum"><div class="note" style="font-size:9.5px;color:#666">${esc(r.note)}</div><table><tr class="gt"><th>الرصيد في ${sdD(r.to)}</th><td>${sdM(r.closing)}</td></tr></table></div>
+   <div class="sig"><div>المحاسب</div><div>العميل (المصادقة على الرصيد)</div></div>`,'')}
+
+/* ---------- settings: accounts allowed for incoming payments ---------- */
+function sdSettingsView(){const A=SDX.set?.pay_accounts||{cash:[],transfer:[]};const all=SDX.accts;
+  if(!all){if(!SDX.acctBusy){SDX.acctBusy=true;sdRead('pay_accounts',{}).then(r=>{SDX.accts=r.accounts||[];SDX.acctBusy=false;render()}).catch(e=>{SDX.accts=[];SDX.acctBusy=false;toast(e.message);render()})}return `<div class="card empty">${L('جاري جلب الحسابات من ساب…','Loading accounts from SAP…')}</div>`}
+  const box=(k,l)=>`<div class="card"><b>${l}</b><div class="small muted">${L('اختر الحسابات اللي تظهر في سند التحصيل','Accounts offered on incoming payments')}</div>${all.length?all.map(a=>`<label style="display:flex;gap:6px;align-items:center;margin:3px 0"><input type="checkbox" class="sds_${k}" value="${esc(a.code)}" data-n="${esc(a.name)}" ${(A[k]||[]).some(x=>x.code===a.code)?'checked':''} style="width:auto"> ${esc(a.code)} — ${esc(a.name)}</label>`).join(''):`<div class="small muted">${L('ما فيه حسابات نقدية معرّفة في ساب','No cash accounts in SAP')}</div>`}</div>`;
+  return box('cash',L('حسابات النقدية (الخزينة والعهد)','Cash accounts'))+box('transfer',L('حسابات البنوك للتحويل','Bank accounts for transfers'))+`<div class="formbar"><span class="grow"></span><button class="btn p" data-act="sdSetSave">${L('حفظ','Save')}</button></div>`}
+
+Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSubmit(),sdCopyFrom:()=>sdCopyFrom(),
+  sdBase:d=>sdAddBase(SDE.bases[+d.i]),sdPickBp:d=>{document.getElementById('sd_bpres').innerHTML='';document.getElementById('sd_bpq').value='';sdPickClient(d.c)},
+  sdAdd:d=>{const x=(SDE.found||[])[+d.i];if(!x)return;SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh});document.getElementById('sd_res').innerHTML='';const q=document.getElementById('sd_q');if(q)q.value='';sdPaint()},
+  sdDel:d=>{SDE.lines.splice(+d.i,1);sdPaint()},
+  sdFind:async d=>{const t=d.k;const g=id=>(document.getElementById(id)||{}).value||'';const f={num:g('sdf_num'),card:g('sdf_card').trim(),name:g('sdf_name').trim(),from:g('sdf_from'),to:g('sdf_to'),open:!!document.getElementById('sdf_open')?.checked,busy:true};
+    SDX.find[t]=f;render();try{const r=await sdRead('docs',{type:t,num:f.num||undefined,card:f.card||undefined,name:f.name||undefined,from:f.from||undefined,to:f.to||undefined,open:f.open});f.res=r.docs||[]}catch(e){f.err=e.message}f.busy=false;render()},
+  sdOpen:d=>{if(d.e)sdOpenSap(d.t,+d.e)},
+  sdMine:d=>{const r=SDX.rows.find(x=>x.id===+d.id);if(!r)return;if(r.sap_entry)return sdOpenSap(r.type,r.sap_entry);
+    openModal(`${sdN(r.type)} #${r.id}`,`<div class="toolbar">${sdSt(r)}<span class="grow"></span>${r.status==='failed'&&(r.by===me().id||isMgr())?`<button class="btn s" data-act="sdRetry" data-id="${r.id}">${L('إعادة المحاولة','Retry')}</button>`:''}</div>${r.error?`<div class="banner ${r.status==='failed'?'bad':'warn'}"><span class="sp">${esc(r.error)}</span></div>`:''}
+      <dl class="kv card"><dt>${L('العميل','Customer')}</dt><dd>${esc(r.card_name||'')} — ${esc(r.card_code||'')}</dd><dt>${L('القيمة','Net')}</dt><dd>${sdM(r.total||0)}</dd><dt>${L('بواسطة','By')}</dt><dd>${esc(r.by_name||'')} · ${fdt(r.at)}</dd></dl>`)},
+  sdCopyTo:d=>{const c=SDX.cur;closeModal();sdForm(d.n,{card:c.card,doc:{type:c.type,entry:c.entry}})},
+  sdPrint:()=>sdPrint(),
+  sdRetry:async d=>{try{const {data,error}=await window.__sb.rpc('sap_doc_retry',{p_id:+d.id});if(error)throw error;if(!data.ok)return toast((data.errors||[]).join(' · '));closeModal();sdLoad(true)}catch(e){toast(e.message)}},
+  sdStmt:async()=>{const g=id=>(document.getElementById(id)||{}).value||'';const cardIn=g('sds_card');const card=cardIn.split(' — ')[0].trim();if(!card)return toast(L('اختر العميل','Pick the customer'));
+    const s={cardIn,from:g('sds_from'),to:g('sds_to'),busy:true};SDX.stmt=s;render();
+    try{s.res=await sdRead('statement',{card,from:s.from,to:s.to})}catch(e){s.err=e.message}s.busy=false;render()},
+  sdStmtPrint:()=>sdStmtPrint(),
+  sdSetSave:async()=>{const pick=k=>[...document.querySelectorAll('.sds_'+k+':checked')].map(x=>({code:x.value,name:x.dataset.n}));
+    try{const {data,error}=await window.__sb.rpc('sap_settings_save',{p:{cash:pick('cash'),transfer:pick('transfer')}});if(error)throw error;if(data&&data.ok===false)return toast((data.errors||[]).join(' · '));toast(L('تم الحفظ','Saved'));sdLoad(true)}catch(e){toast(e.message)}}});
+(()=>{const st=document.createElement('style');st.textContent=`.sapdoc .sd-hd,.sapdoc .sd-ft{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}.sapdoc .sd-f{display:flex;flex-direction:column;gap:3px;margin-bottom:6px}.sapdoc .sd-f label{font-size:12px;color:var(--muted,#667)}
+ .sapdoc .sd-ro{background:var(--soft,#F3F6FA);font-weight:600}.sd-cr{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:12.5px}.sd-cr.over{border-color:#D92D20;background:#FEF3F2}
+ .sd-crg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px}.sd-crg span{display:flex;flex-direction:column;font-size:11px;color:var(--muted,#667)}.sd-crg b{font-size:13px;color:var(--ink,#0B1B33)}
+ .sd-grid td:nth-child(3){min-width:180px}.sd-grid th{background:#051D48;color:#fff;font-weight:600;font-size:12px;white-space:nowrap}.sd-grid tr.sd-based td{background:#F4FBF6}.sd-tt{width:100%}.sd-tt th{text-align:start;font-weight:500;padding:4px 6px}.sd-tt td{text-align:end;padding:4px 6px}.sd-tt .sd-gt th,.sd-tt .sd-gt td{font-weight:700;border-top:2px solid #051D48;font-size:14px}
+ @media(max-width:700px){.sapdoc .sd-hd,.sapdoc .sd-ft{grid-template-columns:1fr}}`;document.head.appendChild(st)})();
+NAV.push(['sapdocs','doc',()=>L('مستندات ساب (البيع والتحصيل)','SAP sales documents'),()=>sdLvl()>=1]);
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
