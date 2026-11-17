@@ -1365,7 +1365,7 @@ const isProdStaff=()=>['prod','plant','admin','mgr'].includes(role())||lvl('crm'
 const isSales=()=>['rep','sup','mgr','admin'].includes(role());
 const PSPECIAL=['متوقف','متوقف للصيانة','تغيير القالب'];
 const PQTY=['وردية','باقي الوردية','نصف وردية'];
-const SLOTF=[['po','أمر الإنتاج',104],['mould','القالب',64],['cycle','السايكل',56],['code','الكود',104],['item','المنتج',200],['stock','رصيد المنتج',76],['q','الكمية',84]];
+const SLOTF=[['po','أمر الإنتاج',104],['mould','القالب',52],['cycle','السايكل',44],['code','الكود',104],['item','المنتج',224],['stock','رصيد المنتج',76],['q','الكمية',84]];
 const PP={tab:'plan',ws:satOf(TODAY()),key:'',loading:false,doc:null,lines:[],dirty:false,errors:{},lineDefs:null,products:null,weeks:null,imp:{step:'pick'},range:{from:'',to:''}};
 const lineName=id=>(PP.lineDefs||[]).find(l=>l.id===id)?.name||'—';
 const emptySlot=()=>({po:'',mould:'',cycle:'',code:'',item:'',stock:'',q:''});
@@ -1521,7 +1521,7 @@ function ppPlanView(){
   return h;
 }
 /* the plan fits the page width: fixed columns sized by weight, text wraps inside the cells */
-const PP_W={day:6,date:6.5,mould:5,cycle:4.5,code:13,item:15,stock:7,q:7,act:3.5};
+const PP_W={day:5.5,date:6,po:8,mould:4.5,cycle:4,code:10,item:17,stock:6,q:7.5,act:4.5};
 function ppCols(F,ro){const c=[PP_W.day,PP_W.date,...['m','n'].flatMap(()=>F.map(([k])=>PP_W[k])),...(ro?[]:[PP_W.act])];const t=c.reduce((a,b)=>a+b,0);
   return `<colgroup>${c.map(w=>`<col style="width:${(w/t*100).toFixed(2)}%">`).join('')}</colgroup>`}
 function ppAutosize(){document.querySelectorAll('textarea.pp-ta').forEach(el=>{el.style.height='auto';el.style.height=el.scrollHeight+2+'px'})}
@@ -1777,11 +1777,11 @@ function ppPrint(){
   const logo=window.WADY_LOGO_DATA||'';
   const K=[['po','أمر الإنتاج'],['code','الكود'],['item','المنتج'],['q','الكمية'],['stock','الرصيد'],['mould','القالب'],['cycle','السايكل']];
   const has=(l,k)=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k]));
-  const W={po:10,code:12,item:25,q:8,stock:8,mould:8,cycle:6};
+  const W={po:10,code:12,item:29,q:8,stock:8,mould:6,cycle:4};
   const cell=(x,k)=>{const v=x[k];if(k==='stock')return sv(v)!==''&&Number.isFinite(parseNum(v))?num(parseNum(v)):esc(v);if(k==='item'&&(isStop(v)||isMould(v)))return `<span class="tag ${isStop(v)?'stop':'mould'}">${esc(v)}</span>`;return esc(v)};
   const CHG=ppChanged();
   const page=(l,i)=>{
-    const F=K.filter(([k])=>k==='code'||k==='item'||k==='q'||has(l,k));const tw=F.reduce((a,[k])=>a+W[k],0)*2+14;
+    const F=K.filter(([k])=>k==='code'||k==='item'||k==='q'||has(l,k));const tw=F.reduce((a,[k])=>a+W[k],0)*2+17.5;
     const col=k=>`<col style="width:${(W[k]/tw*100).toFixed(2)}%">`;
     const days={};l.rows.forEach(r=>{(days[r.day]=days[r.day]||[]).push(r)});
     const LS=lineShifts(l),prod=LS.prod,stop=LS.stop+LS.mould;
@@ -1796,7 +1796,7 @@ function ppPrint(){
      <div class="line"><div class="ln"><span>خط الإنتاج</span><b>${esc(lineName(l.line_id))}</b></div>
       <div><span>رقم الخطة</span><b class="ltr">${esc(l.plan_no||'—')}</b></div><div><span>من</span><b>${fdate(l.start_date)}</b></div><div><span>إلى</span><b>${fdate(l.end_date)}</b></div>
       <div><span>ورديات إنتاج</span><b>${prod}</b></div><div><span>عدد المنتجات</span><b>${LS.items}</b></div><div><span>توقف / تغيير قالب</span><b>${stop}</b></div>${wh?`<div><span>مستودع الأرصدة</span><b>${esc(wh)}${WHS_NAME[wh]?' '+WHS_NAME[wh]:''}</b></div>`:''}</div>
-     <table><colgroup><col style="width:${(6/tw*100).toFixed(2)}%"><col style="width:${(8/tw*100).toFixed(2)}%">${F.map(([k])=>col(k)).join('')}${F.map(([k])=>col(k)).join('')}</colgroup>
+     <table><colgroup><col style="width:${(7.5/tw*100).toFixed(2)}%"><col style="width:${(10/tw*100).toFixed(2)}%">${F.map(([k])=>col(k)).join('')}${F.map(([k])=>col(k)).join('')}</colgroup>
       <thead><tr><th rowspan="2">اليوم</th><th rowspan="2">التاريخ</th><th colspan="${F.length}" class="sh m">الوردية الصباحية <small>Morning</small></th><th colspan="${F.length}" class="sh n">الوردية المسائية <small>Night</small></th></tr>
       <tr>${['m','n'].map(s=>F.map(([,t])=>`<th class="${s==='n'?'nt':''}">${t}</th>`).join('')).join('')}</tr></thead><tbody>${body}</tbody></table>
      ${l.rows.some(r=>CHG.has(r))?`<div class="legend"><i></i> صف معدّل بعد اعتماد الخطة</div>`:''}
@@ -1822,7 +1822,7 @@ function ppPrint(){
   th{background:#051D48;color:#fff;font-weight:700;font-size:10px}th.sh{font-size:11.5px;padding:5px}th.sh small{font-weight:400;opacity:.8}
   th.sh.m{background:#1F4E8C}th.sh.n{background:#3A3F58}thead tr:nth-child(2) th{background:#E8EEF6;color:#051D48}thead tr:nth-child(2) th.nt{background:#ECECF2}
   td.day,td.date{text-align:center;background:#F7F9FC}td.day b{font-size:11px}td.date{font-size:10px;white-space:nowrap}
-  td.q,td.stock,td.cycle,td.mould{text-align:center;font-variant-numeric:tabular-nums}td.ltr{direction:ltr;text-align:right;font-size:10px}
+  td.q,td.stock,td.cycle,td.mould,td.po{text-align:center;font-variant-numeric:tabular-nums}td.po{direction:ltr;white-space:nowrap;font-size:9.5px;font-weight:600}td.ltr{direction:ltr;text-align:right;font-size:10px}
   td.nt{background:#FAFAFC}tr.d0 td{border-top:2px solid #8B9AB3}tr.fri td.day,tr.fri td.date{background:#FFF6E5}
   td.item{text-align:right;line-height:1.35}
   tr.chg td:not(.day):not(.date){background:#FFF3B0!important}.legend{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;color:#7A5B00;margin-top:5px}.legend i{width:14px;height:10px;background:#FFF3B0;border:1px solid #E3C75A;display:inline-block}
