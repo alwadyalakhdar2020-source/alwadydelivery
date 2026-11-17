@@ -5007,7 +5007,7 @@ const SD_TABS=['quotation','order','delivery','invoice','creditnote','retreq','p
 const SD_TYPE_OF={23:'quotation',17:'order',15:'delivery',13:'invoice',14:'creditnote',234000031:'retreq'};
 const SD_BASES={order:['quotation'],delivery:['order'],invoice:['order','delivery'],retreq:['delivery','invoice'],creditnote:['invoice','retreq']};
 const SD_NEXT={quotation:['order'],order:['delivery','invoice'],delivery:['invoice','retreq'],invoice:['creditnote','retreq','payment'],retreq:['creditnote']};
-const SD_CREDIT=new Set(['order','delivery','invoice']);
+const SD_CREDIT=new Set(['delivery','invoice']); // quotations and orders are not credit-checked
 const SD_ST={pending:['جاري الترحيل لساب','info'],posted:['مرحّل لساب','ok'],awaiting_approval:['بانتظار اعتماد في ساب','warn'],failed:['تعذّر الترحيل','bad']};
 const SDX={rows:null,busy:false,err:null,at:0,poll:null,find:{},set:null};
 const SD_VAT={};
@@ -5090,13 +5090,13 @@ async function sdPickClient(code){const box=document.getElementById('sd_cust');i
   catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}finally{SDE.loading=null}}
 /* credit panel — mirrors the server rule: orders always count; deliveries and invoices count unless every line is copied from a base */
 function sdCredit(){const box=document.getElementById('sd_cust');const c=SDE&&SDE.cust;SDE&&(SDE.over=false);if(!box||!c)return;
-  const credit=SD_CREDIT.has(SDE.kind)&&(SDE.kind==='order'||!(SDE.lines.length&&SDE.lines.every(l=>l.base_entry)));const t=credit?sdTotals().total:0;
+  const credit=SD_CREDIT.has(SDE.kind);const hd=sdNum(SDE.disc);
+  const t=credit?SDE.lines.filter(l=>+l.base_type!==15).reduce((s,l)=>s+sdLineNet(l)*(1-hd/100)*(/0%|EX|ZR/i.test(l.vat_group||'')?1:1.15),0):0; // lines copied from a delivery are already in the exposure
   const after=c.Exposure+t;const over=credit&&t>0&&after>sdNum(c.CreditLimit)+0.005;const frozen=c.Frozen==='tYES'||c.Valid==='tNO';
   box.innerHTML=`<div class="sd-cr ${over||frozen?'over':''}"><div><b>${esc(c.CardName)}</b> — ${esc(c.CardCode)}${c.FederalTaxID?` · ${L('الرقم الضريبي','VAT no.')} ${esc(c.FederalTaxID)}`:''} · ${L('قائمة الأسعار','Price list')}: ${esc(c.PriceListName||c.PriceListNum)}</div>
-   <div class="sd-crg"><span>${L('الحد الائتماني','Credit limit')}<b>${sdM(c.CreditLimit||0)}</b></span><span>${L('رصيد الحساب','Account balance')}<b>${sdM(c.CurrentAccountBalance||0)}</b></span><span>${L('أوامر مفتوحة','Open orders')}<b>${sdM(c.OpenOrdersBalance||0)}</b></span>
-    <span>${L('تسليمات مفتوحة','Open deliveries')}<b>${sdM(c.OpenDeliveryNotesBalance||0)}</b></span><span>${L('المتاح','Available')}<b>${sdM(c.Available)}</b></span>${credit&&t>0?`<span>${L('المتاح بعد هذا المستند','Available after')}<b>${sdM(sdNum(c.CreditLimit)-after)}</b></span>`:''}</div>
-   ${frozen?`<div class="flag">${L('العميل موقوف في ساب','Customer is frozen in SAP')}</div>`:''}${over?`<div class="flag">${L('المستند يتجاوز الحد الائتماني للعميل في ساب، وما ينرحّل. خفّض الكمية، أو حصّل من العميل، أو قدّم طلب تسهيلات ائتمانية.','This document exceeds the customer credit limit in SAP and cannot be posted.')}</div>`:''}</div>`;
-  SDE.over=over||(frozen&&SDE.kind!=='payment')}
+   <div class="sd-crg"><span>${L('الحد الائتماني','Credit limit')}<b>${sdM(c.CreditLimit||0)}</b></span><span>${L('رصيد الحساب','Account balance')}<b>${sdM(c.CurrentAccountBalance||0)}</b></span>    <span>${L('تسليمات مفتوحة','Open deliveries')}<b>${sdM(c.OpenDeliveryNotesBalance||0)}</b></span><span>${L('المتاح','Available')}<b>${sdM(c.Available)}</b></span>${credit&&t>0?`<span>${L('المتاح بعد هذا المستند','Available after')}<b>${sdM(sdNum(c.CreditLimit)-after)}</b></span>`:''}</div>
+   ${!credit?`<div class="small muted" style="margin-top:4px">${L('عروض الأسعار وأوامر البيع ما ترتبط بالحد الائتماني؛ الفحص يكون عند التسليم والفاتورة.','Quotations and orders are not credit-checked; delivery and invoice are.')}</div>`:''}${frozen&&credit?`<div class="flag">${L('العميل موقوف في ساب','Customer is frozen in SAP')}</div>`:''}${over?`<div class="flag">${L('المستند يتجاوز الحد الائتماني للعميل في ساب، وما ينرحّل. خفّض الكمية، أو حصّل من العميل، أو قدّم طلب تسهيلات ائتمانية.','This document exceeds the customer credit limit in SAP and cannot be posted.')}</div>`:''}</div>`;
+  SDE.over=over||(frozen&&credit)}
 async function sdSearch(t){const res=document.getElementById('sd_res');if(!res)return;if(!SDE.cust){res.innerHTML=`<div class="small muted">${L('اختر العميل أولاً','Pick the customer first')}</div>`;return}
   if((t||'').trim().length<2){res.innerHTML='';return}res.innerHTML=`<div class="small muted">${L('جاري البحث في ساب…','Searching SAP…')}</div>`;
   try{const r=await sdRead('items',{q:t,price_list:SDE.cust.PriceListNum});SDE.found=r.items||[];
@@ -5232,19 +5232,23 @@ function sdStatementView(){const s=SDX.stmt||{};
    <label class="fl">${L('من','From')}<input type="date" id="sds_from" value="${esc(s.from||TODAY().slice(0,4)+'-01-01')}"></label><label class="fl">${L('إلى','To')}<input type="date" id="sds_to" value="${esc(s.to||TODAY())}"></label>
    <button class="btn p" data-act="sdStmt">${L('عرض الكشف من ساب','Show from SAP')}</button>${s.res?`<button class="btn s" data-act="sdStmtPrint">${L('طباعة','Print')}</button>`:''}</div>
    ${s.busy?`<div class="small muted">${L('جاري الجلب من ساب…','Loading from SAP…')}</div>`:s.err?`<span class="flag">${esc(s.err)}</span>`:s.res?sdStmtTable(s.res):''}</div>`}
-const SD_MV={invoice:'فاتورة',creditnote:'إشعار دائن',payment:'سند قبض'};
+const sdYmd=v=>{const t=String(v||'');return /^\d{8}$/.test(t)?`${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)}`:t.slice(0,10)};
+const sdMvDoc=x=>`${esc(x.label||'')} ${SD_T[x.type]&&x.entry?`<a href="#" data-act="sdOpen" data-t="${x.type}" data-e="${x.entry}">${esc(x.num)}</a>`:esc(x.num||'')}`;
 function sdStmtTable(r){const rows=[{_o:1,date:r.from,balance:r.opening},...r.rows,{_c:1,date:r.to,balance:r.closing}];
-  return `<div class="small" style="margin:8px 0"><b>${esc(r.customer.CardName)}</b> — ${esc(r.customer.CardCode)} · ${L('الحد الائتماني','Credit limit')} ${sdM(r.customer.CreditLimit||0)} · ${L('الرصيد الحالي في ساب','Current SAP balance')} <b>${sdM(r.current)}</b></div>
-  ${table([{l:L('التاريخ','Date'),f:x=>sdD(x.date)},{l:L('المستند','Document'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:x._c?`<b>${L('الرصيد في نهاية الفترة','Closing balance')}</b>`:`${SD_MV[x.type]} <a href="#" data-act="sdOpen" data-t="${x.type}" data-e="${x.entry}">${x.num}</a>`},
-   {l:L('المرجع','Ref.'),f:x=>esc(x.ref||'')},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?sdM(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?sdM(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${sdM(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
-  <div class="small muted" style="margin-top:6px">${esc(r.note)}</div>`}
+  const dr=r.rows.reduce((s,x)=>s+x.debit,0),cr=r.rows.reduce((s,x)=>s+x.credit,0);
+  return `<div class="small" style="margin:8px 0"><b>${esc(r.customer.CardName)}</b> — ${esc(r.customer.CardCode)} · ${L('الحد الائتماني','Credit limit')} ${sdM(r.customer.CreditLimit||0)} · ${L('رصيد العميل في ساب','SAP balance')} <b>${sdM(r.current)}</b>
+   ${r.match===false?`<span class="flag"> ${L('تنبيه: مجموع قيود العميل','Warning: ledger total')} ${sdM(r.ledger_total)} ${L('لا يساوي رصيد ساب','differs from SAP balance')}</span>`:r.match?pill(L('مطابق لرصيد ساب','Matches SAP balance'),'ok'):''}</div>
+  ${table([{l:L('التاريخ','Date'),f:x=>sdD(sdYmd(x.date))},{l:L('المستند','Document'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:x._c?`<b>${L('الرصيد في نهاية الفترة','Closing balance')}</b>`:sdMvDoc(x)},
+   {l:L('البيان','Details'),f:x=>esc(x.note||'')},{l:L('المرجع','Ref.'),f:x=>esc(x.ref||'')},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?sdM(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?sdM(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${sdM(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
+  <div class="small" style="margin-top:6px">${L('إجمالي المدين','Total debit')} <b>${sdM(dr)}</b> · ${L('إجمالي الدائن','Total credit')} <b>${sdM(cr)}</b></div>
+  <div class="small muted" style="margin-top:4px">${esc(r.note)}</div>`}
 function sdStmtPrint(){const r=SDX.stmt?.res;if(!r)return;
-  const rows=r.rows.map(x=>`<tr><td>${sdD(x.date)}</td><td>${SD_MV[x.type]} ${x.num}</td><td>${esc(x.ref||'')}</td><td class="n">${x.debit?sdM(x.debit):''}</td><td class="n">${x.credit?sdM(x.credit):''}</td><td class="n">${sdM(x.balance)}</td></tr>`).join('');
+  const rows=r.rows.map(x=>`<tr><td>${sdD(sdYmd(x.date))}</td><td>${esc(x.label||'')} ${esc(x.num||'')}</td><td>${esc(x.note||'')}</td><td>${esc(x.ref||'')}</td><td class="n">${x.debit?sdM(x.debit):''}</td><td class="n">${x.credit?sdM(x.credit):''}</td><td class="n">${sdM(x.balance)}</td></tr>`).join('');
   const dr=r.rows.reduce((s,x)=>s+x.debit,0),cr=r.rows.reduce((s,x)=>s+x.credit,0);
   sdPrintWin(`كشف حساب ${r.customer.CardCode}`,'كشف حساب عميل','Statement of Account',`<table class="meta"><tr><th>العميل</th><td><b>${esc(r.customer.CardName)}</b></td><th>كود العميل</th><td>${esc(r.customer.CardCode)}</td></tr>
     <tr><th>الفترة</th><td>من ${sdD(r.from)} إلى ${sdD(r.to)}</td><th>الحد الائتماني</th><td>${sdM(r.customer.CreditLimit||0)}</td></tr></table>
-   <table class="lines"><thead><tr><th>التاريخ</th><th>المستند</th><th>المرجع</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody><tr><td>${sdD(r.from)}</td><td colspan="4"><b>رصيد افتتاحي</b></td><td class="n"><b>${sdM(r.opening)}</b></td></tr>${rows}
-    <tr><td></td><td colspan="2"><b>إجمالي الحركات</b></td><td class="n"><b>${sdM(dr)}</b></td><td class="n"><b>${sdM(cr)}</b></td><td></td></tr></tbody></table>
+   <table class="lines"><thead><tr><th>التاريخ</th><th>المستند</th><th>البيان</th><th>المرجع</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody><tr><td>${sdD(r.from)}</td><td colspan="5"><b>رصيد افتتاحي</b></td><td class="n"><b>${sdM(r.opening)}</b></td></tr>${rows}
+    <tr><td></td><td colspan="3"><b>إجمالي الحركات</b></td><td class="n"><b>${sdM(dr)}</b></td><td class="n"><b>${sdM(cr)}</b></td><td></td></tr></tbody></table>
    <div class="sum"><div class="note" style="font-size:9.5px;color:#666">${esc(r.note)}</div><table><tr class="gt"><th>الرصيد في ${sdD(r.to)}</th><td>${sdM(r.closing)}</td></tr></table></div>
    <div class="sig"><div>المحاسب</div><div>العميل (المصادقة على الرصيد)</div></div>`,'')}
 
