@@ -1436,7 +1436,7 @@ function orderCard(r){
   if(isRole("sysadmin")&&["delivered","cancelled"].includes(r.status)) acts.push(`<button class="btn sm" data-oact="reopen" data-id="${r.id}">إعادة فتح</button>`);
   acts.push(`<button class="btn sm ghost" data-oact="hist" data-id="${r.id}">السجل</button>`);
   return `<article class="oc st-${r.status}">
-    <div class="oh"><b class="so" dir="ltr">SO ${esc(r.so_number)}</b>${stChip(r.status)}${r.approved?`<span class="tag">معتمد</span>`:""}${clsTag(r.cls_eff,!r.cls)}<span class="br">${esc(r.branch)}</span></div>
+    <div class="oh"><b class="so" dir="ltr">SO ${esc(r.so_number)}</b>${stChip(r.status)}${r.sap_dlv_num?`<span class="tag" title="أمر تسليم مرحّل لساب من الـ CRM">تسليم ساب ${esc(r.sap_dlv_num)}</span>`:""}${r.approved?`<span class="tag">معتمد</span>`:""}${clsTag(r.cls_eff,!r.cls)}<span class="br">${esc(r.branch)}</span></div>
     <div class="ob"><div><b>${esc(r.customer||"(بدون اسم عميل)")}</b> ${place?`· <span class="muted">${esc(place)}</span>`:""} ${loc}</div>
       <div class="small">${esc(itemsText(r.items))}</div>
       <div class="small muted">التوصيل المطلوب: <b>${fd(r.requested_date)}</b> · المندوب: ${esc(r.rep_name||"—")} · سُجّل ${fmtDT(r.created_at)}</div>

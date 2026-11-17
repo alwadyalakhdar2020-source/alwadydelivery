@@ -4996,6 +4996,101 @@ NAV.push(['letters','chat',()=>L('خطابات العملاء','Customer letters
 NAV.push(['fvisit','pin',()=>L('طلبات زيارة المصنع','Factory visit requests'),()=>lcLvl('fvisit')>=1]);
 NAV.push(['lcset','db',()=>L('إعدادات الموافقات والقوالب','Approvals & templates'),()=>lcCfg()||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=1)]);
 
+/* ===== SAP documents (مستندات ساب): quotation, sales order and delivery entry screens backed by SAP Business One.
+   Customers, items, prices and open orders are read live from SAP (sap-read); documents are filed with sap_doc_submit and
+   posted by the database bridge (sap-sync), which writes the SAP number back. TEST company only until approved. ===== */
+const SD_T={quotation:['عرض سعر','Quotation'],order:['أمر بيع','Sales order'],delivery:['أمر تسليم','Delivery']};
+const SD_ST={pending:['جاري الترحيل لساب','info'],posted:['مرحّل لساب','ok'],awaiting_approval:['بانتظار اعتماد في ساب','warn'],failed:['تعذّر الترحيل','bad']};
+const SDX={rows:null,busy:false,err:null,at:0,poll:null};
+const sdLvl=()=>typeof wadyLvl==='function'?wadyLvl('crm','sapdocs'):3;
+const sdRead=async(action,args)=>{const {data,error}=await window.__sb.functions.invoke('sap-read',{body:{action,...args}});let m=data&&data.error;
+  if(error&&!m){try{m=(await error.context.json()).error}catch(e){m=error.message}}if(m)throw new Error(m);return data};
+async function sdLoad(force){if(SDX.busy||(!force&&SDX.rows&&Date.now()-SDX.at<20000))return;SDX.busy=true;
+  try{const {data,error}=await window.__sb.rpc('sap_docs_list',{p_type:null});if(error)throw error;SDX.rows=data||[];SDX.err=null;SDX.at=Date.now()}catch(e){SDX.err=e.message;SDX.rows=SDX.rows||[]}
+  SDX.busy=false;render();if(SDX.rows.some(r=>r.status==='pending'))sdPoll()}
+function sdPoll(){clearTimeout(SDX.poll);SDX.poll=setTimeout(()=>{if(typeof route!=='undefined'&&route==='sapdocs')sdLoad(true)},4000)}
+const sdSt=r=>pill(SD_ST[r.status]?.[0]||r.status,SD_ST[r.status]?.[1]||'');
+V.sapdocs=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
+  if(!SDX.rows){sdLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const tab=fv('sdTab','quotation');const rows=SDX.rows.filter(r=>r.type===tab);const can=sdLvl()>=3;
+  return `<div class="banner warn"><span class="sp">${L('مربوط حالياً بشركة الاختبار في ساب (TEST). المستندات اللي تنرحّل من هنا ما تأثر على ساب الفعلي لين يعتمد مدير النظام التشغيل الفعلي.','Connected to the SAP TEST company for now.')}</span></div>
+   ${SDX.err?`<div class="banner bad"><span class="sp">${esc(SDX.err)}</span></div>`:''}
+   <div class="tabs">${[['quotation',L('عروض الأسعار','Quotations')],['order',L('أوامر البيع','Sales orders')],['delivery',L('أوامر التسليم','Deliveries')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="sdTab" data-v="${k}">${l} (${SDX.rows.filter(r=>r.type===k).length})</button>`).join('')}</div>
+   <div class="toolbar">${can?`<button class="btn p" data-act="sdNew" data-k="${tab}">+ ${L(SD_T[tab][0]+' جديد',`New ${SD_T[tab][1]}`)}</button>`:''}<button class="btn s" data-act="sdRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
+     <span class="small muted">${tab==='delivery'?L('أمر التسليم يُبنى على أمر بيع مفتوح في ساب، ويرتبط بطلب التوصيل والسيارة في تطبيق الحركة.','Built on an open SAP sales order and tied to a fleet delivery.'):L('العميل والأصناف والأسعار تنسحب من ساب مباشرة.','Customer, items and prices come live from SAP.')}</span></div>
+   ${rows.length?`<div class="card">${table([{l:'#',f:r=>`<a href="#" data-act="sdOpen" data-id="${r._id}">${r._id}</a>`},{l:L('العميل','Customer'),f:r=>`${esc(r.card_name||'')} <span class="small muted">${esc(r.card_code||'')}</span>`},
+     ...(tab==='delivery'?[{l:L('أمر البيع','Sales order'),f:r=>r.base_num?esc(r.base_num):'—'},{l:L('السيارة','Vehicle'),f:r=>esc(r.payload?.fleet_ref||'—')}]:[{l:L('القيمة قبل الضريبة','Net'),c:'n',f:r=>r.total!=null?money(r.total):'—'}]),
+     {l:L('رقم ساب','SAP no.'),f:r=>r.sap_num?`<b>${r.sap_num}</b>`:r.draft?L('مسودة ','Draft ')+r.draft:'—'},{l:L('الحالة','Status'),f:sdSt},{l:L('بواسطة','By'),f:r=>esc(r.by_name||'')},{l:L('التاريخ','Date'),c:'nw',f:r=>fdt(r.at)}],
+     rows.map(r=>({...r,_id:r.id,id:null})))}</div>`:`<div class="card empty">${L('ما فيه مستندات','No documents')}</div>`}`};
+
+/* ---- entry form ---- */
+let SDF=null;
+function sdForm(kind){const clients=vis(S.clients).filter(c=>c.code).sort((a,b)=>a.name.localeCompare(b.name,'ar'));SDF={kind,cust:null,lines:[],orders:[],order:null,fleet:[]};
+  openModal(L(SD_T[kind][0]+' جديد','New '+SD_T[kind][1]),`<div class="fgrid">
+    <div class="fld full"><label>${L('العميل','Customer')} <span class="req">*</span></label><input list="sd_cl" id="sd_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="sd_cl">${clients.slice(0,5000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist></div>
+    <div class="fld full" id="sd_cust"></div>
+    ${kind==='delivery'?`<div class="fld full"><label>${L('أمر البيع المفتوح في ساب','Open SAP sales order')} <span class="req">*</span></label><select id="sd_order" disabled><option value="">${L('اختر العميل أولاً','Pick the customer first')}</option></select></div>
+      <div class="fld full" id="sd_fleetbox"></div><div class="fld"><label>${L('تاريخ التسليم','Delivery date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div>`
+     :`<div class="fld"><label>${L('تاريخ المستند','Document date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div><div class="fld"><label>${kind==='quotation'?L('صالح حتى','Valid until'):L('تاريخ التسليم المطلوب','Delivery date')}</label><input type="date" id="sd_due" value="${addDays(TODAY(),kind==='quotation'?14:3)}"></div>
+       <div class="fld full"><label>${L('إضافة صنف من ساب','Add an item from SAP')}</label><input id="sd_q" type="search" autocomplete="off" placeholder="${L('اكتب جزء من اسم الصنف أو كوده (حرفين على الأقل)','Type part of the item name or code')}"><div id="sd_res" class="list" style="max-height:220px;overflow:auto"></div></div>`}
+    <div class="fld full"><div id="sd_lines"></div></div>
+    <div class="fld"><label>${L('مرجع العميل (اختياري)','Customer reference')}</label><input id="sd_ref" placeholder="${L('رقم طلب الشراء عند العميل','Customer PO no.')}"></div><div class="fld"><label>${L('ملاحظات','Notes')}</label><input id="sd_note"></div></div>
+    <div id="sd_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="sdSubmit">${L('ترحيل إلى ساب','Post to SAP')}</button></div>`);
+  sdPaint();const ci=document.getElementById('sd_client');ci.addEventListener('change',()=>sdPickClient(ci.value.split(' — ')[0].trim()));
+  const qi=document.getElementById('sd_q');if(qi){let t=null;qi.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sdSearch(qi.value),450)})}
+  const so=document.getElementById('sd_order');if(so)so.addEventListener('change',()=>sdPickOrder(so.value))}
+async function sdPickClient(code){const box=document.getElementById('sd_cust');if(code&&SDF.cust&&SDF.cust.CardCode===code)return;if(SDF.loading===code)return;SDF.loading=code;SDF.cust=null;SDF.orders=[];SDF.order=null;SDF.lines=[];sdPaint();if(!code){box.innerHTML='';return}
+  box.innerHTML=`<span class="small muted">${L('جاري جلب بيانات العميل من ساب…','Loading the customer from SAP…')}</span>`;
+  try{const r=await sdRead('customer',{code});const c=r.customer;SDF.cust=c;
+    box.innerHTML=`<div class="card small" style="margin:0"><b>${esc(c.CardName)}</b> — ${esc(c.CardCode)} · ${L('قائمة الأسعار','Price list')}: ${esc(c.PriceListName||c.PriceListNum)} · ${L('الرصيد','Balance')}: ${money(c.CurrentAccountBalance||0)} · ${L('الحد الائتماني','Credit limit')}: ${money(c.CreditLimit||0)}
+      ${c.Frozen==='tYES'||c.Valid==='tNO'?` <span class="flag">${L('العميل موقوف في ساب','Customer is frozen in SAP')}</span>`:''}${c.CreditLimit>0&&c.CurrentAccountBalance>=c.CreditLimit?` <span class="flag">${L('الرصيد وصل الحد الائتماني','Balance reached the credit limit')}</span>`:''}</div>`;
+    if(SDF.kind==='delivery'){const sel=document.getElementById('sd_order');sel.innerHTML=`<option>${L('جاري جلب أوامر البيع المفتوحة…','Loading open orders…')}</option>`;
+      const o=await sdRead('orders',{code});SDF.orders=o.orders||[];sel.disabled=!SDF.orders.length;
+      sel.innerHTML=SDF.orders.length?`<option value="">${L('— اختر أمر البيع —','— choose —')}</option>`+SDF.orders.map(x=>`<option value="${x.entry}">${x.num} — ${fdate(String(x.date).slice(0,10))} — ${money(x.total)} (${x.lines.length} ${L('سطر مفتوح','open lines')})</option>`).join(''):`<option value="">${L('ما فيه أوامر بيع مفتوحة لهذا العميل في ساب','No open sales orders for this customer')}</option>`}
+  }catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}finally{SDF.loading=null}}
+async function sdSearch(t){const res=document.getElementById('sd_res');if(!res)return;if(!SDF.cust){res.innerHTML=`<div class="small muted">${L('اختر العميل أولاً عشان تطلع أسعار قائمته','Pick the customer first')}</div>`;return}
+  if((t||'').trim().length<2){res.innerHTML='';return}res.innerHTML=`<div class="small muted">${L('جاري البحث في ساب…','Searching SAP…')}</div>`;
+  try{const r=await sdRead('items',{q:t,price_list:SDF.cust.PriceListNum});SDF.found=r.items||[];
+    res.innerHTML=SDF.found.length?SDF.found.map((x,i)=>`<div class="li" data-act="sdAdd" data-i="${i}"><div class="main"><div class="t">${esc(x.name)}</div><div class="m">${esc(x.code)} · ${esc(x.unit||'')} · ${x.price!=null?L('السعر','Price')+' '+money(x.price):L('بدون سعر في قائمة العميل','no price in the list')} · ${L('المخزون','Stock')} ${num(x.stock||0)}</div></div></div>`).join(''):`<div class="small muted">${L('ما فيه أصناف مطابقة','No matching items')}</div>`}
+  catch(e){res.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+async function sdPickOrder(entry){SDF.order=SDF.orders.find(o=>String(o.entry)===String(entry))||null;SDF.lines=SDF.order?SDF.order.lines.filter(l=>l.open>0&&l.code!=='T0001').map(l=>({base_line:l.line,item_code:l.code,name:l.name,unit:l.unit,open:l.open,qty:l.open,price:l.price,vat_group:l.vat})):[];sdPaint();
+  const fb=document.getElementById('sd_fleetbox');fb.innerHTML='';if(!SDF.order)return;
+  try{const {data}=await window.__sb.rpc('sap_fleet_orders',{p_so:String(SDF.order.num)});SDF.fleet=data||[];
+    fb.innerHTML=`<label>${L('ربط بطلب التوصيل والسيارة (تطبيق الحركة)','Link to the fleet delivery & vehicle')}</label><select id="sd_fleet">${opt(SDF.fleet.map(f=>[f.id,`#${f.id} — ${f.date||''} — ${f.vehicle?L('سيارة ','Vehicle ')+f.vehicle:L('بدون سيارة','no vehicle')}${f.driver?' — '+f.driver:''} — ${f.status}${f.dlv?' — '+L('عليه أمر تسليم ','has delivery ')+f.dlv:''}`]),'',SDF.fleet.length?L('— بدون ربط —','— no link —'):L('ما فيه طلب توصيل لهذا الأمر في تطبيق الحركة','No fleet delivery for this order'))}</select>`}catch(e){fb.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
+function sdPaint(){const box=document.getElementById('sd_lines');if(!box)return;const d=SDF.kind==='delivery';
+  if(!SDF.lines.length){box.innerHTML=`<div class="small muted">${d?L('اختر أمر البيع عشان تطلع أسطره','Pick the sales order to load its lines'):L('ما فيه أصناف بعد','No items yet')}</div>`;return}
+  const net=SDF.lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0),vat=SDF.lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0)*(/15/.test(l.vat_group||'VAT 15%')?0.15:0),0);
+  box.innerHTML=`<div class="tw"><table><thead><tr><th>${L('الصنف','Item')}</th><th>${L('الوحدة','Unit')}</th>${d?`<th>${L('المتبقي','Open')}</th>`:''}<th>${L('الكمية','Qty')}</th><th>${L('السعر','Price')}</th><th>${L('الإجمالي','Total')}</th><th></th></tr></thead><tbody>
+   ${SDF.lines.map((l,i)=>`<tr><td>${esc(l.name||'')}<div class="small muted">${esc(l.item_code)}</div></td><td>${esc(l.unit||'')}</td>${d?`<td class="n">${num(l.open)}</td>`:''}
+     <td><input type="number" step="any" min="0" data-sdl="${i}" data-f="qty" value="${esc(l.qty)}" style="width:90px"></td>
+     <td>${d?money(l.price):`<input type="number" step="any" min="0" data-sdl="${i}" data-f="price" value="${esc(l.price??'')}" style="width:100px">`}</td><td class="n">${money((+l.qty||0)*(+l.price||0))}</td>
+     <td><button class="btn s d" data-act="sdDel" data-i="${i}">×</button></td></tr>`).join('')}</tbody></table></div>
+   <div class="small" style="margin-top:6px">${L('الإجمالي قبل الضريبة','Net')}: <b>${money(net)}</b> · ${L('الضريبة (تقديرية، ساب يحسبها)','VAT (estimate)')}: ${money(vat)} · ${L('الإجمالي','Total')}: <b>${money(net+vat)}</b></div>`}
+document.addEventListener('input',e=>{const el=e.target;if(!el.dataset||el.dataset.sdl==null||!SDF)return;const l=SDF.lines[+el.dataset.sdl];if(!l)return;l[el.dataset.f]=el.value;
+  const tr=el.closest('tr');if(tr){const tds=tr.querySelectorAll('td');tds[tds.length-2].textContent=money((+l.qty||0)*(+l.price||0))}},true);
+async function sdSubmit(){const err=document.getElementById('sd_err');err.textContent='';if(!SDF.cust){err.textContent=L('اختر العميل','Pick the customer');return}
+  const g=id=>(document.getElementById(id)||{}).value||'';const d=SDF.kind==='delivery';const fo=d?g('sd_fleet'):'';const f=SDF.fleet.find(x=>String(x.id)===String(fo));
+  const p={card_code:SDF.cust.CardCode,card_name:SDF.cust.CardName,ref:g('sd_ref'),note:g('sd_note'),
+    lines:SDF.lines.map(l=>({item_code:l.item_code,qty:l.qty,price:l.price,vat_group:l.vat_group,...(d?{base_line:l.base_line,open:l.open}:{})}))};
+  if(d){if(!SDF.order){err.textContent=L('اختر أمر البيع','Pick the sales order');return}Object.assign(p,{base_entry:SDF.order.entry,base_num:SDF.order.num,doc_date:g('sd_date')||TODAY(),fleet_order_id:fo||null,fleet_ref:f?`${L('طلب توصيل','Fleet order')} #${f.id}${f.vehicle?' — '+L('سيارة','vehicle')+' '+f.vehicle:''}${f.driver?' — '+f.driver:''}`:''})}
+  else Object.assign(p,{doc_date:g('sd_date'),due_date:g('sd_due')});
+  BUSY=true;try{const {data,error}=await window.__sb.rpc('sap_doc_submit',{p_type:SDF.kind,p});BUSY=false;if(error)throw error;
+    if(!data.ok){err.innerHTML=(data.errors||[]).map(esc).join('<br>');return}closeModal();toast(L('انرسل لساب، الرقم يطلع خلال ثواني','Sent to SAP; the number appears shortly'));sdLoad(true)}
+  catch(e){BUSY=false;err.textContent=e.message}}
+function sdOpen(id){const r=SDX.rows.find(x=>x.id===+id);if(!r)return;const p=r.payload||{};const kv=(l,v)=>v==null||v===''?'':`<dt>${l}</dt><dd>${v}</dd>`;
+  openModal(`${L(SD_T[r.type][0],SD_T[r.type][1])} #${r.id}`,`<div class="toolbar">${sdSt(r)}<span class="grow"></span>${r.status==='failed'&&(r.by===me().id||isMgr())?`<button class="btn s" data-act="sdRetry" data-id="${r.id}">${L('إعادة المحاولة','Retry')}</button>`:''}</div>
+   ${r.error?`<div class="banner ${r.status==='failed'?'bad':'warn'}"><span class="sp">${esc(r.error)}</span></div>`:''}
+   <dl class="kv card">${kv(L('العميل','Customer'),`${esc(r.card_name||'')} — ${esc(r.card_code||'')}`)}${kv(L('رقم ساب','SAP no.'),r.sap_num?`<b>${r.sap_num}</b>`:r.draft?L('مسودة بانتظار الاعتماد ','Draft ')+r.draft:'')}
+    ${kv(L('أمر البيع','Sales order'),r.base_num||'')}${kv(L('طلب التوصيل والسيارة','Fleet link'),esc(p.fleet_ref||''))}${kv(L('مسار الترحيل','Route'),r.route==='APPR'?L('يمر على اعتماد ساب','Through SAP approval'):r.route==='DIRECT'?L('مباشر','Direct'):'')}
+    ${kv(L('الضريبة','VAT'),r.sap_vat!=null?`${money(r.sap_vat)} ${r.vat_ok===false?`<span class="flag">${L('فرق عن حساب CRM','differs from CRM')} ${money(r.crm_vat)}</span>`:''}`:'')}
+    ${kv(L('مرجع العميل','Customer ref.'),esc(p.ref||''))}${kv(L('ملاحظات','Notes'),esc(p.note||''))}${kv(L('بواسطة','By'),esc(r.by_name||'')+' · '+fdt(r.at))}</dl>
+   <div class="card">${table([{l:L('الصنف','Item'),f:l=>esc(l.item_code||'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(+l.qty||0)},{l:L('السعر','Price'),c:'n',f:l=>l.price!=null&&l.price!==''?money(+l.price):'—'}],(p.lines||[]).map(l=>({...l,id:null})))}</div>`)}
+Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdOpen:d=>sdOpen(d.id),sdSubmit:()=>sdSubmit(),
+  sdAdd:d=>{const x=(SDF.found||[])[+d.i];if(!x)return;if(SDF.lines.some(l=>l.item_code===x.code))return toast(L('الصنف مضاف','Already added'));SDF.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,vat_group:x.vat});sdPaint()},
+  sdDel:d=>{SDF.lines.splice(+d.i,1);sdPaint()},
+  sdRetry:async d=>{try{const {data,error}=await window.__sb.rpc('sap_doc_retry',{p_id:+d.id});if(error)throw error;if(!data.ok)return toast((data.errors||[]).join(' · '));closeModal();sdLoad(true)}catch(e){toast(e.message)}}});
+NAV.push(['sapdocs','doc',()=>L('مستندات ساب (عروض، أوامر بيع، تسليم)','SAP documents'),()=>sdLvl()>=1]);
+
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
 const AI={open:false,busy:false,out:'',task:'',err:'',usage:null};
@@ -5069,7 +5164,7 @@ const NAV_TREE=[
   ['pipe',()=>L('البايب لاين','Pipeline'),['pipeline','opps','oppboard','projects','radar']],
   ['pin',()=>L('الزيارات الميدانية','Field visits'),['plan','visits','fvisit','calendar','complaints','comms','field']],
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
-  ['coin',()=>L('المبيعات','Sales'),['quotes','orders','collections','aging','credex','samples']],
+  ['coin',()=>L('المبيعات','Sales'),['sapdocs','quotes','orders','collections','aging','credex','samples']],
   ['doc',()=>L('العقود القانونية','Legal contracts'),['credit','contracts','acctopen','letters','lcset']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
   ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
