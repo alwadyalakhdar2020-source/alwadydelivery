@@ -4,6 +4,7 @@
    Drafts only — nothing is written back. Context is built from data the user can already see (inScope + page rights);
    pay figures leave only as anonymous group statistics (groups of 3 or more); IDs, IBAN, phones, e-mails, birth dates
    are never included and are stripped again on the server. ===== */
+(window.WADY_HR_PAGES = window.WADY_HR_PAGES || []).push({ page: 'ai', label: 'مساعد الموارد البشرية الذكي', grp: 'الذكاء الاصطناعي' });
 const HAI = { tool: null, out: '', busy: false, err: '', title: '' };
 const haiOn = () => { try { return !!(WADY_PERM.admin || wadyLvl('hr', 'ai') >= 1); } catch (e) { return false; } };
 const haiTalent = () => can('rec.manage') || wadyLvl('hr', 'talent') >= 1;

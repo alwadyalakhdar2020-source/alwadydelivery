@@ -1029,7 +1029,12 @@ V.users=()=>{
      {l:'ملف الموظف',f:p=>{const e=empOfUser(p.id);return e?`${esc(e.name_ar)} <span class="small muted">${esc(e.emp_no||'')}</span>`:pill('غير مربوط','warn')}},
      {l:'الاسم في ملفات Excel',f:p=>(p.aliases||[]).length?`<span class="small">${(p.aliases||[]).map(esc).join('، ')}</span>`:'<span class="muted small">—</span>'}],rows,{open:'user'})}`;
 };
-async function loadAllPages(){const rows=await fetchAll(()=>sb.from('user_pages').select('user_id,app,page,level'));const m={};rows.forEach(r=>{((m[r.user_id]=m[r.user_id]||{})[r.app]=m[r.user_id][r.app]||{})[r.page]=r.level});S.allPages=m;
+// pages the apps reported that are not in the fixed list yet: shown under «صفحات جديدة» with no access until granted
+let NEW_PAGES={};
+async function loadAppPages(){try{const {data}=await sb.from('app_pages').select('*').order('first_seen');NEW_PAGES={};
+  (data||[]).forEach(r=>{const P=PAGES[r.app];if(!P||pagesOf(r.app).includes(r.page))return;(NEW_PAGES[r.app]=NEW_PAGES[r.app]||[]).push([r.page,(r.label||r.page)+(r.grp?' — '+r.grp:''),r.first_seen])});
+  Object.entries(NEW_PAGES).forEach(([app,list])=>{const P=PAGES[app];P.groups=P.groups.filter(g=>!g.isNew);const g=['صفحات جديدة — حدد صلاحيتها (بدون صلاحية لين تعدلها)',list.map(x=>[x[0],x[1]])];g.isNew=true;P.groups.push(g)})}catch(e){}}
+async function loadAllPages(){await loadAppPages();const rows=await fetchAll(()=>sb.from('user_pages').select('user_id,app,page,level'));const m={};rows.forEach(r=>{((m[r.user_id]=m[r.user_id]||{})[r.app]=m[r.user_id][r.app]||{})[r.page]=r.level});S.allPages=m;
   const aa={};try{const {data}=await sb.from('app_admins').select('user_id,app');(data||[]).forEach(r=>(aa[r.user_id]=aa[r.user_id]||[]).push(r.app))}catch(e){}S.allAppAdmins=aa;S.allPagesLoaded=true}
 function permMatrix(cur,adm){adm=adm||[];
   return APPS_ORDER.map(app=>{const P=PAGES[app];const c=cur[app]||{};const n=Object.keys(c).length;const isA=adm.includes(app);

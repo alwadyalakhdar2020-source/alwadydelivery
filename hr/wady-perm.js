@@ -8,6 +8,8 @@ const WADY_PERM_MAP = {
   'att.manage': ['attendance', 3], 'leave.manage': ['attendance', 3], 'reports.hr': ['reports', 1], 'reports.exec': ['reports', 1],
   'settings.workflow': ['settings', 3], 'settings.manage': ['settings', 3], 'audit.view': ['settings', 2], 'backup': ['settings', 3]
 };
+// pages that need a grant; new HR modules push theirs here so they show up on the permissions page
+window.WADY_HR_PAGES = window.WADY_HR_PAGES || [];
 const WADY_STAFF_PAGES = ['employees', 'directory', 'orgchart', 'calendar', 'attendance', 'docs', 'talent', 'adminaffairs', 'forms', 'customs', 'payroll', 'reports', 'imports', 'settings'];
 { const _canE = canE; canE = function (e, p) {
     if (_canE(e, p)) return true;
@@ -39,3 +41,8 @@ window.wadyHrFull = () => { try { return !!WADY_PERM.admin || WADY_STAFF_PAGES.e
     const r = _ro(e);
     if (e && e.id === S.meId && !S.weakAuth && window.wadyHrFull()) Object.keys(ROLES).forEach(x => r.add(x));
     return r; }; }
+
+setTimeout(() => { try { if (!(WADY_PERM && WADY_PERM.admin) || !window.__sb) return;
+  const pages = WADY_STAFF_PAGES.map(p => ({ page: p, label: (document.querySelector(`[data-v="${p}"] span`) || {}).textContent || p, grp: 'الموارد البشرية' })).concat(WADY_HR_PAGES);
+  const sig = JSON.stringify(pages); if (sessionStorage.getItem('hr_pages_sig') === sig) return;
+  window.__sb.rpc('app_pages_register', { p_app: 'hr', p_pages: pages }).then(r => { if (!r.error) sessionStorage.setItem('hr_pages_sig', sig); }); } catch (e) { } }, 5000);

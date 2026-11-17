@@ -2920,6 +2920,10 @@ document.addEventListener("click",e=>{const h=e.target.closest&&e.target.closest
 document.addEventListener("keydown",e=>{if(e.key==="Escape")fnavClose()});
 const _fnavSetup=setupNav;setupNav=function(){_fnavSetup.apply(this,arguments);fnavGroup()};
 new MutationObserver(()=>fnavMark()).observe(document.querySelector("nav.tabs")||document.body,{attributes:true,subtree:true,attributeFilter:["aria-current"]});
+// report the menu to the permissions page so a newly added page shows up there (with no access until granted)
+setTimeout(()=>{try{if(!(window.WADY_PERM&&WADY_PERM.admin)||typeof SB==='undefined')return;const G={};FNAV_G.forEach(([g,ks])=>ks.forEach(k=>G[k]=g));
+  const pages=[...document.querySelectorAll('nav.tabs button[data-v]')].map(b=>({page:b.dataset.v,label:(b.textContent||'').trim(),grp:G[b.dataset.v]||'أخرى'})).filter(p=>/^[a-z][a-z0-9_]*$/.test(p.page));
+  const sig=JSON.stringify(pages);if(!pages.length||sessionStorage.getItem('fleet_pages_sig')===sig)return;SB.rpc('app_pages_register',{p_app:'fleet',p_pages:pages}).then(r=>{if(!r.error)sessionStorage.setItem('fleet_pages_sig',sig)})}catch(e){}},5000);
 
 /* ===== Live GPS tracking (Sactracking): map, status, today's km / idle, route of the day, vehicle ↔ tracker links, token setup ===== */
 const GPS={d:null,assets:null,map:null,layer:null,route:null,busy:false,timer:null,sel:null,day:null};

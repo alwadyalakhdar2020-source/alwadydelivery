@@ -5050,6 +5050,12 @@ const rest=Object.keys(by).filter(k=>!used.has(k)&&!DROP.has(k));   // anything 
 if(rest.some(k=>!/^m(today|clients|alerts|more)$/.test(k)))out.push(['g',()=>L('أخرى','Other'),'more']);
 rest.forEach(k=>out.push(by[k]));
 NAV.splice(0,NAV.length,...out);
+// Permissions: every page needs a grant on the permissions page (no grant = hidden), except pages that follow another page's grant
+const NAV_FOLLOW=new Set(['mydash','recs','leads','oppboard','calendar','dups','prodplan','dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint','mtoday','mclients','malerts','mmore']);
+NAV.forEach(n=>{if(n[0]==='g'||NAV_FOLLOW.has(n[0]))return;const f=n[3]||(()=>true);n[3]=()=>(typeof wadyLvl!=='function'||wadyLvl('crm',n[0])>=1)&&f()});
+// report the menu to the permissions page so a newly added page shows up there (with no access until granted)
+setTimeout(()=>{try{if(!window.__sb)return;const pages=[];let g='';NAV.forEach(n=>{if(n[0]==='g'){g=typeof n[1]==='function'?n[1]():n[1];return}if(NAV_FOLLOW.has(n[0]))return;pages.push({page:n[0],label:typeof n[2]==='function'?n[2]():n[2],grp:g||'عام'})});
+  const sig=JSON.stringify(pages);if(sessionStorage.getItem('crm_pages_sig')===sig)return;window.__sb.rpc('app_pages_register',{p_app:'crm',p_pages:pages}).then(r=>{if(!r.error)sessionStorage.setItem('crm_pages_sig',sig)})}catch(e){}},4000);
 // pages removed from the menu also close if opened by an old link
 if(DROP.has(route))route='dash';
 window.addEventListener('hashchange',()=>{if(DROP.has(location.hash.slice(1)))go('dash')});
