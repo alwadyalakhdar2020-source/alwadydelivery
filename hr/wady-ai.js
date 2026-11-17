@@ -73,7 +73,7 @@ const HAI_TOOLS = [
 ];
 
 const haiCss = `<style>.hai-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}.hai-c{background:var(--surface,#fff);border:1px solid var(--line,#e3e6ea);border-radius:12px;padding:14px;cursor:pointer;text-align:start;font:inherit;color:inherit}
-.hai-c:hover{border-color:var(--brand,#051D48)}.hai-c b{display:block;margin:6px 0 4px}.hai-c p{margin:0;font-size:13px;opacity:.75;line-height:1.6}.hai-out{white-space:pre-wrap;line-height:1.9;background:var(--surface,#fff);border:1px solid var(--line,#e3e6ea);border-radius:10px;padding:14px;max-height:60vh;overflow:auto}
+.hai-c svg{width:26px;height:26px;color:var(--brand,#051D48)}.hai-c:hover{border-color:var(--brand,#051D48)}.hai-c b{display:block;margin:6px 0 4px}.hai-c p{margin:0;font-size:13px;opacity:.75;line-height:1.6}.hai-out{white-space:pre-wrap;line-height:1.9;background:var(--surface,#fff);border:1px solid var(--line,#e3e6ea);border-radius:10px;padding:14px;max-height:60vh;overflow:auto}
 .hai-warn{background:#FFF7E6;border:1px solid #F2C46D;border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:10px}</style>`;
 VIEWS.hrai = () => {
   if (!haiOn()) return pageHead('مساعد الموارد البشرية', '') + empty('ما عندك صلاحية على المساعد الذكي. اطلبها من مدير النظام.');
