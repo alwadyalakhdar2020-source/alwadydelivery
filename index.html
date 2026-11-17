@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
-<head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>الوادي الأخضر — منصة الأعمال</title>
+<title>منصة الوادي الأخضر</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="brand/icon-180.png"><link rel="manifest" href="brand/manifest.webmanifest"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style>
 <style>
@@ -1365,10 +1365,10 @@ const isProdStaff=()=>['prod','plant','admin','mgr'].includes(role())||lvl('crm'
 const isSales=()=>['rep','sup','mgr','admin'].includes(role());
 const PSPECIAL=['متوقف','متوقف للصيانة','تغيير القالب'];
 const PQTY=['وردية','باقي الوردية','نصف وردية'];
-const SLOTF=[['mould','القالب',64],['cycle','السايكل',56],['code','الكود',104],['item','المنتج',200],['stock','رصيد المنتج',76],['q','الكمية',84]];
+const SLOTF=[['po','أمر الإنتاج',104],['mould','القالب',64],['cycle','السايكل',56],['code','الكود',104],['item','المنتج',200],['stock','رصيد المنتج',76],['q','الكمية',84]];
 const PP={tab:'plan',ws:satOf(TODAY()),key:'',loading:false,doc:null,lines:[],dirty:false,errors:{},lineDefs:null,products:null,weeks:null,imp:{step:'pick'},range:{from:'',to:''}};
 const lineName=id=>(PP.lineDefs||[]).find(l=>l.id===id)?.name||'—';
-const emptySlot=()=>({mould:'',cycle:'',code:'',item:'',stock:'',q:''});
+const emptySlot=()=>({po:'',mould:'',cycle:'',code:'',item:'',stock:'',q:''});
 const sv=v=>String(v??'').trim();
 const slotHas=s=>!!(s&&(sv(s.code)||sv(s.item)||sv(s.q)||sv(s.mould)));
 const isStop=t=>/متوقف|صيان|صانه/.test(t||'');
@@ -1398,7 +1398,7 @@ function ppBuild(ws,lineRows,items){
   return defs.sort((a,b)=>ord(a.id)-ord(b.id)||a.sort-b.sort).map(ld=>{const lr=lineRows.find(r=>r.line_id===ld.id)||{};const its=items.filter(i=>i.line_id===ld.id);
     let start=lr.start_date||ws,end=lr.end_date||addDays(ws,5);its.forEach(i=>{if(i.day<start)start=i.day;if(i.day>end)end=i.day});
     const rows=[];daysBetween(start,end).forEach(day=>{const m=its.filter(i=>i.day===day&&i.shift==='m').sort((a,b)=>a.seq-b.seq),n=its.filter(i=>i.day===day&&i.shift==='n').sort((a,b)=>a.seq-b.seq);
-      const k=Math.max(1,m.length,n.length);for(let j=0;j<k;j++){const sl=x=>x?{mould:x.mould||'',cycle:x.cycle||'',code:x.code||'',item:x.item||'',stock:x.stock??'',q:qOf(x)}:emptySlot();rows.push({day,m:sl(m[j]),n:sl(n[j])})}});
+      const k=Math.max(1,m.length,n.length);for(let j=0;j<k;j++){const sl=x=>x?{po:x.po||'',mould:x.mould||'',cycle:x.cycle||'',code:x.code||'',item:x.item||'',stock:x.stock??'',q:qOf(x)}:emptySlot();rows.push({day,m:sl(m[j]),n:sl(n[j])})}});
     return {line_id:ld.id,plan_no:lr.plan_no||'',start_date:start,end_date:end,note:lr.note||'',rows}});
 }
 async function ppLoad(){
@@ -1425,7 +1425,7 @@ async function ppAutoPlanNos(){
 const ppLocked=()=>!PP.doc||(PP.doc.status==='submitted'||PP.doc.status==='approved')&&!isAdmin();
 const ppCanEdit=()=>isProdEditor()&&!ppLocked();
 function ppItemsOf(l){const out=[],seq={};l.rows.forEach(r=>['m','n'].forEach(s=>{const x=r[s];if(!slotHas(x))return;const k=r.day+s;seq[k]=seq[k]||0;const st=parseNum(x.stock);
-  out.push({line_id:l.line_id,day:r.day,shift:s,seq:seq[k]++,mould:sv(x.mould),cycle:sv(x.cycle),code:sv(x.code),item:sv(x.item),stock:Number.isFinite(st)?st:null,...qSplit(x.q)})}));return out}
+  out.push({line_id:l.line_id,day:r.day,shift:s,seq:seq[k]++,po:sv(x.po),mould:sv(x.mould),cycle:sv(x.cycle),code:sv(x.code),item:sv(x.item),stock:Number.isFinite(st)?st:null,...qSplit(x.q)})}));return out}
 function ppCollect(){const lines=[],items=[];
   PP.lines.forEach((l,li)=>{if(!lineHas(l)&&!sv(l.plan_no))return;lines.push({line_id:l.line_id,plan_no:l.plan_no,start_date:l.start_date,end_date:l.end_date,note:l.note,seq:li});items.push(...ppItemsOf(l))});
   return {lines,items}}
@@ -1485,6 +1485,7 @@ function ppPlanView(){
   if(ro){if(d.note)h+=`<div class="banner"><span class="sp"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</span></div>`}else h+=`<div class="card noprint"><div class="fgrid" style="grid-template-columns:minmax(110px,160px) 1fr"><div class="fld"><label for="pp_wn">رقم الأسبوع</label><input id="pp_wn" inputmode="numeric" data-pp="week" data-k="week_no" value="${esc(d.week_no??'')}" ${ro?'disabled':''}></div><div class="fld"><label for="pp_wnote">ملاحظات عامة للأسبوع</label><input id="pp_wnote" data-pp="week" data-k="note" value="${esc(d.note||'')}" ${ro?'disabled':''}></div></div>
    ${ro?'':`<p class="small muted" style="margin:8px 0 0">اكتب الكود ويظهر اسم المنتج تلقائياً. الكمية رقم (مثل 8000) أو نص مثل «وردية» و«باقي الوردية» و«300م». لإيقاف الخط اكتب في المنتج «متوقف» أو «تغيير القالب». زر «+» يضيف منتجاً ثانياً في نفس اليوم.</p>`}</div>`;
   const inp=(li,ri,s,k,v,w,list)=>{const bad=(E[`c${li}_${ri}_${s}`]||[]).includes(k);
+    if(k==='po')return `<input id="pp_${li}_${ri}_${s}_po" value="${esc(v)}" readonly tabindex="-1" dir="ltr" placeholder="${slotHas(PP.lines[li].rows[ri][s])?'تلقائي':''}" aria-label="أمر الإنتاج ${s==='m'?'صباحي':'مسائي'}" title="يتولد تلقائياً عند الحفظ لكل منتج" style="background:var(--soft,#F3F6FA);font-weight:600;font-size:10.5px;width:100%;padding-inline:2px;letter-spacing:-.2px;text-align:center">`;
     if(k==='item')return `<textarea class="pp-ta" rows="1" id="pp_${li}_${ri}_${s}_${k}" data-pp="cell" data-l="${li}" data-r="${ri}" data-s="${s}" data-k="${k}" aria-label="المنتج ${s==='m'?'صباحي':'مسائي'}"${bad?' style="border-color:var(--bad);background:var(--bad-soft)"':''}>${esc(v)}</textarea>`;
     return `<input id="pp_${li}_${ri}_${s}_${k}" data-pp="cell" data-l="${li}" data-r="${ri}" data-s="${s}" data-k="${k}" value="${esc(v)}" ${list?`list="${list}"`:''} ${k==='stock'?'inputmode="decimal"':''} ${k==='code'||k==='mould'?'dir="ltr"':''} aria-label="${SLOTF.find(f=>f[0]===k)[1]} ${s==='m'?'صباحي':'مسائي'}"${k==='stock'?` title="الرصيد يُقرأ من المخزون عند اختيار المنتج"`:''}${bad?' style="border-color:var(--bad);background:var(--bad-soft)"':''}>`};
   const hasF=(k)=>PP.lines.some(l=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k])));
@@ -1725,7 +1726,7 @@ async function ppCopyPrev(){
   if(PP.lines.some(lineHas)&&!PP.copyWarn){PP.copyWarn=1;return toast('الخطة الحالية فيها بنود وسيتم استبدالها. اضغط «نسخ الأسبوع السابق» مرة أخرى للتأكيد.')}PP.copyWarn=0;
   const [a,b]=await Promise.all([sb.from('prod_week_lines_current').select('*').eq('week_id',w.id),fetchAll(()=>sb.from('prod_items_current').select('*').eq('week_id',w.id))]);
   const plan=Object.fromEntries(PP.lines.map(l=>[l.line_id,l.plan_no]));
-  PP.lines=ppBuild(PP.ws,(a.data||[]).map(x=>({...x,start_date:x.start_date&&addDays(x.start_date,7),end_date:x.end_date&&addDays(x.end_date,7),plan_no:plan[x.line_id]||''})),b.map(x=>({...x,day:addDays(x.day,7),stock:null})));
+  PP.lines=ppBuild(PP.ws,(a.data||[]).map(x=>({...x,start_date:x.start_date&&addDays(x.start_date,7),end_date:x.end_date&&addDays(x.end_date,7),plan_no:plan[x.line_id]||''})),b.map(x=>({...x,day:addDays(x.day,7),stock:null,po:null})));
   if(PP.lines.some(l=>!l.plan_no))await ppAutoPlanNos();
   PP.dirty=true;render();toast('نُسخت خطة الأسبوع السابق بتواريخ هذا الأسبوع (بدون رصيد المنتج). راجعها ثم احفظ.');
 }
@@ -1774,9 +1775,9 @@ function ppPrint(){
   const nm=id=>{const n=id?pName(id):'';return n==='—'?'':n};
   
   const logo=window.WADY_LOGO_DATA||'';
-  const K=[['code','الكود'],['item','المنتج'],['q','الكمية'],['stock','الرصيد'],['mould','القالب'],['cycle','السايكل']];
+  const K=[['po','أمر الإنتاج'],['code','الكود'],['item','المنتج'],['q','الكمية'],['stock','الرصيد'],['mould','القالب'],['cycle','السايكل']];
   const has=(l,k)=>l.rows.some(r=>sv(r.m[k])||sv(r.n[k]));
-  const W={code:12,item:25,q:8,stock:8,mould:8,cycle:6};
+  const W={po:10,code:12,item:25,q:8,stock:8,mould:8,cycle:6};
   const cell=(x,k)=>{const v=x[k];if(k==='stock')return sv(v)!==''&&Number.isFinite(parseNum(v))?num(parseNum(v)):esc(v);if(k==='item'&&(isStop(v)||isMould(v)))return `<span class="tag ${isStop(v)?'stop':'mould'}">${esc(v)}</span>`;return esc(v)};
   const CHG=ppChanged();
   const page=(l,i)=>{
