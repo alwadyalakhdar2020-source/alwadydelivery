@@ -331,7 +331,7 @@ const ATT_KINDS={drawing:['مخطط','Drawing'],spec:['مواصفات','Specs'],
 const KPI_NAMES={coll:['تحقيق التحصيل','Collection achievement'],act:['تنشيط العملاء وتطويرهم','Customer activation & development'],newc:['اكتساب عملاء جدد','New customer acquisition'],conv:['معدل تحويل العروض','Quotation conversion rate'],ret:['الاحتفاظ بالعملاء','Customer retention']};
 const DEFAULT_CFG={weights:{coll:40,act:20,newc:15,conv:15,ret:10},targets:{act:60,conv:45,ret:80},activeDays:90,lostDays:365,newDays:90,strategicTop:10,cap:120,convBasis:'date',largeQuote:500000,expiryDays:7,declinePct:30,risePct:50,vat:15,pipeCover:1.5,backCover:3,visitRadiusM:300,gpsMaxAccM:150};
 const lab=(m,k)=>m[k]?L(m[k][0],m[k][1]):(k||'—');
-const prodName=id=>{const p=PRODUCTS.find(x=>x.id===id);return p?L(p.ar,p.en):(id||'—')};
+const prodName=id=>{const p=PRODUCTS.find(x=>x.id===id);if(p)return L(p.ar,p.en);const it=typeof S!=='undefined'&&S.items?S.items.find(x=>x.code===id):null;return it?`${it.name}`:(id||'—')};
 const regName=id=>{const r=REGIONS.find(x=>x.id===id);return r?L(r.ar,r.en):id==='taif'?L('الطائف (قديم)','Taif (old)'):(id||'—')};
 const stageName=id=>{const s=OPP_STAGES.find(x=>x[0]===id);return s?L(s[1],s[2]):id};
 const projStage=id=>{const s=PROJ_STAGES.find(x=>x[0]===id);return s?L(s[1],PROJ_EN[id]):id};
@@ -3746,7 +3746,7 @@ function qCfgEdit(){const c=qCfg();openForm({title:L('بيانات الشركة 
 function printQuote(id){const q=byId('quotes',id);if(!q)return;const c=byId('clients',q.clientId)||{};const r=byId('team',q.repId)||{};const k=qCfg();const logo=window.WADY_LOGO_DATA||'';
   const lines=(q.lines||[]).filter(l=>l.product);const sub=lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0);const dsc=sub*(+q.discount||0)/100;const net=sub-dsc;const vat=k.vatOn?net*(+k.vat||0)/100:0;
   const draft=!['approved','sent','accepted','ordered'].includes(q.status);const m=v=>(+v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const pn=p=>{const x=PRODUCTS.find(z=>z.id===p);return x?x.ar:p};const kv=(a,b)=>b?`<tr><th>${a}</th><td>${esc(b)}</td></tr>`:'';
+  const pn=p=>{const x=PRODUCTS.find(z=>z.id===p);if(x)return x.ar;const it=(S.items||[]).find(z=>z.code===p);return it?`${it.name} (${it.code})`:p};const kv=(a,b)=>b?`<tr><th>${a}</th><td>${esc(b)}</td></tr>`:'';
   const w=window.open('','_blank');if(!w)return toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));
   w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(q.no)}</title><style>
 @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:12px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -5024,7 +5024,7 @@ const sdD=s=>s?fdate(String(s).slice(0,10)):'—';
 const sdSapSt=d=>d.cancelled?pill(L('ملغى','Cancelled'),'bad'):d.status==='bost_Open'?pill(L('مفتوح','Open'),'info'):d.status==='bost_Close'?pill(L('مقفل','Closed'),''):'';
 const sdNum=v=>{const n=+v;return isFinite(n)?n:0};
 const sdM=v=>sdNum(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const sdClientList=id=>`<datalist id="${id}">${vis(S.clients).filter(c=>c.code).sort((a,b)=>a.name.localeCompare(b.name,'ar')).slice(0,5000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`;
+const sdClientList=id=>'';const _sdClientListOld=id=>`<datalist id="${id}">${vis(S.clients).filter(c=>c.code).sort((a,b)=>a.name.localeCompare(b.name,'ar')).slice(0,5000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`;
 
 /* ---------- main screen ---------- */
 V.sapdocs=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
@@ -5041,7 +5041,7 @@ V.sapdocs=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه ال�
     <span class="small muted">${tab==='payment'?L('التحصيل يتوزع على فواتير العميل المفتوحة في ساب.','Payments are applied to open SAP invoices.'):SD_BASES[tab]?L('ينسخ من: ','Copies from: ')+SD_BASES[tab].map(sdN).join(L(' أو ',' or ')):L('بداية دورة البيع.','Start of the sales chain.')}</span></div>
    <div class="card"><b>${L('بحث في ساب','Find in SAP')}</b>
     <div class="fbar" style="margin-top:6px"><label class="fl">${L('رقم المستند','Doc no.')}<input id="sdf_num" type="number" value="${esc(f.num||'')}" style="width:120px"></label>
-     <label class="fl">${L('كود العميل','Customer code')}<input id="sdf_card" value="${esc(f.card||'')}" style="width:120px"></label><label class="fl">${L('اسم العميل','Customer name')}<input id="sdf_name" value="${esc(f.name||'')}"></label>
+     <label class="fl">${L('كود العميل','Customer code')}<input id="sdf_card" data-wcust="sap" value="${esc(f.card||'')}" style="min-width:240px"></label><label class="fl">${L('اسم العميل','Customer name')}<input id="sdf_name" value="${esc(f.name||'')}"></label>
      <label class="fl">${L('من','From')}<input id="sdf_from" type="date" value="${esc(f.from||'')}"></label><label class="fl">${L('إلى','To')}<input id="sdf_to" type="date" value="${esc(f.to||'')}"></label>
      ${tab!=='payment'?`<label class="fl"><span>${L('المفتوح فقط','Open only')}</span><input id="sdf_open" type="checkbox" ${f.open?'checked':''} style="width:auto"></label>`:''}<button class="btn p" data-act="sdFind" data-k="${tab}">${L('بحث','Find')}</button></div>
     <div id="sdf_res">${f.busy?`<div class="small muted">${L('جاري البحث في ساب…','Searching SAP…')}</div>`:f.err?`<span class="flag">${esc(f.err)}</span>`:f.res?sdFindTable(tab,f.res):''}</div></div>
@@ -5062,8 +5062,7 @@ function sdTotals(){const net0=SDE.lines.reduce((s,l)=>s+sdLineNet(l),0);const h
 function sdForm(kind,pre){SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]}};const isPay=kind==='payment';
   openModal(`${sdN(kind)} — ${L('جديد','New')}`,`<div class="sapdoc">
    <div class="sd-hd"><div class="sd-col">
-     <div class="sd-f"><label>${L('العميل','Customer')} <span class="req">*</span></label><input list="sd_cl" id="sd_client" placeholder="${L('الكود أو الاسم','Code or name')}" autocomplete="off">${sdClientList('sd_cl')}</div>
-     <div class="sd-f"><label>${L('بحث في عملاء ساب','Search SAP customers')}</label><input id="sd_bpq" type="search" placeholder="${L('لو العميل مو موجود في الـ CRM','If the customer is not in the CRM')}"><div id="sd_bpres" class="list" style="max-height:140px;overflow:auto"></div></div>
+     <div class="sd-f"><label>${L('العميل','Customer')} <span class="req">*</span></label><input id="sd_client" data-wcust="sap" placeholder="${L('اكتب كود العميل أو اسمه أو جواله — يبحث في الـ CRM وساب','Customer code, name or phone — CRM and SAP')}" autocomplete="off"></div>
      ${isPay?'':`<div class="sd-f"><label>${L('مرجع العميل','Customer Ref. No.')}</label><input id="sd_ref"></div>`}</div>
     <div class="sd-col"><div class="sd-f"><label>${L('الرقم','No.')}</label><input value="${L('يُحدد من ساب عند الترحيل','Assigned by SAP on posting')}" readonly class="sd-ro"></div>
      <div class="sd-f"><label>${L('الحالة','Status')}</label><input value="${L('جديد','New')}" readonly class="sd-ro"></div>
@@ -5071,14 +5070,13 @@ function sdForm(kind,pre){SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invo
      ${isPay?'':`<div class="sd-f"><label>${kind==='quotation'?L('صالح حتى','Valid Until'):L('تاريخ الاستحقاق / التسليم','Due / Delivery Date')}</label><input type="date" id="sd_due" value="${addDays(TODAY(),kind==='quotation'?14:kind==='invoice'?30:3)}"></div>`}</div></div>
    <div id="sd_cust"></div>
    ${isPay?`<div id="sd_pay"></div>`:`<div class="toolbar" style="margin:8px 0">${SD_BASES[kind]?`<button class="btn s" data-act="sdCopyFrom">${L('نسخ من…','Copy From…')}</button>`:''}
-     ${kind!=='delivery'&&kind!=='retreq'?`<input id="sd_q" type="search" autocomplete="off" placeholder="${L('إضافة صنف: اكتب جزء من الاسم أو الكود','Add item: type part of the name or code')}" style="max-width:360px">`:`<span class="small muted">${L('أسطر هذا المستند تُنسخ من مستند أساسي فقط','Lines come from a base document only')}</span>`}<span class="grow"></span></div>
+     ${kind!=='delivery'&&kind!=='retreq'?`<input id="sd_q" type="search" autocomplete="off" class="sd-q" placeholder="${L('➕ إضافة صنف: اكتب أي جزء من الاسم أو الكود، ثم Enter','Add item: type any part of the name or code, then Enter')}">`:`<span class="small muted">${L('أسطر هذا المستند تُنسخ من مستند أساسي فقط','Lines come from a base document only')}</span>`}<span class="grow"></span></div>
      <div id="sd_res" class="list" style="max-height:220px;overflow:auto"></div><div id="sd_lines"></div>
      ${kind==='delivery'?`<div class="sd-f" id="sd_fleetbox" style="margin-top:8px"></div>`:''}`}
    <div class="sd-ft"><div class="sd-col"><div class="sd-f"><label>${L('ملاحظات','Remarks')}</label><textarea id="sd_note" rows="2"></textarea></div></div><div class="sd-col" id="sd_tot"></div></div>
    <div id="sd_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="sdSubmit">${L('ترحيل إلى ساب','Add to SAP')}</button></div></div>`);
   sdPaint();const ci=document.getElementById('sd_client');ci.addEventListener('change',()=>sdPickClient(ci.value.split(' — ')[0].trim()));
-  const qi=document.getElementById('sd_q');if(qi){let t=null;qi.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sdSearch(qi.value),450)})}
-  const bq=document.getElementById('sd_bpq');{let t=null;bq.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>sdBpSearch(bq.value),450)})}
+  wCust(ci,true);const qi=document.getElementById('sd_q');if(qi)sdItemCombo(qi);setTimeout(()=>ci.focus(),60);
   if(pre)setTimeout(()=>sdPrefill(pre),0)}
 async function sdBpSearch(t){const box=document.getElementById('sd_bpres');if(!box)return;if((t||'').trim().length<2){box.innerHTML='';return}box.innerHTML=`<div class="small muted">${L('جاري البحث…','Searching…')}</div>`;
   try{const r=await sdRead('bp_search',{q:t});box.innerHTML=(r.bps||[]).map(b=>`<div class="li" data-act="sdPickBp" data-c="${esc(b.CardCode)}"><div class="main"><div class="t">${esc(b.CardName)}</div><div class="m">${esc(b.CardCode)} · ${L('الرصيد','Balance')} ${sdM(b.CurrentAccountBalance||0)}</div></div></div>`).join('')||`<div class="small muted">${L('ما فيه','None')}</div>`}catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
@@ -5086,7 +5084,7 @@ async function sdPickClient(code){const box=document.getElementById('sd_cust');i
   SDE.cust=null;SDE.lines=SDE.lines.filter(l=>!l.base_entry);sdPaint();if(!code){box.innerHTML='';SDE.loading=null;return}
   box.innerHTML=`<span class="small muted">${L('جاري جلب بيانات العميل من ساب…','Loading the customer from SAP…')}</span>`;
   try{const r=await sdRead('customer',{code});SDE.cust=r.customer;SD_VAT[code]=r.customer.FederalTaxID||'';const ci=document.getElementById('sd_client');if(ci&&!ci.value.startsWith(code))ci.value=`${code} — ${r.customer.CardName}`;
-    if(SDE.kind==='payment')await sdPayLoad();sdPaint()}
+    if(SDE.kind==='payment')await sdPayLoad();sdPaint();sdCatalog(r.customer.PriceListNum).catch(()=>{});const qi=document.getElementById('sd_q');if(qi&&!SDE.lines.length)setTimeout(()=>qi.focus(),50)}
   catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}finally{SDE.loading=null}}
 /* credit panel — mirrors the server rule: orders always count; deliveries and invoices count unless every line is copied from a base */
 function sdCredit(){const box=document.getElementById('sd_cust');const c=SDE&&SDE.cust;SDE&&(SDE.over=false);if(!box||!c)return;
@@ -5120,6 +5118,22 @@ document.addEventListener('input',e=>{const el=e.target;if(!el.dataset||el.datas
   clearTimeout(SDE._t);SDE._t=setTimeout(()=>{const f=document.activeElement;const k=f&&f.dataset&&f.dataset.sdl!=null?[f.dataset.sdl,f.dataset.f]:null;sdPaint();
     if(k){const n=document.querySelector(`[data-sdl="${k[0]}"][data-f="${k[1]}"]`);if(n){n.focus();try{n.setSelectionRange(n.value.length,n.value.length)}catch(x){}}}},600)},true);
 
+
+/* ---------- item catalog from SAP (cached per price list) and the quick item entry ---------- */
+SDX.cat={};
+async function sdCatalog(pl){const k=String(pl);if(SDX.cat[k]&&(SDX.cat[k].items||SDX.cat[k].p))return SDX.cat[k].items||SDX.cat[k].p;
+  const p=sdRead('items_all',{price_list:pl}).then(r=>{const items=(r.items||[]).map(x=>({...x,label:x.name,sub:[x.unit,x.en,`${L('المخزون','Stock')} ${num(x.stock||0)}`].filter(Boolean).join(' · '),
+      right:x.price!=null?`<b>${sdM(x.price)}</b>`:`<span style="color:#B42318">${L('بدون سعر','No price')}</span>`}));
+    items.sort((a,b)=>(a.price==null)-(b.price==null));SDX.cat[k]={items};return items}).catch(e=>{delete SDX.cat[k];throw e});SDX.cat[k]={p};return p}
+function sdItemCombo(qi){wCombo(qi,{limit:50,width:520,empty:L('ما فيه صنف مطابق','No matching item'),
+  source:q=>{if(!SDE||!SDE.cust)return Promise.reject(new Error(L('اختر العميل أولاً عشان تطلع أسعار قائمته','Pick the customer first')));
+    const c=SDX.cat[String(SDE.cust.PriceListNum)];if(c&&c.items)return wpFind(c.items,q,50);return sdCatalog(SDE.cust.PriceListNum).then(items=>wpFind(items,qi.value,50))},
+  pick:x=>{SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh});qi.value='';sdPaint();
+    const i=SDE.lines.length-1;const n=document.querySelector(`[data-sdl="${i}"][data-f="qty"]`);if(n){n.focus();n.select()}
+    if(x.price==null)toast(L('الصنف ما له سعر في قائمة أسعار العميل؛ اكتب السعر','No list price for this item; type the price'))}})}
+document.addEventListener('keydown',e=>{const t=e.target;if(e.key!=='Enter'||!t.dataset||t.dataset.sdl==null||!SDE)return;e.preventDefault();
+  const f=t.dataset.f;const i=+t.dataset.sdl;const nxt=f==='qty'?document.querySelector(`[data-sdl="${i}"][data-f="price"]`):null;
+  if(nxt&&(SDE.lines[i].price==null||SDE.lines[i].price===''))nxt.focus();else{const qi=document.getElementById('sd_q');if(qi)qi.focus()}},true);
 /* copy from / copy to */
 async function sdCopyFrom(){if(!SDE.cust)return toast(L('اختر العميل أولاً','Pick the customer first'));const types=SD_BASES[SDE.kind];
   const box=document.getElementById('sd_res');box.innerHTML=`<div class="small muted">${L('جاري جلب المستندات المفتوحة…','Loading open documents…')}</div>`;
@@ -5228,7 +5242,7 @@ function sdPrint(){const d=SDX.cur;if(!d)return;const t=d.type;const k=typeof qC
 
 /* ---------- statement of account ---------- */
 function sdStatementView(){const s=SDX.stmt||{};
-  return `<div class="card"><div class="fbar"><label class="fl">${L('العميل','Customer')}<input list="sds_cl" id="sds_card" value="${esc(s.cardIn||'')}" placeholder="${L('الكود أو الاسم','Code or name')}">${sdClientList('sds_cl')}</label>
+  return `<div class="card"><div class="fbar"><label class="fl">${L('العميل','Customer')}<input id="sds_card" data-wcust="sap" value="${esc(s.cardIn||'')}" style="min-width:280px"></label>
    <label class="fl">${L('من','From')}<input type="date" id="sds_from" value="${esc(s.from||TODAY().slice(0,4)+'-01-01')}"></label><label class="fl">${L('إلى','To')}<input type="date" id="sds_to" value="${esc(s.to||TODAY())}"></label>
    <button class="btn p" data-act="sdStmt">${L('عرض الكشف من ساب','Show from SAP')}</button>${s.res?`<button class="btn s" data-act="sdStmtPrint">${L('طباعة','Print')}</button>`:''}</div>
    ${s.busy?`<div class="small muted">${L('جاري الجلب من ساب…','Loading from SAP…')}</div>`:s.err?`<span class="flag">${esc(s.err)}</span>`:s.res?sdStmtTable(s.res):''}</div>`}
@@ -5262,7 +5276,7 @@ Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSub
   sdBase:d=>sdAddBase(SDE.bases[+d.i]),sdPickBp:d=>{document.getElementById('sd_bpres').innerHTML='';document.getElementById('sd_bpq').value='';sdPickClient(d.c)},
   sdAdd:d=>{const x=(SDE.found||[])[+d.i];if(!x)return;SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh});document.getElementById('sd_res').innerHTML='';const q=document.getElementById('sd_q');if(q)q.value='';sdPaint()},
   sdDel:d=>{SDE.lines.splice(+d.i,1);sdPaint()},
-  sdFind:async d=>{const t=d.k;const g=id=>(document.getElementById(id)||{}).value||'';const f={num:g('sdf_num'),card:g('sdf_card').trim(),name:g('sdf_name').trim(),from:g('sdf_from'),to:g('sdf_to'),open:!!document.getElementById('sdf_open')?.checked,busy:true};
+  sdFind:async d=>{const t=d.k;const g=id=>(document.getElementById(id)||{}).value||'';const f={num:g('sdf_num'),card:g('sdf_card').split(' — ')[0].trim(),name:g('sdf_name').trim(),from:g('sdf_from'),to:g('sdf_to'),open:!!document.getElementById('sdf_open')?.checked,busy:true};
     SDX.find[t]=f;render();try{const r=await sdRead('docs',{type:t,num:f.num||undefined,card:f.card||undefined,name:f.name||undefined,from:f.from||undefined,to:f.to||undefined,open:f.open});f.res=r.docs||[]}catch(e){f.err=e.message}f.busy=false;render()},
   sdOpen:d=>{if(d.e)sdOpenSap(d.t,+d.e)},
   sdMine:d=>{const r=SDX.rows.find(x=>x.id===+d.id);if(!r)return;if(r.sap_entry)return sdOpenSap(r.type,r.sap_entry);
@@ -5283,6 +5297,8 @@ Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSub
  .sd-grid td:nth-child(3){min-width:180px}.sd-grid th{background:#051D48;color:#fff;font-weight:600;font-size:12px;white-space:nowrap}.sd-grid tr.sd-based td{background:#F4FBF6}.sd-tt{width:100%}.sd-tt th{text-align:start;font-weight:500;padding:4px 6px}.sd-tt td{text-align:end;padding:4px 6px}.sd-tt .sd-gt th,.sd-tt .sd-gt td{font-weight:700;border-top:2px solid #051D48;font-size:14px}
  @media(max-width:700px){.sapdoc .sd-hd,.sapdoc .sd-ft{grid-template-columns:1fr}}`;document.head.appendChild(st)})();
 NAV.push(['sapdocs','doc',()=>L('مستندات ساب (البيع والتحصيل)','SAP sales documents'),()=>sdLvl()>=1]);
+
+(()=>{const st=document.createElement('style');st.textContent=`.sapdoc .sd-q{flex:1;min-width:260px;max-width:560px;font-size:15px;padding:10px 12px;border:1.5px solid #38AC57;border-radius:10px}`;document.head.appendChild(st)})();
 
 /* ===== Marketing (التسويق) — inside the CRM: content calendar, posts written with the AI assistant, approval before
    publishing, campaigns, the company's social pages and campaign performance. Posts are published by the team on each
@@ -5596,6 +5612,124 @@ NAV.push(['mkapprove','shield',()=>L('اعتماد المنشورات','Post app
 NAV.push(['mkcamp','trend',()=>L('الحملات','Campaigns')]);
 NAV.push(['mkacct','users',()=>L('صفحات السوشال ميديا','Social pages')]);
 NAV.push(['mkreport','report',()=>L('تقارير أداء الحملات','Campaign performance')]);
+
+/* ===== Smart search pickers (البحث السريع) — used across the platform.
+   1) wCombo(input, opts): type-ahead search on any text input (local lists or async sources such as SAP),
+      Arabic-aware matching (أ/إ/آ=ا، ى=ي، ة=ه، حركات، أرقام هندية), multi-word, highlighted matches,
+      keyboard (↑ ↓ Enter Esc) and a bottom sheet on phones.
+   2) Every long <select> (8+ options) on any screen is turned into a searchable picker automatically;
+      the original <select> stays as the value holder, so saving and filters keep working unchanged. ===== */
+const WP={pop:null,cur:null,seq:0,t:null};
+const wpMap={'أ':'ا','إ':'ا','آ':'ا','ٱ':'ا','ى':'ي','ة':'ه','ؤ':'و','ئ':'ي','٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
+const wpN1=c=>/[ً-ٰٟـ]/.test(c)?'':/[\s\-_/.,،()]/.test(c)?' ':(wpMap[c]||c.toLowerCase());
+const wpNorm=s=>{let o='';for(const c of String(s??''))o+=wpN1(c);return o.replace(/\s+/g,' ').trim()};
+function wpHi(t,q){t=String(t??'');const toks=wpNorm(q).split(' ').filter(Boolean);if(!toks.length)return esc(t);
+  let n='';const idx=[];for(let i=0;i<t.length;i++){for(const ch of wpN1(t[i])){n+=ch;idx.push(i)}}
+  const mark=new Array(t.length).fill(false);for(const tok of toks){let p=n.indexOf(tok);while(p>=0){for(let j=p;j<p+tok.length;j++)mark[idx[j]]=true;p=n.indexOf(tok,p+tok.length)}}
+  let out='',on=false;for(let i=0;i<t.length;i++){if(mark[i]&&!on){out+='<mark>';on=true}else if(!mark[i]&&on){out+='</mark>';on=false}out+=esc(t[i])}return out+(on?'</mark>':'')}
+/* rank: exact code, code prefix, text prefix, word prefix, contains */
+function wpFind(list,q,limit=60){const toks=wpNorm(q).split(' ').filter(Boolean);if(!toks.length)return list.slice(0,limit);const res=[];
+  for(let i=0;i<list.length;i++){const x=list[i];const k=x._k||(x._k=wpNorm([x.code,x.label,x.sub,x.keys].filter(Boolean).join(' ')));if(!toks.every(t=>k.includes(t)))continue;
+    const c=x._c??(x._c=wpNorm(x.code||''));const t0=toks[0];const s=c&&c===wpNorm(q)?0:c&&c.startsWith(t0)?1:k.startsWith(t0)?2:(' '+k).includes(' '+t0)?3:4;res.push([s,i,x])}
+  res.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);return res.slice(0,limit).map(r=>r[2])}
+function wpEnsure(){if(WP.pop)return WP.pop;const p=document.createElement('div');p.id='wp_pop';p.className='wp-pop';p.hidden=true;document.body.appendChild(p);
+  p.addEventListener('mousedown',e=>e.preventDefault());p.addEventListener('click',e=>{const it=e.target.closest('.wp-it');if(it&&WP.cur)wpChoose(+it.dataset.i)});WP.pop=p;return p}
+function wpPlace(){const c=WP.cur;if(!c)return;const p=WP.pop;const r=c.input.getBoundingClientRect();const sheet=window.innerWidth<600;p.classList.toggle('sheet',sheet);
+  if(sheet){p.style.cssText='';return}const w=Math.max(r.width,c.opts.width||320);const below=window.innerHeight-r.bottom;const up=below<260&&r.top>below;
+  p.style.width=Math.min(w,window.innerWidth-16)+'px';p.style.maxHeight=Math.min(360,(up?r.top:below)-12)+'px';
+  const rtl=getComputedStyle(c.input).direction==='rtl';let x=rtl?r.right-Math.min(w,window.innerWidth-16):r.left;x=Math.max(8,Math.min(x,window.innerWidth-Math.min(w,window.innerWidth-16)-8));
+  p.style.left=x+'px';p.style.top=(up?Math.max(8,r.top-Math.min(360,r.top-12)-4):r.bottom+4)+'px'}
+function wpPaint(){const c=WP.cur;if(!c)return;const p=WP.pop;const q=c.input.value;
+  const head=window.innerWidth<600?`<div class="wp-sh"><input class="wp-shq" value="${esc(q)}" placeholder="${esc(c.input.placeholder||L('ابحث…','Search…'))}" autocomplete="off"><button type="button" class="wp-x" aria-label="${L('إغلاق','Close')}">✕</button></div>`:'';
+  const body=c.busy&&!c.items.length?`<div class="wp-msg">${L('جاري البحث…','Searching…')}</div>`:c.err?`<div class="wp-msg bad">${esc(c.err)}</div>`:!c.items.length?`<div class="wp-msg">${esc(c.opts.empty||(q?L('ما فيه نتائج مطابقة','No matches'):L('اكتب للبحث','Type to search')))}</div>`
+    :c.items.map((x,i)=>`<div class="wp-it ${i===c.hi?'on':''} ${x.cur?'cur':''}" data-i="${i}" role="option"><div class="wp-l"><div class="wp-t">${x.code?`<bdi class="wp-code">${wpHi(x.code,q)}</bdi>`:''}${wpHi(x.label,q)}</div>${x.sub?`<div class="wp-s">${wpHi(x.sub,q)}</div>`:''}</div>${x.right?`<div class="wp-r">${x.right}</div>`:''}</div>`).join('')
+      +(c.more?`<div class="wp-msg">${L('اكتب أكثر لتضييق النتائج','Type more to narrow down')} (${c.more}+)</div>`:'')+(c.busy?`<div class="wp-msg">${L('جاري البحث في ساب…','Searching SAP…')}</div>`:'');
+  if(head&&!p.querySelector('.wp-sh')){p.innerHTML=head+`<div class="wp-list">${body}</div>`;const sq=p.querySelector('.wp-shq');sq.addEventListener('input',()=>{c.input.value=sq.value;wpRun()});sq.addEventListener('keydown',wpKey);p.querySelector('.wp-x').addEventListener('click',wpClose);setTimeout(()=>sq.focus(),30)}
+  else if(head)p.querySelector('.wp-list').innerHTML=body;else p.innerHTML=body;
+  const on=p.querySelector('.wp-it.on');if(on)on.scrollIntoView({block:'nearest'})}
+function wpRun(){const c=WP.cur;if(!c)return;const q=c.input.value;const seq=++WP.seq;c.err=null;
+  if(q.trim().length<(c.opts.min||0)){c.items=[];c.more=0;wpPaint();return}
+  let r;try{r=c.opts.source(q)}catch(e){c.err=e.message;wpPaint();return}
+  const set=(arr,busy)=>{if(seq!==WP.seq||WP.cur!==c)return;const lim=c.opts.limit||60;c.more=arr.length>lim?arr.length-lim:0;c.items=arr.slice(0,lim);c.hi=Math.max(0,c.items.findIndex(x=>x.cur));if(c.hi<0)c.hi=0;c.busy=!!busy;wpPaint()};
+  if(r&&typeof r.then==='function'){c.busy=true;wpPaint();r.then(a=>set(a||[],false)).catch(e=>{if(seq===WP.seq){c.busy=false;c.err=e.message;wpPaint()}})}
+  else if(r&&r.local){set(r.local,!!r.more);if(r.more)r.more.then(a=>{if(seq!==WP.seq||WP.cur!==c)return;set([...r.local,...(a||[])],false)}).catch(()=>{if(seq===WP.seq){c.busy=false;wpPaint()}})}
+  else set(r||[],false)}
+function wpOpen(input,opts){if(WP.cur&&WP.cur.input===input)return;wpClose();wpEnsure();WP.cur={input,opts,items:[],hi:0};WP.pop.hidden=false;WP.pop.innerHTML='';wpPlace();wpRun();input.setAttribute('aria-expanded','true')}
+function wpClose(){const c=WP.cur;if(!c)return;WP.cur=null;if(WP.pop){WP.pop.hidden=true;WP.pop.innerHTML=''}c.input.setAttribute('aria-expanded','false');if(c.opts.onClose)c.opts.onClose()}
+function wpChoose(i){const c=WP.cur;if(!c)return;const x=c.items[i];if(!x)return;wpClose();c.opts.pick(x,c.input)}
+function wpKey(e){const c=WP.cur;
+  if(!c){if((e.key==='ArrowDown'||e.key==='Enter'&&e.target.classList.contains('wp-sel'))&&e.target._wp){e.preventDefault();wpOpen(e.target,e.target._wp)}return}
+  if(e.key==='ArrowDown'){e.preventDefault();c.hi=Math.min(c.items.length-1,c.hi+1);wpPaint()}
+  else if(e.key==='ArrowUp'){e.preventDefault();c.hi=Math.max(0,c.hi-1);wpPaint()}
+  else if(e.key==='Enter'){if(c.items.length){e.preventDefault();e.stopPropagation();wpChoose(c.hi)}}
+  else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();wpClose()}
+  else if(e.key==='Tab'){if(c.opts.tabPick&&c.items.length&&c.input.value.trim())wpChoose(c.hi);else wpClose()}}
+/* attach type-ahead to a text input */
+function wCombo(input,opts){if(!input||input._wp)return input;input._wp=opts;input.setAttribute('autocomplete','off');input.setAttribute('role','combobox');input.setAttribute('aria-autocomplete','list');
+  input.addEventListener('focus',()=>{if(opts.openOnFocus!==false)wpOpen(input,opts)});
+  input.addEventListener('click',()=>{if(!WP.cur||WP.cur.input!==input)wpOpen(input,opts)});
+  input.addEventListener('input',()=>{if(!WP.cur||WP.cur.input!==input)wpOpen(input,opts);clearTimeout(WP.t);WP.t=setTimeout(wpRun,opts.delay??90)});
+  input.addEventListener('keydown',wpKey,true);
+  input.addEventListener('blur',()=>setTimeout(()=>{if(WP.cur&&WP.cur.input===input&&!(WP.pop&&WP.pop.contains(document.activeElement)))wpClose()},160));
+  return input}
+window.addEventListener('resize',()=>{if(WP.cur)wpPlace()});document.addEventListener('scroll',e=>{if(WP.cur&&!(WP.pop&&WP.pop.contains(e.target)))wpPlace()},true);
+document.addEventListener('mousedown',e=>{if(WP.cur&&e.target!==WP.cur.input&&!(WP.pop&&WP.pop.contains(e.target)))wpClose()},true);
+
+/* ---------- searchable <select> ---------- */
+function wpSelLabel(sel){const o=sel.options[sel.selectedIndex];return o&&o.value!==''?o.textContent:''}
+function wPick(sel){if(sel._wpi||sel.multiple)return;const inp=document.createElement('input');inp.type='text';inp.className='wp-sel';inp.style.cssText=sel.style.cssText;
+  const ph=sel.options[0]&&sel.options[0].value===''?sel.options[0].textContent:'';inp.placeholder=ph&&ph!=='—'?ph:L('اختر أو ابحث…','Pick or search…');
+  if(sel.id&&!sel.closest('label')){const lb=document.querySelector(`label[for="${CSS.escape(sel.id)}"]`);if(lb){inp.id='wpi_'+sel.id;lb.htmlFor=inp.id}}
+  inp.value=wpSelLabel(sel);inp.disabled=sel.disabled;inp.title=inp.value;sel._wpi=inp;sel.classList.add('wp-hidden');sel.tabIndex=-1;sel.after(inp);
+  const opts={source:q=>{if(!sel._wpl||sel._wpl.n!==sel.options.length||sel._wpl.first!==sel.options[1]?.value){sel._wpl=[...sel.options].map(o=>({code:'',label:o.textContent,value:o.value}));sel._wpl.n=sel.options.length;sel._wpl.first=sel.options[1]?.value}
+    const list=sel._wpl;list.forEach(x=>x.cur=x.value===sel.value&&x.value!=='');
+      const t=q===wpSelLabel(sel)?'':q;const empty=list.filter(x=>x.value==='');const rest=list.filter(x=>x.value!=='');return t?wpFind(rest,t,80):[...empty.map(x=>({...x,label:x.label==='—'?L('— بدون —','— none —'):x.label})),...rest]},
+    limit:120,pick:x=>{sel.value=x.value;inp.value=wpSelLabel(sel);inp.title=inp.value;sel.dispatchEvent(new Event('input',{bubbles:true}));sel.dispatchEvent(new Event('change',{bubbles:true}))},
+    onClose:()=>{if(document.activeElement!==inp||true){const v=wpSelLabel(sel);if(inp.value!==v)inp.value=v}}};
+  wCombo(inp,opts);inp.addEventListener('focus',()=>{setTimeout(()=>{try{inp.select()}catch(e){}},0)});
+  sel.addEventListener('change',()=>{inp.value=wpSelLabel(sel);inp.title=inp.value})}
+function wpSweep(){document.querySelectorAll('select:not([multiple]):not([data-nopick])').forEach(s=>{
+  if(s._wpi){if(!s._wpi.isConnected||s._wpi.previousElementSibling!==s){s._wpi=null;s.classList.remove('wp-hidden')}else{if(document.activeElement!==s._wpi){const v=wpSelLabel(s);if(s._wpi.value!==v)s._wpi.value=v}s._wpi.disabled=s.disabled;return}}
+  if(s.options.length>=8||s.dataset.sk==='product'||s.dataset.pick!=null||s.name==='clientId')wPick(s)})}
+{let t=null;new MutationObserver(()=>{if(t)return;t=setTimeout(()=>{t=null;try{wpSweep()}catch(e){console.error(e)}},60)}).observe(document.documentElement,{childList:true,subtree:true});setTimeout(wpSweep,500)}
+
+/* ---------- shared sources ---------- */
+let WP_CL=null,WP_CLN=0;
+function wpClients(){const list=vis(S.clients);if(WP_CL&&WP_CLN===list.length)return WP_CL;WP_CLN=list.length;
+  WP_CL=list.filter(c=>c.code||c.name).map(c=>({code:c.code||'',label:c.name||'',sub:[c.city||c.region&&(typeof REGIONS!=='undefined'&&REGIONS[c.region]?L(REGIONS[c.region][0],REGIONS[c.region][1]):c.region),c.phone,c.vat].filter(Boolean).join(' · '),keys:[c.phone,c.mobile,c.vat,c.cr,c.nameEn].filter(Boolean).join(' '),id:c.id}));return WP_CL}
+
+(()=>{const st=document.createElement('style');st.textContent=`.wp-hidden{display:none!important}
+ .wp-sel{background-image:linear-gradient(45deg,transparent 50%,#667 50%),linear-gradient(135deg,#667 50%,transparent 50%);background-position:12px 55%,7px 55%;background-size:5px 5px;background-repeat:no-repeat;padding-inline-start:26px!important;cursor:pointer;text-overflow:ellipsis}
+ .wp-sel:focus{cursor:text;background-image:none}
+ .wp-pop{position:fixed;z-index:9999;background:#fff;border:1px solid #D7DEE8;border-radius:12px;box-shadow:0 12px 32px rgba(5,29,72,.18);overflow:auto;font:14px Tajawal,system-ui,sans-serif;direction:rtl;padding:4px}
+ .wp-it{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;min-height:40px}.wp-it.on{background:#EAF2FF}.wp-it.cur{font-weight:700}.wp-it:hover{background:#F3F6FA}
+ .wp-l{flex:1;min-width:0}.wp-t{color:#0B1B33;line-height:1.5}.wp-s{font-size:12px;color:#5b6577;line-height:1.4}.wp-r{font-size:12px;color:#051D48;text-align:end;white-space:nowrap;font-variant-numeric:tabular-nums}
+ .wp-code{direction:ltr;unicode-bidi:isolate;font-weight:700;color:#051D48;background:#EDECED;border-radius:5px;padding:0 6px;margin-inline-end:6px;font-size:12px}
+ .wp-pop mark{background:#FFE7A3;color:inherit;border-radius:3px;padding:0 1px}.wp-msg{padding:10px;color:#667;font-size:13px}.wp-msg.bad{color:#B42318}
+ .wp-pop.sheet{left:0;right:0;bottom:0;top:auto;width:auto;max-height:78vh;border-radius:16px 16px 0 0;padding:0 0 env(safe-area-inset-bottom,0)}.wp-pop.sheet .wp-it{min-height:52px;font-size:15px}
+ .wp-sh{position:sticky;top:0;background:#fff;display:flex;gap:6px;padding:10px;border-bottom:1px solid #EDECED}.wp-shq{flex:1;font-size:16px;padding:10px 12px;border:1.5px solid #051D48;border-radius:10px}.wp-x{border:0;background:#EDECED;border-radius:10px;width:44px;font-size:16px}
+ .wp-list{padding:4px}`;document.head.appendChild(st)})();
+
+/* customers: CRM list first (instant), then SAP when the CRM has few matches */
+function wpCustSrc(sap){return q=>{const local=wpFind(wpClients(),q,40);if(!sap||wpNorm(q).length<2||local.length>=5||typeof sdRead!=='function')return local;
+  return {local,more:sdRead('bp_search',{q}).then(r=>(r.bps||[]).filter(b=>!local.some(x=>x.code===b.CardCode)).map(b=>({code:b.CardCode,label:b.CardName,sub:`${L('من ساب','From SAP')} · ${L('الرصيد','Balance')} ${num(b.CurrentAccountBalance||0)}`})))}}}
+function wCust(input,sap){input.setAttribute('placeholder',input.getAttribute('placeholder')||L('اكتب الكود أو الاسم أو الجوال','Code, name or phone'));
+  wCombo(input,{source:wpCustSrc(sap),limit:40,empty:L('ما فيه عميل مطابق','No matching customer'),
+    pick:x=>{input.value=x.code?`${x.code} — ${x.label}`:x.label;input.dataset.code=x.code||'';input.dispatchEvent(new Event('change',{bubbles:true}))}});
+  input.addEventListener('focus',()=>setTimeout(()=>{try{input.select()}catch(e){}},0))}
+{const sw=()=>document.querySelectorAll('input[data-wcust]').forEach(i=>{if(!i._wp)wCust(i,i.dataset.wcust==='sap')});
+ new MutationObserver(()=>{if(sw.t)return;sw.t=setTimeout(()=>{sw.t=null;sw()},60)}).observe(document.documentElement,{childList:true,subtree:true})}
+
+/* CRM quotations: lines are picked from the system's item list (code + name), unit and price fill in automatically */
+const wpItemOpts=cur=>{const items=(S.items||[]).filter(x=>x.active!==false).sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+  const o=items.map(x=>[x.code,`${x.code} — ${x.name}${x.size?' · '+x.size:''}`]);
+  PRODUCTS.forEach(p=>{if(p.id===cur||!items.length)o.push([p.id,L(p.ar,p.en)+L(' (صنف عام قديم)',' (old generic)')])});return o};
+{const _q=editQuote;editQuote=function(id,preset){_q(id,preset);if(!FORM)return;const bn=document.querySelector('#theform .banner.info .sp');if(bn&&(S.items||[]).length)bn.textContent=L('الأصناف من قائمة أصناف النظام: ابحث بالكود أو الاسم، والوحدة والسعر يتعبون تلقائياً من بيانات الصنف وتقدر تعدلهم.','Items come from the system item list; unit and price fill in and can be edited.');const f=FORM.fields.find(x=>x.k==='lines');if(!f)return;
+  const ps=f.sub.find(s=>s.k==='product');if(ps){ps.l=L('الصنف (ابحث بالكود أو الاسم)','Item (search code or name)');ps.opts=wpItemOpts((FORM.rows.lines||[]).map(r=>r.product).find(v=>PRODUCTS.some(p=>p.id===v)))}
+  const pr=f.sub.find(s=>s.k==='price');if(pr)pr.l=L('السعر (ر.س)','Price (SAR)');renderRows('lines')}}
+document.addEventListener('change',e=>{const t=e.target;if(!FORM||t.dataset.row!=='lines'||t.dataset.sk!=='product')return;const it=(S.items||[]).find(x=>x.code===t.value);if(!it)return;
+  const r=FORM.rows.lines[+t.dataset.i];if(!r)return;r.product=it.code;if(it.unit)r.unit=it.unit;if((r.price===''||r.price==null||+r.price===0)&&it.price!=null&&it.price!=='')r.price=it.price;if(!r.size&&it.size)r.size=it.size;
+  renderRows('lines');const q=document.querySelector(`[data-row="lines"][data-i="${t.dataset.i}"][data-sk="qty"]`);if(q){q.focus();q.select()}});
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
