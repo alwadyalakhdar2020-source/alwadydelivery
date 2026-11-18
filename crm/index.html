@@ -5115,8 +5115,9 @@ function sdPaint(){if(!SDE)return;const box=document.getElementById('sd_lines');
   sdCredit()}
 document.addEventListener('input',e=>{const el=e.target;if(!el.dataset||el.dataset.sdl==null||!SDE)return;const l=SDE.lines[+el.dataset.sdl];if(!l)return;l[el.dataset.f]=el.value;
   const tr=el.closest('tr');if(tr){const c=tr.querySelector('.sd-lt');if(c)c.textContent=sdM(sdLineNet(l))}
-  clearTimeout(SDE._t);SDE._t=setTimeout(()=>{const f=document.activeElement;const k=f&&f.dataset&&f.dataset.sdl!=null?[f.dataset.sdl,f.dataset.f]:null;sdPaint();
-    if(k){const n=document.querySelector(`[data-sdl="${k[0]}"][data-f="${k[1]}"]`);if(n){n.focus();try{n.setSelectionRange(n.value.length,n.value.length)}catch(x){}}}},600)},true);
+  clearTimeout(SDE._t);SDE._t=setTimeout(()=>{const f=document.activeElement;const k=f&&f.dataset&&f.dataset.sdl!=null?[f.dataset.sdl,f.dataset.f,f.selectionStart,f.selectionEnd]:null;
+    if(f&&f.dataset&&f.dataset.sdl==null&&f.closest&&f.closest('.sw-lines'))return; sdPaint();
+    if(k){const n=document.querySelector(`[data-sdl="${k[0]}"][data-f="${k[1]}"]`);if(n){n.focus();try{n.setSelectionRange(k[2],k[3])}catch(x){}}}},600)},true);
 
 
 /* ---------- item catalog from SAP (cached per price list) and the quick item entry ---------- */
@@ -5730,6 +5731,277 @@ const wpItemOpts=cur=>{const items=(S.items||[]).filter(x=>x.active!==false).sor
 document.addEventListener('change',e=>{const t=e.target;if(!FORM||t.dataset.row!=='lines'||t.dataset.sk!=='product')return;const it=(S.items||[]).find(x=>x.code===t.value);if(!it)return;
   const r=FORM.rows.lines[+t.dataset.i];if(!r)return;r.product=it.code;if(it.unit)r.unit=it.unit;if((r.price===''||r.price==null||+r.price===0)&&it.price!=null&&it.price!=='')r.price=it.price;if(!r.size&&it.size)r.size=it.size;
   renderRows('lines');const q=document.querySelector(`[data-row="lines"][data-i="${t.dataset.i}"][data-sk="qty"]`);if(q){q.focus();q.select()}});
+
+/* ===== SAP Business One–style document window (نفس شاشات ساب) for: Sales Quotation, Sales Order, Delivery,
+   A/R Invoice, A/R Credit Memo and Return Request. Same layout and data-entry flow as SAP B1:
+   header (Customer/Name/Contact/Ref | No./Status/Posting/Due/Document date), tabs (Contents/Logistics/Accounting),
+   item grid with an always-empty last row, Tab/Enter on a code opens "Choose From List", footer totals,
+   Add/Cancel and Copy From/Copy To, Find mode, and a status bar for messages. English, left-to-right. ===== */
+const SW_DUE={quotation:'Valid Until',order:'Delivery Date',delivery:'Delivery Date',invoice:'Due Date',creditnote:'Due Date',retreq:'Delivery Date'};
+const SW_AR={quotation:'عرض سعر',order:'أمر بيع',delivery:'تسليم',invoice:'فاتورة عميل',creditnote:'إشعار دائن',retreq:'طلب إرجاع'};
+const SW_LIST={quotation:'Sales Quotations',order:'Sales Orders',delivery:'Deliveries',invoice:'A/R Invoices',creditnote:'A/R Credit Memos',retreq:'Return Requests'};
+const swM=v=>sdNum(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const swQ=v=>sdNum(v).toLocaleString('en-US',{maximumFractionDigits:3});
+const swD=s=>{if(!s)return'';const t=String(s).slice(0,10);const [y,m,d]=t.split('-');return d?`${d}.${m}.${y}`:t};
+const swLbl=(en,ar)=>`<label class="sw-l" title="${esc(ar)}">${en}<i>${ar}</i></label>`;
+const swArrow=`<span class="sw-arr" title="رابط">➜</span>`;
+let SW={mode:'add',sel:-1};
+
+/* SAP-style dialogs on top of the window */
+function swDlg(html,onKey){let o=document.getElementById('sw_dlg');if(!o){o=document.createElement('div');o.id='sw_dlg';document.body.appendChild(o)}
+  o.innerHTML=`<div class="sw-dlg" dir="ltr">${html}</div>`;o.hidden=false;o._key=onKey;return o}
+function swDlgClose(){const o=document.getElementById('sw_dlg');if(o){o.hidden=true;o.innerHTML='';o._key=null}}
+document.addEventListener('keydown',e=>{const o=document.getElementById('sw_dlg');if(o&&!o.hidden&&o._key){o._key(e);e.stopPropagation()}},true);
+
+/* Choose From List (List of Items / Business Partners / documents) */
+function swCFL({title,titleAr,cols,rows,find='',multi=false,onChoose,remote}){
+  const st={q:find,hi:0,sel:new Set(),list:[],extra:[],busy:false};
+  const paint=()=>{const loc=st.q?wpFind(rows,st.q,300):rows.slice(0,300);st.list=[...loc,...st.extra.filter(x=>!loc.some(y=>y.code===x.code))];if(st.hi>=st.list.length)st.hi=Math.max(0,st.list.length-1);
+    const tb=document.getElementById('cfl_body');if(!tb)return;
+    tb.innerHTML=st.list.length?st.list.map((r,i)=>`<tr class="${i===st.hi?'hi':''} ${st.sel.has(i)?'sel':''}" data-i="${i}"><td class="n">${i+1}</td>${cols.map(c=>`<td class="${c.cls||''}">${c.f(r,st.q)}</td>`).join('')}</tr>`).join('')
+      :`<tr><td colspan="${cols.length+1}" class="sw-empty">${st.busy?'Searching SAP… جاري البحث في ساب':'No matching records found — ما فيه نتائج'}</td></tr>`;
+    const h=tb.querySelector('tr.hi');if(h)h.scrollIntoView({block:'nearest'});document.getElementById('cfl_n').textContent=`${st.list.length}${st.list.length>=300?'+':''} record(s)`};
+  const choose=()=>{const pick=multi&&st.sel.size?[...st.sel].sort((a,b)=>a-b).map(i=>st.list[i]):[st.list[st.hi]];if(!pick[0])return;swDlgClose();onChoose(pick.filter(Boolean))};
+  let rt=null;const runRemote=()=>{if(!remote)return;clearTimeout(rt);st.extra=[];if(wpNorm(st.q).length<2)return;rt=setTimeout(async()=>{st.busy=true;paint();try{st.extra=await remote(st.q)}catch(e){st.extra=[]}st.busy=false;paint()},350)};
+  swDlg(`<div class="sw-dt">${esc(title)} <i>${esc(titleAr||'')}</i><button class="sw-dx" data-swd="x">✕</button></div>
+   <div class="sw-dfind"><label>Find <i>بحث</i></label><input id="cfl_q" value="${esc(find)}" autocomplete="off"><span id="cfl_n" class="sw-mut"></span></div>
+   <div class="sw-dgrid"><table class="sw-grid"><thead><tr><th>#</th>${cols.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead><tbody id="cfl_body"></tbody></table></div>
+   <div class="sw-dbtn"><button class="sw-btn def" data-swd="ok">Choose</button><button class="sw-btn" data-swd="x">Cancel</button>${multi?`<span class="sw-mut">Ctrl+click to choose several — Ctrl للاختيار المتعدد</span>`:''}</div>`,
+   e=>{if(e.key==='Escape'){e.preventDefault();swDlgClose()}else if(e.key==='ArrowDown'){e.preventDefault();st.hi=Math.min(st.list.length-1,st.hi+1);paint()}else if(e.key==='ArrowUp'){e.preventDefault();st.hi=Math.max(0,st.hi-1);paint()}else if(e.key==='Enter'){e.preventDefault();choose()}});
+  const q=document.getElementById('cfl_q');q.addEventListener('input',()=>{st.q=q.value;st.hi=0;st.sel.clear();paint();runRemote()});setTimeout(()=>{q.focus();q.select()},20);
+  const o=document.getElementById('sw_dlg');o.onclick=e=>{const b=e.target.closest('[data-swd]');if(b){b.dataset.swd==='ok'?choose():swDlgClose();return}
+    const tr=e.target.closest('tr[data-i]');if(!tr)return;const i=+tr.dataset.i;if(multi&&(e.ctrlKey||e.metaKey)){st.sel.has(i)?st.sel.delete(i):st.sel.add(i)}else st.sel.clear();st.hi=i;paint()};
+  o.ondblclick=e=>{const tr=e.target.closest('tr[data-i]');if(tr){st.hi=+tr.dataset.i;st.sel.clear();choose()}};
+  paint();runRemote()}
+function swCflItems(find,after){if(!SDE||!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');document.getElementById('sd_client')?.focus();return}
+  const go=items=>swCFL({title:'List of Items',titleAr:'قائمة الأصناف',find,multi:true,rows:items,
+    cols:[{l:'Item No.',f:(r,q)=>`<b>${wpHi(r.code,q)}</b>`},{l:'Item Description',f:(r,q)=>wpHi(r.name,q)},{l:'In Stock',cls:'n',f:r=>swQ(r.stock)},{l:'Price',cls:'n',f:r=>r.price!=null?swM(r.price):'<span class="sw-red">—</span>'},{l:'UoM',f:r=>esc(r.unit||'')}],
+    onChoose:list=>{list.forEach(x=>SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh}));sdPaint();
+      const i=SDE.lines.length-list.length;const n=document.querySelector(`[data-sdl="${i}"][data-f="qty"]`);if(n){n.focus();n.select()}
+      if(list.some(x=>x.price==null))swMsg('Item has no price in the customer price list — enter the price. الصنف ما له سعر في قائمة العميل','warn');if(after)after()}});
+  const c=SDX.cat[String(SDE.cust.PriceListNum)];if(c&&c.items)return go(c.items);swMsg('Loading items from SAP… جاري تحميل الأصناف','info');
+  sdCatalog(SDE.cust.PriceListNum).then(items=>{swMsg('');go(items)}).catch(e=>swMsg(e.message,'err'))}
+function swCflBP(find){swCFL({title:'List of Business Partners',titleAr:'قائمة العملاء',find,rows:wpClients(),
+  cols:[{l:'BP Code',f:(r,q)=>`<b>${wpHi(r.code,q)}</b>`},{l:'BP Name',f:(r,q)=>`<span dir="auto">${wpHi(r.label,q)}</span>`},{l:'Details',f:(r,q)=>`<span dir="auto">${wpHi(r.sub||'',q)}</span>`}],
+  remote:async q=>{const r=await sdRead('bp_search',{q});return (r.bps||[]).map(b=>({code:b.CardCode,label:b.CardName,sub:`SAP · Balance ${swM(b.CurrentAccountBalance||0)}`}))},
+  onChoose:([x])=>{const ci=document.getElementById('sd_client');ci.value=x.code;document.getElementById('sw_name').value=x.label||'';sdPickClient(x.code)}})}
+function swMsg(t,kind){const s=document.getElementById('sd_err');if(!s)return;s.className='sw-status '+(t?(kind||''):'');s.innerHTML=t?`<span>${kind==='err'?'✖':kind==='ok'?'✔':kind==='warn'?'⚠':'ℹ'}</span> ${t}`:''}
+
+/* ---------- the window ---------- */
+function swWin(kind,mode,d,next){SW={mode,sel:-1,kind,doc:d||null,next:next||[]};const view=mode==='view',find=mode==='find';const ro=view||find?'readonly':'';
+  const c=d||{};const due=SW_DUE[kind];
+  const html=`<div class="sw" dir="ltr">
+   <div class="sw-tb"><button class="sw-tbb" data-act="swNew" data-k="${kind}" title="Add — جديد">＋ Add</button><button class="sw-tbb" data-act="swFind" data-k="${kind}" title="Find — بحث">🔍 Find</button>
+    ${view?`<button class="sw-tbb" data-act="sdPrint" title="Print — طباعة">🖨 Print</button>`:''}<span class="sw-tbt">${SD_T[kind][1]} <i>${SW_AR[kind]}</i></span>
+    <span class="sw-mode ${mode}">${view?'View — عرض':find?'Find — بحث':'Add — إضافة'}</span><span class="sw-test">SAP TEST</span></div>
+   <div class="sw-hd"><div class="sw-c">
+     <div class="sw-r">${swLbl('Customer','العميل')}<div class="sw-f">${swArrow}<input id="sd_client" class="sw-in ${find?'fm':''}" value="${esc(c.card||'')}" ${view?'readonly':''} autocomplete="off">${view?'':`<button class="sw-cfl" data-act="swBP" title="Choose From List">≡</button>`}</div></div>
+     <div class="sw-r">${swLbl('Name','الاسم')}<div class="sw-f"><input id="sw_name" class="sw-in ro" value="${esc(c.name||'')}" readonly dir="auto"></div></div>
+     <div class="sw-r">${swLbl('Contact Person','جهة الاتصال')}<div class="sw-f"><input id="sw_cp" class="sw-in ro" readonly></div></div>
+     <div class="sw-r">${swLbl('Customer Ref. No.','مرجع العميل')}<div class="sw-f"><input id="sd_ref" class="sw-in ${view?'ro':''}" value="${esc(c.ref||'')}" ${view?'readonly':''}></div></div>
+     <div class="sw-r">${swLbl('Local Currency','العملة')}<div class="sw-f"><input class="sw-in ro" value="SAR" readonly style="width:70px"></div></div>
+     <div id="sd_cust" class="sw-cr"></div></div>
+    <div class="sw-c sw-c2">
+     <div class="sw-r">${swLbl('No.','الرقم')}<div class="sw-f"><input class="sw-in ro" value="Primary" readonly style="width:80px"><input id="sw_no" class="sw-in ${find?'fm':'ro'}" value="${view?c.num:''}" ${find?'':'readonly'} placeholder="${view||find?'':'Assigned by SAP on Add'}"></div></div>
+     <div class="sw-r">${swLbl('Status','الحالة')}<div class="sw-f"><input class="sw-in ro" readonly value="${view?(c.cancelled?'Canceled':c.status==='bost_Close'?'Closed':'Open'):find?'':'Open'}"></div></div>
+     <div class="sw-r">${swLbl('Posting Date','تاريخ الترحيل')}<div class="sw-f"><input type="date" id="sd_date" class="sw-in ${view?'ro':find?'fm':''}" value="${view?String(c.date||'').slice(0,10):find?'':TODAY()}" ${view?'readonly':''}></div></div>
+     <div class="sw-r">${swLbl(due,kind==='quotation'?'صالح حتى':kind==='invoice'||kind==='creditnote'?'تاريخ الاستحقاق':'تاريخ التسليم')}<div class="sw-f"><input type="date" id="sd_due" class="sw-in ${view?'ro':''}" value="${view?String(c.due||'').slice(0,10):find?'':addDays(TODAY(),kind==='quotation'?14:kind==='invoice'?30:3)}" ${ro}></div></div>
+     <div class="sw-r">${swLbl('Document Date','تاريخ المستند')}<div class="sw-f"><input type="date" id="sw_docd" class="sw-in ro" value="${view?String(c.date||'').slice(0,10):find?'':TODAY()}" readonly></div></div></div></div>
+   <div class="sw-tabs"><button class="on" data-swtab="c">Contents <i>المحتويات</i></button><button data-swtab="l">Logistics <i>الشحن</i></button><button data-swtab="a">Accounting <i>المحاسبة</i></button><button disabled title="Attachments">Attachments</button></div>
+   <div class="sw-panel" data-swp="c">
+     <div class="sw-gtop"><span>Item/Service Type</span><input class="sw-in ro" value="Item" readonly style="width:80px"><span>Summary Type</span><input class="sw-in ro" value="No Summary" readonly style="width:110px"><span class="grow"></span>
+      ${view||find?'':`<button class="sw-btn sm" data-act="swDelRow" title="Delete Row — حذف السطر">Delete Row</button>`}</div>
+     <div class="sw-gwrap" id="sd_lines"></div></div>
+   <div class="sw-panel" data-swp="l" hidden><div class="sw-hd"><div class="sw-c"><div class="sw-r">${swLbl('Ship To','عنوان الشحن')}<div class="sw-f"><textarea id="sw_ship" class="sw-in ro" readonly rows="3" dir="auto"></textarea></div></div>
+      ${kind==='delivery'&&!view?`<div class="sw-r">${swLbl('Fleet Trip','رحلة الحركة')}<div class="sw-f" id="sd_fleetbox"><span class="sw-mut">Copy from a Sales Order to link the vehicle — انسخ من أمر بيع</span></div></div>`:''}</div></div></div>
+   <div class="sw-panel" data-swp="a" hidden><div class="sw-hd"><div class="sw-c"><div class="sw-r">${swLbl('Price List','قائمة الأسعار')}<div class="sw-f"><input id="sw_pl" class="sw-in ro" readonly></div></div>
+      <div class="sw-r">${swLbl('Payment Terms','شروط الدفع')}<div class="sw-f"><input id="sw_pt" class="sw-in ro" readonly></div></div><div class="sw-r">${swLbl('Federal Tax ID','الرقم الضريبي')}<div class="sw-f"><input id="sw_vat" class="sw-in ro" readonly></div></div></div>
+      <div class="sw-c"><div id="sw_credit"></div></div></div></div>
+   <div class="sw-ft"><div class="sw-c">
+     <div class="sw-r">${swLbl('Sales Employee','مندوب المبيعات')}<div class="sw-f"><input class="sw-in ro" readonly value="${esc(view?'':me()?.name||'')}"></div></div>
+     <div class="sw-r">${swLbl('Owner','المالك')}<div class="sw-f"><input class="sw-in ro" readonly value="${esc(view?'':me()?.name||'')}"></div></div>
+     <div class="sw-r top">${swLbl('Remarks','ملاحظات')}<div class="sw-f"><textarea id="sd_note" class="sw-in ${view?'ro':''}" rows="3" ${ro} dir="auto">${esc(view?c.comments||'':'')}</textarea></div></div></div>
+    <div class="sw-c sw-c2" id="sd_tot"></div></div>
+   <div class="sw-bot">${find?`<button class="sw-btn def" data-act="swFindGo" data-k="${kind}">Find</button>`:view?`<button class="sw-btn def" data-act="closeModal">OK</button>`:`<button class="sw-btn def" data-act="sdSubmit">Add</button>`}<button class="sw-btn" data-act="closeModal">Cancel</button><span class="grow"></span>
+    ${!view&&!find&&SD_BASES[kind]?`<div class="sw-dd"><button class="sw-btn" data-act="swMenu" data-m="from">Copy From ▾</button><div class="sw-menu" id="sw_m_from" hidden>${SD_BASES[kind].map(b=>`<button data-act="swCopyFrom" data-t="${b}">${SD_T[b][1]} <i>${SD_T[b][0]}</i></button>`).join('')}</div></div>`:''}
+    ${view&&SW.next?.length?`<div class="sw-dd"><button class="sw-btn" data-act="swMenu" data-m="to">Copy To ▾</button><div class="sw-menu up" id="sw_m_to" hidden>${SW.next.map(n=>`<button data-act="sdCopyTo" data-n="${n}">${SD_T[n][1]} <i>${SD_T[n][0]}</i></button>`).join('')}</div></div>`:''}</div>
+   <div id="sd_err" class="sw-status"></div></div>`;
+  openModal(`${SD_T[kind][1]} — ${SW_AR[kind]}`,html,{sap:true})}
+
+const _sdFormOld=sdForm;
+sdForm=function(kind,pre){if(kind==='payment')return _sdFormOld(kind,pre);
+  SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]}};swWin(kind,'add');sdPaint();
+  const ci=document.getElementById('sd_client');swBindCust(ci);setTimeout(()=>ci.focus(),60);if(pre)setTimeout(()=>sdPrefill(pre),0)};
+function swBindCust(ci){ci.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter')return;const v=ci.value.trim();if(e.shiftKey)return;
+  if(!v){if(e.key==='Enter'){e.preventDefault();swCflBP('')}return}
+  if(SDE&&SDE.cust&&SDE.cust.CardCode===v)return;
+  const ex=wpClients().find(x=>x.code&&x.code.toLowerCase()===v.toLowerCase());e.preventDefault();
+  if(ex){ci.value=ex.code;document.getElementById('sw_name').value=ex.label;sdPickClient(ex.code)}else swCflBP(v)});
+  ci.addEventListener('change',()=>{const v=ci.value.trim();if(!v){SDE.cust=null;sdPickClient('')}})}
+
+/* credit / customer details in SAP fields */
+const _sdCreditOld=sdCredit;
+sdCredit=function(){if(!document.querySelector('.sw')||SW.mode!=='add')return _sdCreditOld();const box=document.getElementById('sd_cust');const c=SDE&&SDE.cust;SDE&&(SDE.over=false);if(!box)return;
+  if(!c){box.innerHTML='';['sw_name','sw_ship','sw_pl','sw_pt','sw_vat','sw_cp'].forEach(id=>{const e=document.getElementById(id);if(e&&id!=='sw_name')e.value=''});return}
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v??''};const ci=document.getElementById('sd_client');if(ci&&document.activeElement!==ci)ci.value=c.CardCode;
+  set('sw_name',c.CardName);set('sw_cp',[c.Phone1,c.Cellular].filter(Boolean).join(' / '));set('sw_ship',c.Address||'');set('sw_pl',c.PriceListName||c.PriceListNum);set('sw_pt',c.PayTermsGrpCode!=null?String(c.PayTermsGrpCode):'');set('sw_vat',c.FederalTaxID||'');
+  const credit=SD_CREDIT.has(SDE.kind);const hd=sdNum(SDE.disc);
+  const t=credit?SDE.lines.filter(l=>+l.base_type!==15).reduce((s,l)=>s+sdLineNet(l)*(1-hd/100)*(/0%|EX|ZR/i.test(l.vat_group||'')?1:1.15),0):0;
+  const after=c.Exposure+t;const over=credit&&t>0&&after>sdNum(c.CreditLimit)+0.005;const frozen=c.Frozen==='tYES'||c.Valid==='tNO';
+  const f=(l,ar,v,cls)=>`<div class="sw-crf ${cls||''}" title="${ar}"><span>${l}</span><b>${swM(v)}</b></div>`;
+  const strip=`${f('Credit Limit','الحد الائتماني',c.CreditLimit||0)}${f('Balance','الرصيد',c.CurrentAccountBalance||0)}${f('Deliveries','تسليمات مفتوحة',c.OpenDeliveryNotesBalance||0)}${f('Available','المتاح',c.Available,c.Available<0?'neg':'')}${credit&&t>0?f('After Document','بعد المستند',sdNum(c.CreditLimit)-after,sdNum(c.CreditLimit)-after<0?'neg':''):''}`;
+  box.innerHTML=strip;const ac=document.getElementById('sw_credit');if(ac)ac.innerHTML=`<div class="sw-crt">Credit — الائتمان</div>${strip}<div class="sw-mut" style="margin-top:6px">${credit?'Checked on Add against SAP live balances — يُفحص عند الإضافة من أرصدة ساب':'Quotations and orders are not credit-checked — عروض الأسعار وأوامر البيع بدون فحص ائتمان'}</div>`;
+  if(frozen&&credit)swMsg('Business partner is inactive (frozen) in SAP — العميل موقوف في ساب','err');
+  else if(over)swMsg(`Credit limit exceeded by ${swM(after-sdNum(c.CreditLimit))} SAR — the document cannot be added. يتجاوز الحد الائتماني`,'err');
+  else{const s=document.getElementById('sd_err');if(s&&/Credit limit|frozen/.test(s.textContent))swMsg('')}
+  SDE.over=over||(frozen&&credit)};
+
+/* item grid */
+const _sdPaintOld=sdPaint;
+sdPaint=function(){if(!SDE)return;const box=document.getElementById('sd_lines');if(!box||!document.querySelector('.sw')||SW.mode!=='add')return _sdPaintOld();
+  const free=SDE.kind!=='delivery'&&SDE.kind!=='retreq';const qv=document.getElementById('sd_q')?.value||'';
+  box.innerHTML=`<table class="sw-grid sw-lines"><thead><tr><th>#</th><th>Item No.</th><th>Item Description</th><th>Quantity</th><th>UoM</th><th>Unit Price</th><th>Discount %</th><th>Tax Code</th><th>Total (LC)</th><th>Whse</th><th>Base Document</th></tr></thead><tbody>
+   ${SDE.lines.map((l,i)=>{const b=!!l.base_entry;return `<tr class="${SW.sel===i?'sel':''}" data-swrow="${i}"><td class="n rn" data-act="swSel" data-i="${i}">${i+1}</td>
+     <td class="ro">${swArrow}<b>${esc(l.item_code||'')}</b></td><td class="ro" dir="auto">${esc(l.name||'')}</td>
+     <td><input data-sdl="${i}" data-f="qty" class="sw-ci n" inputmode="decimal" value="${esc(l.qty)}"></td><td class="ro">${esc(l.unit||'')}</td>
+     <td${b?' class="ro n"':''}>${b?swM(l.price):`<input data-sdl="${i}" data-f="price" class="sw-ci n" inputmode="decimal" value="${esc(l.price??'')}">`}</td>
+     <td${b?' class="ro n"':''}>${b?swQ(l.disc||0):`<input data-sdl="${i}" data-f="disc" class="sw-ci n" inputmode="decimal" value="${esc(l.disc||0)}">`}</td>
+     <td class="ro">${esc(l.vat_group||'')}</td><td class="ro n sd-lt">${swM(sdLineNet(l))}</td><td class="ro">${esc(l.wh||'')}</td>
+     <td class="ro">${b?`${swArrow}${SD_T[SD_TYPE_OF[l.base_type]]?.[1]||''} ${l.base_num||''}${l.open!=null?` <span class="sw-mut">(open ${swQ(l.open)})</span>`:''}`:''}</td></tr>`}).join('')}
+   ${free?`<tr class="sw-new"><td class="n rn">${SDE.lines.length+1}</td><td><div class="sw-cell"><input id="sd_q" class="sw-ci" value="${esc(qv)}" placeholder="Item No." autocomplete="off"><button class="sw-cfl" data-act="swItems" title="Choose From List — قائمة الأصناف">≡</button></div></td>
+     <td><input id="sw_desc" class="sw-ci" placeholder="Item Description — اكتب الوصف" autocomplete="off" dir="auto"></td><td colspan="8" class="sw-hint">Type an item code or description, then Tab or Enter — اكتب الكود أو الوصف ثم Tab أو Enter</td></tr>`
+   :!SDE.lines.length?`<tr><td colspan="11" class="sw-empty">Use “Copy From” to draw lines from a base document — استخدم «Copy From» لنسخ الأسطر</td></tr>`:''}</tbody></table>`;
+  const qi=document.getElementById('sd_q'),di=document.getElementById('sw_desc');
+  if(qi)qi.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=qi.value.trim();if(!v){if(e.key==='Enter'){e.preventDefault();swCflItems('')}return}e.preventDefault();swItemCode(v)});
+  if(di)di.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=di.value.trim();if(!v)return;e.preventDefault();di.value='';swCflItems(v)});
+  const t=sdTotals();document.getElementById('sd_tot').innerHTML=`<div class="sw-r">${swLbl('Total Before Discount','الإجمالي قبل الخصم')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.net0)} SAR"></div></div>
+   <div class="sw-r">${swLbl('Discount','الخصم')}<div class="sw-f"><input id="sd_disc" class="sw-in n" style="width:64px" inputmode="decimal" value="${esc(SDE.disc||0)}"><span class="sw-pct">%</span><input class="sw-in ro n" readonly value="${swM(t.disc)} SAR"></div></div>
+   <div class="sw-r">${swLbl('Freight','الشحن')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(0)} SAR"></div></div>
+   <div class="sw-r">${swLbl('Tax','الضريبة')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.vat)} SAR" title="Estimate — SAP computes the final tax"></div></div>
+   <div class="sw-r tot">${swLbl('Total Payment Due','الإجمالي المستحق')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.total)} SAR"></div></div>`;
+  const di2=document.getElementById('sd_disc');di2.addEventListener('change',()=>{SDE.disc=di2.value;sdPaint()});
+  sdCredit()};
+function swItemCode(v){const go=items=>{const ex=items.find(x=>String(x.code).toLowerCase()===v.toLowerCase());if(ex){SDE.lines.push({item_code:ex.code,name:ex.name,unit:ex.unit,qty:1,price:ex.price,disc:0,vat_group:ex.vat||'',wh:ex.wh});
+      document.getElementById('sd_q').value='';sdPaint();const n=document.querySelector(`[data-sdl="${SDE.lines.length-1}"][data-f="qty"]`);if(n){n.focus();n.select()}if(ex.price==null)swMsg('Item has no price in the customer price list — enter the price','warn')}
+    else{document.getElementById('sd_q').value='';swCflItems(v)}};
+  if(!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');return}const c=SDX.cat[String(SDE.cust.PriceListNum)];if(c&&c.items)return go(c.items);
+  swMsg('Loading items from SAP… جاري تحميل الأصناف','info');sdCatalog(SDE.cust.PriceListNum).then(it=>{swMsg('');go(it)}).catch(e=>swMsg(e.message,'err'))}
+
+/* Copy From: choose the base document from a SAP-style list */
+async function swCopyFrom(type){if(!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');return}swMsg(`Loading open ${SW_LIST[type]}… جاري التحميل`,'info');
+  try{const r=await sdRead('open_docs',{type,card:SDE.cust.CardCode});const docs=(r.docs||[]).map(d=>({...d,type,code:String(d.num),label:d.ref||'',sub:d.comments||''}));swMsg('');
+    if(!docs.length){swMsg(`No open ${SW_LIST[type]} for this customer — ما فيه مستندات مفتوحة`,'warn');return}
+    swCFL({title:`List of ${SW_LIST[type]}`,titleAr:SD_T[type][0]+' — مفتوحة',rows:docs,multi:true,
+      cols:[{l:'Doc. No.',f:(r,q)=>`<b>${wpHi(r.code,q)}</b>`},{l:'Posting Date',f:r=>swD(r.date)},{l:'Due Date',f:r=>swD(r.due)},{l:'Customer Ref. No.',f:(r,q)=>wpHi(r.ref||'',q)},{l:'Open Lines',cls:'n',f:r=>r.lines.length},{l:'Doc. Total',cls:'n',f:r=>swM(r.total)},{l:'Remarks',f:r=>`<span dir="auto">${esc(String(r.comments||'').slice(0,60))}</span>`}],
+      onChoose:async list=>{for(const d of list)await sdAddBase(d);swMsg(`${list.length} document(s) copied — تم النسخ`,'ok');const n=document.querySelector('[data-sdl="0"][data-f="qty"]');if(n)n.focus()}})}
+  catch(e){swMsg(e.message,'err')}}
+
+/* view an existing SAP document in the same window */
+const _sdOpenSapOld=sdOpenSap;
+sdOpenSap=async function(t,entry){if(t==='payment'||!SW_AR[t])return _sdOpenSapOld(t,entry);
+  try{swMsgLoading();const r=await sdRead('doc',{type:t,entry});const d=r.doc;SDX.cur={...d,type:t};const can=sdLvl()>=3;
+    if(SD_VAT[d.card]==null)sdRead('customer',{code:d.card}).then(x=>{SD_VAT[d.card]=x.customer.FederalTaxID||'';const v=document.getElementById('sw_vat');if(v)v.value=SD_VAT[d.card];const s=document.getElementById('sw_ship');if(s)s.value=x.customer.Address||'';const pl=document.getElementById('sw_pl');if(pl)pl.value=x.customer.PriceListName||'';const cp=document.getElementById('sw_cp');if(cp)cp.value=[x.customer.Phone1,x.customer.Cellular].filter(Boolean).join(' / ')}).catch(()=>{});
+    const next=(SD_NEXT[t]||[]).filter(n=>can&&!d.cancelled&&(d.status==='bost_Open'||(t==='invoice'&&(n!=='payment'||sdNum(d.total)-sdNum(d.paid)>0.005))));
+    swWin(t,'view',d,next);
+    document.getElementById('sd_lines').innerHTML=`<table class="sw-grid sw-lines"><thead><tr><th>#</th><th>Item No.</th><th>Item Description</th><th>Quantity</th><th>Open Qty</th><th>UoM</th><th>Unit Price</th><th>Discount %</th><th>Tax Code</th><th>Total (LC)</th><th>Whse</th><th>Row Status</th></tr></thead><tbody>
+      ${d.lines.map((l,i)=>`<tr><td class="n rn">${i+1}</td><td class="ro">${swArrow}<b>${esc(l.code)}</b></td><td class="ro" dir="auto">${esc(l.name||'')}</td><td class="ro n">${swQ(l.qty)}</td><td class="ro n">${swQ(l.open??0)}</td><td class="ro">${esc(l.unit||'')}</td>
+        <td class="ro n">${swM(l.price)}</td><td class="ro n">${swQ(l.disc||0)}</td><td class="ro">${esc(l.vat||'')}</td><td class="ro n">${swM(l.total)}</td><td class="ro">${esc(l.wh||'')}</td><td class="ro">${l.status==='bost_Close'?'Closed':'Open'}</td></tr>`).join('')}</tbody></table>`;
+    const before=d.lines.reduce((s,l)=>s+sdNum(l.total),0);const net=sdNum(d.total)-sdNum(d.vat);
+    document.getElementById('sd_tot').innerHTML=`<div class="sw-r">${swLbl('Total Before Discount','الإجمالي قبل الخصم')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(before)} SAR"></div></div>
+     <div class="sw-r">${swLbl('Discount','الخصم')}<div class="sw-f"><input class="sw-in ro n" style="width:64px" readonly value="${swQ(d.disc||0)}"><span class="sw-pct">%</span><input class="sw-in ro n" readonly value="${swM(before-net>0?before-net:0)} SAR"></div></div>
+     <div class="sw-r">${swLbl('Tax','الضريبة')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(d.vat)} SAR"></div></div>
+     <div class="sw-r tot">${swLbl('Total Payment Due','الإجمالي المستحق')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(d.total)} SAR"></div></div>
+     ${t==='invoice'?`<div class="sw-r">${swLbl('Paid to Date','المسدد')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(d.paid||0)} SAR"></div></div>`:''}`;
+    swMsg(d.cancelled?'This document is canceled — المستند ملغى':'','warn')}
+  catch(e){toast(e.message)}};
+function swMsgLoading(){toast('Loading from SAP… جاري التحميل من ساب')}
+
+/* Find mode: search SAP by number / customer / date in the same window */
+async function swFindGo(kind){const num=(document.getElementById('sw_no')||{}).value||'';const card=((document.getElementById('sd_client')||{}).value||'').split(' — ')[0].trim();const date=(document.getElementById('sd_date')||{}).value||'';
+  if(!num&&!card&&!date){swMsg('Enter a document number, customer or posting date — اكتب رقم المستند أو العميل أو التاريخ','err');return}swMsg('Searching SAP… جاري البحث','info');
+  try{const r=await sdRead('docs',{type:kind,num:num||undefined,card:card||undefined,from:date||undefined,to:date||undefined,top:100});const docs=r.docs||[];
+    if(!docs.length){swMsg('No matching records found — ما فيه نتائج','err');return}if(docs.length===1)return sdOpenSap(kind,docs[0].entry);swMsg('');
+    swCFL({title:`List of ${SW_LIST[kind]}`,titleAr:SW_AR[kind],rows:docs.map(d=>({...d,code:String(d.num),label:d.name,sub:d.card})),
+      cols:[{l:'Doc. No.',f:(r,q)=>`<b>${wpHi(r.code,q)}</b>`},{l:'Customer',f:(r,q)=>`${wpHi(r.card,q)} <span dir="auto">${wpHi(r.name,q)}</span>`},{l:'Posting Date',f:r=>swD(r.date)},{l:'Doc. Total',cls:'n',f:r=>swM(r.total)},{l:'Status',f:r=>r.cancelled?'Canceled':r.status==='bost_Close'?'Closed':'Open'}],
+      onChoose:([x])=>sdOpenSap(kind,x.entry)})}catch(e){swMsg(e.message,'err')}}
+
+Object.assign(ACT,{swBP:()=>swCflBP(document.getElementById('sd_client').value.trim()),swItems:()=>swCflItems(document.getElementById('sd_q')?.value.trim()||''),
+  swNew:d=>{closeModal();sdForm(d.k)},swFind:d=>{closeModal();SDE={kind:d.k,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]}};swWin(d.k,'find');document.getElementById('sd_lines').innerHTML=`<div class="sw-empty" style="padding:30px">Find mode: enter a document number, customer code or posting date, then press Find or Enter — وضع البحث</div>`;document.getElementById('sd_tot').innerHTML='';
+    const no=document.getElementById('sw_no');setTimeout(()=>no.focus(),50);['sw_no','sd_client','sd_date'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();swFindGo(d.k)}}))},
+  swFindGo:d=>swFindGo(d.k),
+  swSel:d=>{SW.sel=SW.sel===+d.i?-1:+d.i;document.querySelectorAll('.sw-lines tr[data-swrow]').forEach(tr=>tr.classList.toggle('sel',+tr.dataset.swrow===SW.sel))},
+  swDelRow:()=>{if(SW.sel<0||!SDE.lines[SW.sel]){swMsg('Select a row first (click its number) — اختر السطر بالضغط على رقمه','warn');return}SDE.lines.splice(SW.sel,1);SW.sel=-1;sdPaint();swMsg('')},
+  swMenu:d=>{const m=document.getElementById('sw_m_'+d.m);document.querySelectorAll('.sw-menu').forEach(x=>{if(x!==m)x.hidden=true});if(m)m.hidden=!m.hidden},
+  swCopyFrom:d=>{document.querySelectorAll('.sw-menu').forEach(x=>x.hidden=true);swCopyFrom(d.t)}});
+/* right-click a row → Delete Row (as in SAP) */
+document.addEventListener('contextmenu',e=>{const tr=e.target.closest&&e.target.closest('.sw-lines tr[data-swrow]');if(!tr||SW.mode!=='add')return;e.preventDefault();
+  SW.sel=+tr.dataset.swrow;document.querySelectorAll('.sw-lines tr[data-swrow]').forEach(x=>x.classList.toggle('sel',+x.dataset.swrow===SW.sel));
+  let m=document.getElementById('sw_ctx');if(!m){m=document.createElement('div');m.id='sw_ctx';m.className='sw-menu ctx';document.body.appendChild(m)}
+  m.innerHTML=`<button data-act="swDelRow">Delete Row — حذف السطر</button>`;m.style.left=e.clientX+'px';m.style.top=e.clientY+'px';m.hidden=false});
+document.addEventListener('click',e=>{const m=document.getElementById('sw_ctx');if(m&&!m.hidden)setTimeout(()=>m.hidden=true,0);if(!e.target.closest('.sw-dd'))document.querySelectorAll('.sw-menu:not(.ctx)').forEach(x=>x.hidden=true);
+  const tb=e.target.closest&&e.target.closest('[data-swtab]');if(tb){document.querySelectorAll('[data-swtab]').forEach(b=>b.classList.toggle('on',b===tb));document.querySelectorAll('[data-swp]').forEach(p=>p.hidden=p.dataset.swp!==tb.dataset.swtab)}});
+/* the CRM modal becomes a centered SAP window */
+{const _om=openModal;openModal=function(t,h,o){document.getElementById('modal').classList.toggle('sapmode',!!(o&&o.sap));return _om(t,h,o)}}
+
+(()=>{const st=document.createElement('style');st.textContent=`
+#modal.sapmode{justify-content:center;align-items:center;background:rgba(20,28,40,.45)}
+#modal.sapmode .sheet{width:min(1280px,99vw);height:min(96vh,940px);border-radius:4px;background:#E9EBEE;direction:ltr;border:1px solid #8A93A0;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+#modal.sapmode header{background:linear-gradient(#FDFDFD,#DCE1E8);border-bottom:1px solid #A9B1BC;padding:6px 10px;direction:ltr}#modal.sapmode header h3{font:600 13px "Segoe UI",Tahoma,Arial,sans-serif;color:#1F2D3D}
+#modal.sapmode .body{padding:0;gap:0}
+.sw{font:12px "Segoe UI",Tahoma,Arial,sans-serif;color:#1F1F1F;display:flex;flex-direction:column;min-height:100%;background:#E9EBEE}
+.sw i{font-style:normal;color:#6B7480;font-size:10.5px;font-family:Tajawal,Tahoma,sans-serif;margin-inline-start:4px}
+.sw-tb{display:flex;align-items:center;gap:4px;padding:4px 8px;background:#F5F6F8;border-bottom:1px solid #C5CBD3}
+.sw-tbb{border:1px solid transparent;background:none;padding:3px 8px;border-radius:3px;font:12px "Segoe UI",Arial;cursor:pointer;color:#1F2D3D}.sw-tbb:hover{border-color:#B6BEC9;background:#fff}
+.sw-tbt{margin-inline-start:12px;font-weight:700;font-size:13px;color:#1F2D3D}.sw-mode{margin-inline-start:auto;font-size:11px;padding:2px 8px;border-radius:2px;background:#DDE7F3;color:#24476E}.sw-mode.find{background:#FFF4C2;color:#7A5A00}.sw-mode.view{background:#E4EFE4;color:#2C5E2C}
+.sw-test{font-size:10px;font-weight:700;color:#fff;background:#C0392B;padding:2px 6px;border-radius:2px}
+.sw-hd,.sw-ft{display:grid;grid-template-columns:1fr 1fr;gap:6px 40px;padding:10px 14px}
+.sw-c2{justify-self:end;width:min(100%,420px)}
+.sw-r{display:grid;grid-template-columns:150px 1fr;align-items:center;margin:2px 0;min-height:24px}.sw-r.top{align-items:start}
+.sw-l{color:#333D4A;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw-f{display:flex;align-items:center;gap:4px;min-width:0}
+.sw-in{height:22px;padding:0 5px;border:1px solid #A5ADB8;border-radius:2px;background:#fff;font:12px "Segoe UI",Tahoma,Arial,sans-serif;color:#111;width:100%;min-width:0;box-sizing:border-box}
+textarea.sw-in{height:auto;padding:3px 5px;resize:vertical}.sw-in.n{text-align:right;font-variant-numeric:tabular-nums}
+.sw-in.ro,.sw-in[readonly]{background:#F3F4F6;color:#2B2B2B}.sw-in.fm{background:#FFF7C9}.sw-in:focus,.sw-ci:focus{outline:none;border-color:#E8A317;box-shadow:0 0 0 1px #E8A317 inset}
+.sw-arr{color:#E8A317;font-weight:900;font-size:12px;margin-inline-end:3px}
+.sw-cfl{height:22px;min-width:22px;border:1px solid #A5ADB8;background:linear-gradient(#FFF,#E3E6EA);border-radius:2px;cursor:pointer;font-size:12px;padding:0 4px}
+.sw-cr{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.sw-crf{display:flex;flex-direction:column;border:1px solid #C5CBD3;background:#F7F8FA;padding:2px 8px;border-radius:2px;min-width:92px}.sw-crf span{font-size:10.5px;color:#5A6472}.sw-crf b{font-size:12px;text-align:right;font-variant-numeric:tabular-nums}.sw-crf.neg b{color:#C0392B}
+.sw-crt{font-weight:700;margin-bottom:4px}
+.sw-tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid #A9B1BC}.sw-tabs button{border:1px solid #A9B1BC;border-bottom:0;background:linear-gradient(#F4F5F7,#DCE0E5);padding:4px 14px;font:12px "Segoe UI",Arial;border-radius:3px 3px 0 0;cursor:pointer;margin-bottom:-1px}.sw-tabs button.on{background:#fff;font-weight:700}.sw-tabs button:disabled{color:#999;cursor:default}
+.sw-panel{background:#fff;border:1px solid #A9B1BC;border-top:0;margin:0 14px;padding:6px;flex:1;min-height:200px;display:flex;flex-direction:column}
+.sw-gtop{display:flex;align-items:center;gap:6px;margin-bottom:6px}.sw-gtop span{color:#333D4A}.sw-gtop .grow{flex:1}
+.sw-gwrap{overflow:auto;flex:1;border:1px solid #B9C0CA}
+.sw-grid{border-collapse:collapse;width:100%;font:12px "Segoe UI",Tahoma,Arial,sans-serif}
+.sw-grid th{position:sticky;top:0;background:linear-gradient(#FBFBFC,#E2E5EA);border:1px solid #BFC5CE;padding:3px 6px;font-weight:600;text-align:left;white-space:nowrap;color:#1F2D3D;z-index:1}
+.sw-grid td{border:1px solid #D5DAE0;padding:0 4px;height:22px;white-space:nowrap}.sw-grid td.ro{background:#F6F7F9}.sw-grid td.n{text-align:right;font-variant-numeric:tabular-nums}
+.sw-grid td.rn{background:linear-gradient(90deg,#F3F4F6,#E7EAEE);color:#555;width:30px;text-align:center;cursor:pointer}.sw-grid tr.sel td{background:#FFF0B3!important}
+.sw-ci{border:0;background:transparent;height:21px;width:100%;min-width:70px;font:12px "Segoe UI",Tahoma,Arial,sans-serif;padding:0 3px}.sw-ci.n{text-align:right}
+.sw-cell{display:flex;align-items:center}.sw-new td{background:#FFFDF2}.sw-hint{color:#8A93A0;font-size:11px}.sw-empty{color:#6B7480;text-align:center;padding:14px}
+.sw-ft{border-top:1px solid #C5CBD3;margin-top:8px}.sw-r.tot .sw-in{font-weight:700;background:#EEF3FA}.sw-pct{color:#333}
+.sw-bot{display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid #C5CBD3;background:#F1F3F5}.sw-bot .grow{flex:1}
+.sw-btn{height:24px;min-width:78px;padding:0 12px;border:1px solid #8D96A3;border-radius:3px;background:linear-gradient(#FFFFFF,#DDE1E6);font:12px "Segoe UI",Tahoma,Arial,sans-serif;cursor:pointer;color:#1F1F1F}
+.sw-btn:hover{border-color:#E8A317}.sw-btn.def{background:linear-gradient(#FFE79A,#F0B91E);border-color:#B98500;font-weight:700}.sw-btn.sm{height:20px;min-width:0;font-size:11px}
+.sw-dd{position:relative}.sw-menu{position:absolute;bottom:28px;right:0;background:#fff;border:1px solid #8D96A3;box-shadow:0 6px 18px rgba(0,0,0,.2);min-width:200px;z-index:5;display:flex;flex-direction:column}
+.sw-menu button{border:0;background:none;text-align:left;padding:6px 10px;font:12px "Segoe UI",Arial;cursor:pointer}.sw-menu button:hover{background:#FFF0B3}
+.sw-menu.ctx{position:fixed;bottom:auto;right:auto;z-index:10001}
+.sw-status{min-height:22px;padding:3px 14px;background:#fff;border-top:1px solid #C5CBD3;font-size:12px;color:#1F2D3D}.sw-status.err{color:#B3261E;background:#FDECEA}.sw-status.ok{color:#1E7B34;background:#EAF6EC}.sw-status.warn{color:#7A5A00;background:#FFF7DB}.sw-status.info{color:#24476E;background:#EEF4FB}
+.sw-mut{color:#7A838F;font-size:11px}.sw-red{color:#C0392B}
+#sw_dlg{position:fixed;inset:0;z-index:10000;background:rgba(10,16,24,.35);display:flex;align-items:center;justify-content:center}#sw_dlg[hidden]{display:none}
+.sw-dlg{width:min(860px,96vw);max-height:86vh;display:flex;flex-direction:column;background:#E9EBEE;border:1px solid #6F7986;box-shadow:0 18px 50px rgba(0,0,0,.4);font:12px "Segoe UI",Tahoma,Arial,sans-serif}
+.sw-dlg i{font-style:normal;color:#6B7480;font-family:Tajawal,Tahoma,sans-serif;margin-inline-start:6px}
+.sw-dt{background:linear-gradient(#FDFDFD,#DCE1E8);border-bottom:1px solid #A9B1BC;padding:6px 10px;font-weight:600;display:flex;align-items:center}.sw-dx{margin-inline-start:auto;border:0;background:none;cursor:pointer;font-size:14px}
+.sw-dfind{display:flex;align-items:center;gap:8px;padding:8px 10px}.sw-dfind input{height:22px;border:1px solid #E8A317;padding:0 6px;width:280px;font:12px "Segoe UI",Arial}.sw-dfind label{font-weight:600}
+.sw-dgrid{overflow:auto;flex:1;margin:0 10px;border:1px solid #B9C0CA;background:#fff;min-height:240px}.sw-dgrid tr{cursor:pointer}.sw-dgrid tr.hi td{background:#FFF0B3}.sw-dgrid tr.sel td{background:#FFE08A}.sw-dgrid mark{background:#FFE08A;color:inherit;padding:0}
+.sw-dbtn{display:flex;gap:6px;align-items:center;padding:8px 10px}
+#modal.sapmode .sw input.sw-in,#modal.sapmode .sw textarea.sw-in{height:22px!important;min-height:0!important;padding:0 5px!important;font-size:12px!important;border-radius:2px!important;border:1px solid #A5ADB8!important;box-shadow:none!important;line-height:20px}
+#modal.sapmode .sw textarea.sw-in{height:auto!important;padding:3px 5px!important;line-height:1.4}
+#modal.sapmode .sw input.sw-in:focus{border-color:#E8A317!important;box-shadow:0 0 0 1px #E8A317 inset!important}
+#modal.sapmode .sw input.sw-in.fm{background:#FFF7C9!important}#modal.sapmode .sw input.sw-in[readonly]{background:#F3F4F6!important}
+#modal.sapmode .sw input.sw-ci{height:20px!important;min-height:0!important;padding:0 3px!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;font-size:12px!important}
+#modal.sapmode .sw input.sw-ci:focus{background:#FFFBE6!important;box-shadow:0 0 0 1px #E8A317 inset!important}
+#sw_dlg .sw-dfind input{height:22px!important;min-height:0!important;padding:0 6px!important;font-size:12px!important;border-radius:2px!important}
+#modal.sapmode .sw-cfl,#modal.sapmode .sw-btn{min-height:0!important}
+@media(max-width:860px){#modal.sapmode .sw input.sw-in,#modal.sapmode .sw input.sw-ci{height:30px!important;font-size:14px!important}.sw-hd,.sw-ft{grid-template-columns:1fr;gap:2px}.sw-c2{justify-self:stretch;width:100%}.sw-r{grid-template-columns:120px 1fr}#modal.sapmode .sheet{height:100vh;width:100vw;border-radius:0}.sw-panel{margin:0 6px}.sw-tabs{padding:0 6px;overflow-x:auto}.sw-in,.sw-ci{font-size:14px;height:30px}.sw-grid td{height:30px}}
+`;document.head.appendChild(st)})();
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
