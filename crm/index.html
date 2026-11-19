@@ -5938,12 +5938,17 @@ function swItemCode(v){const go=items=>{const ex=items.find(x=>String(x.code).to
 function swSetup(){if(SDX.setup)return Promise.resolve(SDX.setup);if(SDX.setupP)return SDX.setupP;
   SDX.setupP=sdRead('setup',{}).then(r=>{SDX.setup=r;SDX.setupP=null;return r}).catch(e=>{SDX.setupP=null;throw e});return SDX.setupP}
 const swWh=()=>{const b=(SDX.setup?.branches||[]).find(x=>String(x.id)===String(SDE?.bpl));return b?.wh||''};
+/* the row warehouse: the item's default warehouse (as SAP does), moved to the chosen branch's matching warehouse
+   (Makkah 00x ↔ Jeddah 100x); falls back to the branch default when SAP has no such warehouse for the item */
+function swWhFor(l){const bw=swWh();const iw=String(l._dwh||'');if(!bw)return iw||l.wh||'';if(!iw)return bw;
+  const jed=/^10\d\d$/.test(bw);let w=jed?(/^\d{3}$/.test(iw)?'1'+iw:iw):(/^10\d\d$/.test(iw)?iw.slice(1):iw);
+  if(l._whs&&!l._whs.some(x=>String(x.wh)===w))w=bw;return w}
 function swFillHdr(){const S=SDX.setup;if(!S||!SDE||SW.mode!=='add')return;const bs=document.getElementById('sw_bpl');if(!bs)return;const br=S.branches||[];
   if(SDE.bpl==null){let saved=null;try{saved=localStorage.getItem('sw_bpl')}catch(e){}SDE.bpl=(br.find(b=>String(b.id)===saved)||br.find(b=>b.main)||br[0]||{}).id??''}
   bs.innerHTML=br.length?br.map(b=>`<option value="${b.id}" ${String(b.id)===String(SDE.bpl)?'selected':''}>${esc(b.name)}</option>`).join(''):'<option value="">—</option>';
   swFillSeries();
-  const ss=document.getElementById('sw_slp');if(ss){ss.innerHTML=`<option value="-1">-No Sales Employee-</option>`+(S.slps||[]).map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join('');ss.value=SDE.slp!=null?String(SDE.slp):'-1'}
-  SDE.lines.forEach(l=>{if(!l.base_entry&&swWh())l.wh=swWh()});swRepaint()}
+  const ss=document.getElementById('sw_slp');if(ss){ss.innerHTML=`<option value="-1">-No Sales Employee-</option>`+(S.slps||[]).filter(x=>+x.code>=0).map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join('');ss.value=SDE.slp!=null?String(SDE.slp):'-1'}
+  SDE.lines.forEach(l=>{if(!l.base_entry){l.wh=swWhFor(l);swWhStock(l)}});swRepaint()}
 function swFillSeries(){const S=SDX.setup;const sel=document.getElementById('sw_series');if(!S||!sel||!SDE)return;
   const list=((S.series&&S.series[SDE.kind])||[]).filter(x=>!x.error&&(x.bpl==null||String(x.bpl)===String(SDE.bpl)));
   if(!list.some(x=>String(x.series)===String(SDE.series)))SDE.series=(list.find(x=>x.def)||list[0]||{}).series??'';
@@ -5958,11 +5963,11 @@ function swApplyCust(c){SDE.slp=c.SalesPersonCode!=null&&+c.SalesPersonCode>=0?+
   SDE.lines.filter(l=>!l.base_entry).forEach(l=>swPrice(l))}
 function swCpPhone(){const p=document.getElementById('sw_cpph');if(!p||!SDE||!SDE.cust)return;const x=(SDE.cust.Contacts||[]).find(y=>String(y.code)===String(SDE.contact));p.textContent=x&&x.phone?x.phone:[SDE.cust.Phone1,SDE.cust.Cellular].filter(Boolean)[0]||''}
 /* a new row: SAP's price for this customer (GetItemPrice: special prices, discount groups, price list) and stock in the branch warehouse */
-function swAddLine(x){const l={item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:swWh()||x.wh,stock:x.stock??null,whStock:null,_pr:'busy'};SDE.lines.push(l);swPrice(l);return l}
+function swAddLine(x){const l={item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',_dwh:x.wh||'',stock:x.stock??null,whStock:null,_pr:'busy'};l.wh=swWhFor(l);SDE.lines.push(l);swPrice(l);return l}
 async function swPrice(l){if(!SDE||!SDE.cust)return;const card=SDE.cust.CardCode;l._pr='busy';
   try{const r=await sdRead('price',{card,item:l.item_code,qty:sdNum(l.qty)||1,date:(document.getElementById('sd_date')||{}).value||undefined});
     if(!SDE||!SDE.cust||SDE.cust.CardCode!==card||!SDE.lines.includes(l))return;
-    l._whs=r.wh||[];l.stock=l._whs.reduce((s,w)=>s+sdNum(w.stock),0);swWhStock(l);
+    l._whs=r.wh||[];l.stock=l._whs.reduce((s,w)=>s+sdNum(w.stock),0);l.wh=swWhFor(l);swWhStock(l);
     if(r.price!=null&&!l._userPrice){l.price=Math.round(sdNum(r.price)*10000)/10000;l.disc=0}
     if(r.price==null&&(l.price==null||l.price===''))swMsg(`${esc(l.item_code)}: no price in SAP for this customer — enter the price. الصنف ما له سعر في ساب لهذا العميل`,'warn')}
   catch(e){/* keep the price-list price */}l._pr='';swRepaint()}
@@ -5975,7 +5980,7 @@ function swRepaint(){if(!SDE||!document.querySelector('.sw'))return;const f=docu
 function swExtra(){if(!SDE||!document.querySelector('.sw')||SW.mode!=='add')return {};
   return {bpl:SDE.bpl||null,series:SDE.series||null,slp_code:SDE.slp!=null?+SDE.slp:null,contact:SDE.contact||null,rounding:!!SDE.round}}
 document.addEventListener('change',e=>{const t=e.target;if(!SDE||!t||!t.id||!document.querySelector('.sw'))return;
-  if(t.id==='sw_bpl'){SDE.bpl=t.value;try{localStorage.setItem('sw_bpl',t.value)}catch(x){}swFillSeries();SDE.lines.forEach(l=>{if(!l.base_entry){l.wh=swWh()||l.wh;swWhStock(l)}});swRepaint()}
+  if(t.id==='sw_bpl'){SDE.bpl=t.value;try{localStorage.setItem('sw_bpl',t.value)}catch(x){}swFillSeries();SDE.lines.forEach(l=>{if(!l.base_entry){l.wh=swWhFor(l);swWhStock(l)}});swRepaint()}
   else if(t.id==='sw_series'){SDE.series=t.value;swFillSeries()}
   else if(t.id==='sw_slp')SDE.slp=t.value;
   else if(t.id==='sw_cp'){SDE.contact=t.value;swCpPhone()}});
