@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <meta charset="utf-8">
-<title>الوادي الأخضر — حركة السيارات والتوصيل</title>
+<title>أسطول التوريد</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#051D48">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><!--/wady-brand--><script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 /* Layout: navy command bar + tabbed workspace; summary → detail, entry screens built for phones */
@@ -884,7 +884,7 @@ async function printReport(btn){
   .r-ممتاز{color:#2E8B4A;font-weight:800}.r-ضعيف{color:#C0392B;font-weight:800}.r-جيد{color:#1B87B3;font-weight:800}.r-مقبول{color:#A87800;font-weight:800}.foot{margin-top:8px;color:#5A6A82;font-size:9px}`;
   const k=(l,v)=>`<div><span>${l}</span><b>${v}</b></div>`;
   const scope=S.f.vehicle!=="الكل"?"سيارة "+vehLabel(S.vehicles.find(x=>x.id===S.f.vehicle)):S.f.branch==="الكل"?"المصنع ككل":"فرع "+S.f.branch;
-  const html=`<!doctype html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
+  const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
   <div class="hdr"><div><h1>تقرير أداء أسطول التوريد</h1><div class="sub">${esc(scope)} · الفترة من ${fd(R.from)} إلى ${fd(R.to)} (${R.L} يوم)</div></div><div class="sub">أُعد في ${fmtAt(now.toISOString())}</div></div>
   <div class="k">${k("المستهدف",fmt(T.t))}${k("المحقق",fmt(T.a,1))}${k("نسبة التحقيق",pct(ratio(T.a,T.t)))}${k("التحقيق المعدّل",pct(ratio(T.a,T.t-T.ext)))}${k("عجز غير مبرر",fmt(T.gap,1))}${k("أيام بدون تسجيل",T.missing)}</div>
   <h2>مقارنة الفرعين</h2><table><thead><tr><th>الفرع</th><th>مسؤول الحركة</th><th>المستهدف</th><th>المحقق</th><th>التحقيق</th><th>المعدّل</th><th>التقييم</th><th>غير مبرر</th><th>ناقل خارجي</th><th>حققوا المستهدف</th></tr></thead><tbody>
@@ -2117,9 +2117,12 @@ renderBanner=function(){ _renderBanner0(); const b=$("#banner"); if(!b) return;
 const DRV={list:null,loading:false,maint:null,tab:"list",q:"",br:"",rep:null,imp:null};
 const drvCanEdit=()=>["sysadmin","ops_mgr","dispatcher"].includes(ME&&ME.role)&&(WADY_PERM.admin||wadyLvl("drivers")>=3);
 async function loadDrivers(force){ if(DRV.loading||(DRV.list&&!force)) return DRV.list; DRV.loading=true;
-  try{ DRV.list=await api("fleet_drivers"); }catch(e){ DRV.list=DRV.list||[]; console.warn("drivers",e); } DRV.loading=false; return DRV.list; }
-async function loadDrvMaint(force){ if(DRV.maint&&!force) return DRV.maint;
-  try{ DRV.maint=await api("fleet_maint_list",{f:{from:addDays(localToday(),-430)}}); }catch(e){ DRV.maint=[]; } return DRV.maint; }
+  try{ DRV.list=(await api("fleet_drivers"))||[]; }catch(e){ DRV.list=DRV.list||[]; console.warn("drivers",e); } DRV.loading=false; return DRV.list; }
+async function loadDrvMaint(force){ if(DRV.maint&&!force) return DRV.maint; if(DRV.mload) return DRV.mload; DRV.mload=(async()=>{
+  try{ DRV.maint=await api("fleet_maint_list",{f:{from:addDays(localToday(),-430)}})||[]; }catch(e){ DRV.maint=[]; } DRV.mload=null; return DRV.maint; })(); return DRV.mload; }
+// load drivers + maintenance once, then redraw the vehicle log once (was: one load and one full redraw per day cell)
+function drvEnsure(){ if(DRV.ensuring||(DRV.list&&DRV.maint)) return; DRV.ensuring=true;
+  Promise.all([loadDrivers(),loadDrvMaint()]).catch(()=>{}).finally(()=>{ DRV.list=DRV.list||[]; DRV.maint=DRV.maint||[]; DRV.ensuring=false; if(S.view==="vehicle") render(true); }); }
 const drvById=id=>(DRV.list||[]).find(d=>String(d.id)===String(id))||null;
 const drvHome=v=>v?(DRV.list||[]).find(d=>d.active&&d.vehicle_id===v.id)||null:null;
 function vlHomeName(v){ const d=drvHome(v); return d?d.name:(v.driver||"غير محدد"); }
@@ -2156,8 +2159,7 @@ const KIND_L={own:"على سيارته",other:"على سيارة غير سيار
 
 /* ---------- vehicle log: driver of the day ---------- */
 function vlDriverCell(v,iso,d,key,ro){
-  if(!DRV.list){ loadDrivers().then(()=>{ if(S.view==="vehicle") render(true); }); }
-  if(!DRV.maint){ loadDrvMaint().then(()=>{ if(S.view==="vehicle") render(true); }); }
+  drvEnsure();
   const home=drvHome(v), cur=d&&d.drv?String(d.drv):"";
   const list=(DRV.list||[]).filter(x=>x.active||String(x.id)===cur).sort((a,b)=>(a.branch===v.branch?0:1)-(b.branch===v.branch?0:1)||String(a.name).localeCompare(b.name));
   const dd=dayDriver(v,iso,d), flag=dd.kind==="sub"?`<span class="pill" style="background:#FDECEA;color:#B42318" title="سيارته ${esc(laneName(dd.home))} في الصيانة">بديل · عطل</span>`:dd.kind==="other"?(dd.home?`<span class="pill" title="سيارته الأساسية ${esc(laneName(dd.home))}">سيارة أخرى</span>`:`<span class="pill">احتياطي</span>`):"";
