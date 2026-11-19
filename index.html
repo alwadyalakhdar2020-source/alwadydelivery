@@ -1480,7 +1480,7 @@ function ppPlanView(){
   if(st==='submitted')h+=`<div class="banner warn noprint"><span class="sp">الخطة مرسلة وبانتظار الاعتماد${isAdmin()?'. أي حفظ من مدير النظام يعيدها مسودة':''}.</span></div>`;
   if(st==='approved')h+=`<div class="banner info noprint"><span class="sp">معتمدة${d.reviewed_by?' من '+esc(pName(d.reviewed_by)):''} في ${fdt(d.reviewed_at)}.${isAdmin()?' تعديلها من مدير النظام يعيدها مسودة وتحتاج اعتماداً جديداً.':''}</span></div>`;
   if(st==='none')h+=`<div class="banner info noprint"><span class="sp">لا توجد خطة لهذا الأسبوع. املأ الجدول مباشرة، أو انسخ خطة الأسبوع السابق، أو استوردها من ملف Excel.</span><button class="btn s" data-act="ppCopyPrev">نسخ الأسبوع السابق</button><button class="btn s" data-act="ppTab" data-v="import">استيراد Excel</button></div>`;
-  if(!ro)h+=`<p class="small muted noprint" style="margin:0 0 8px">${PP.stockAt?`أرصدة المنتجات محدّثة حتى ${fdt(PP.stockAt)} — تتحدث من «استيراد الأصناف» في تطبيق حركة السيارات.`:'ما فيه أرصدة مستوردة بعد — ارفع ملف الأصناف بأعمدة الأرصدة من تطبيق حركة السيارات.'}</p>`;
+  if(!ro)h+=`<p class="small muted noprint" style="margin:0 0 8px">${PP.stockAt?`أرصدة المنتجات من ساب (مستودع 005 مكة و1005 عسفان) — آخر قراءة ${fdt(PP.stockAt)}، وتتحدث تلقائي كل 10 دقائق. اضغط «تحديث الأرصدة من ساب» لتعبئة خانة الرصيد بآخر قيمة.`:'ما وصلت أرصدة من ساب بعد.'}</p>`;
   if(!ro)h+=`<datalist id="dl_pcode">${(PP.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}${PSPECIAL.map(n=>`<option value="${esc(n)}">بدون منتج</option>`).join('')}</datalist><datalist id="dl_pitem">${[...PSPECIAL,...new Set((PP.products||[]).map(p=>p.name))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist><datalist id="dl_pqty">${PQTY.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`;
   if(ro){if(d.note)h+=`<div class="banner"><span class="sp"><b>ملاحظات الأسبوع:</b> ${esc(d.note)}</span></div>`}else h+=`<div class="card noprint"><div class="fgrid" style="grid-template-columns:minmax(110px,160px) 1fr"><div class="fld"><label for="pp_wn">رقم الأسبوع</label><input id="pp_wn" inputmode="numeric" data-pp="week" data-k="week_no" value="${esc(d.week_no??'')}" ${ro?'disabled':''}></div><div class="fld"><label for="pp_wnote">ملاحظات عامة للأسبوع</label><input id="pp_wnote" data-pp="week" data-k="note" value="${esc(d.note||'')}" ${ro?'disabled':''}></div></div>
    ${ro?'':`<p class="small muted" style="margin:8px 0 0">اكتب الكود ويظهر اسم المنتج تلقائياً. الكمية رقم (مثل 8000) أو نص مثل «وردية» و«باقي الوردية» و«300م». لإيقاف الخط اكتب في المنتج «متوقف» أو «تغيير القالب». زر «+» يضيف منتجاً ثانياً في نفس اليوم.</p>`}</div>`;
@@ -1515,7 +1515,7 @@ function ppPlanView(){
   if(isProdApprover()&&st==='approved')acts+=`<button class="btn" data-act="ppReopen">إعادة فتح للتعديل</button>`;
   if(isProdEditor())acts+=`<button class="btn s" data-act="ppLines">خطوط الإنتاج</button>`;
   acts+=`<span style="flex:1"></span><button class="btn" data-act="ppPrint">طباعة</button>${st!=='none'||PP.dirty?`<button class="btn" data-act="ppXlsx">تصدير Excel</button>`:''}`;
-  if(!ro)acts=acts.replace('<span style="flex:1"></span>',`<button class="btn s" data-act="ppStockAll" title="يحدّث خانة الرصيد لكل المنتجات في الخطة من آخر أرصدة مستوردة">تحديث الأرصدة</button><span style="flex:1"></span>`);
+  if(!ro)acts=acts.replace('<span style="flex:1"></span>',`<button class="btn s" data-act="ppStockAll" title="يعبّي خانة الرصيد لكل المنتجات في الخطة من أرصدة ساب في مستودع الخط">تحديث الأرصدة من ساب</button><span style="flex:1"></span>`);
   setTimeout(ppAutosize,0);
   h+=`<div class="formbar sticky noprint">${PP.dirty?`<span class="flag" id="ppDirty">تعديلات غير محفوظة</span>`:''}${acts}</div>`;
   return h;
@@ -1759,7 +1759,7 @@ const PP_ACT={
   ppApprove:()=>{if(PP.dirty)return toast('احفظ التعديلات أولاً');ppReview('approved','')},
   ppReturn:()=>askText('إعادة الخطة لمدير الإنتاج','سبب الإعادة (يظهر لمدير الإنتاج)',v=>ppReview('returned',v),true),
   ppReopen:()=>askText('إعادة فتح الخطة','سبب إعادة الفتح',v=>ppReview('returned',v),true),
-  ppCopyPrev:()=>ppCopyPrev(),ppLines:()=>ppLinesForm(),ppPrint:()=>ppPrint(),ppStockAll:()=>ppStockAll(),
+  ppCopyPrev:()=>ppCopyPrev(),ppLines:()=>ppLinesForm(),ppPrint:()=>ppPrint(),ppStockAll:async()=>{try{await ppRefs(true)}catch(e){return toast(errText(e))}ppStockAll()},
   ppXlsx:()=>ppExportWeek(),ppXlsxRange:()=>ppExportRange(),
   ppImpReset:()=>{PP.imp={step:'pick'};render()},
   ppImpAll:d=>{PP.imp.sheets.forEach(s=>{s.on=d.v==='1'?!s.dupe&&!s.locked:false});render()},
