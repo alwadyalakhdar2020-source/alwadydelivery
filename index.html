@@ -1379,7 +1379,8 @@ const daysBetween=(a,b)=>{const out=[];if(!a||!b||a>b)return out;for(let d=a;d<=
 const lineHas=l=>l.rows.some(r=>slotHas(r.m)||slotHas(r.n));
 
 async function ppRefs(force){
-  if(PP.lineDefs&&PP.products&&!force)return;
+  if(PP.lineDefs&&PP.products&&!force&&Date.now()-(PP.refsAt||0)<5*60e3)return;   // SAP balances refresh every 10 minutes; re-read them after 5
+  PP.refsAt=Date.now();
   const [l,p,st]=await Promise.all([sb.from('prod_lines').select('*').order('sort').order('name'),fetchAll(()=>sb.from('prod_products').select('code,name').order('code')),sb.rpc('prod_stock')]);
   if(l.error)throw l.error;PP.lineDefs=l.data;
   // product list = the products of the fleet app (with their balances) + codes used before in plans
