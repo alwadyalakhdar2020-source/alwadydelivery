@@ -647,7 +647,7 @@ function demoData(T){
 const hasDemo=()=>COLS.some(c=>c!=='audit'&&c!=='settings'&&S[c].some(x=>x.demo));
 
 /* ============ Domain helpers (field work) ============ */
-const qTotal=q=>q.source==='import'?(+q.value||0):(q.lines||[]).reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0)*(1-(+q.discount||0)/100);
+const qTotal=q=>q.source==='import'||q.source==='sap'?(+q.value||0):(q.lines||[]).reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0)*(1-(+q.discount||0)/100);
 const inMonth=s=>s&&s.slice(0,7)===TODAY().slice(0,7);
 function weekStart(s){const d=new Date(s+'T12:00:00');return addDays(s,-d.getDay())}
 function lastVisit(cid){let m='';S.visits.forEach(v=>{if(v.clientId===cid&&v.status==='done'&&v.date>m)m=v.date});return m}
@@ -667,6 +667,7 @@ function visitFlags(v){
 let IDX=null;
 function pipeSt(q){
   if(q.source==='import')return q.status;
+  if(q.source==='sap')return q.sapStatus==='open'?'open':q.status==='ordered'?'accepted':'rejected'; // SAP keeps a quotation open past its valid-until date
   let s={draft:'pending',pending:'pending',approved:'pending',sent:'open',accepted:'accepted',ordered:'accepted',rejected:'rejected'}[q.status]||'open';
   if((s==='open'||s==='pending')&&q.validUntil&&q.validUntil<TODAY())s='expired';
   return s;
@@ -686,10 +687,10 @@ function I(){
       coll.push({v:r.v,d:r.d,code:r.cc,cn:r.cn,amt:+r.a||0,rep,reg:c?.region||byId('team',rep)?.region||'',cid:c?.id||null,inv:r.i||'',pm:r.pm||'',so:r.so||'',imp:ch.importId})})});
   coll.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
   const quotes=S.quotes.map(q=>{
-    const c=q.source==='import'?(custByCode.get(normCode(q.clientCode))||byId('clients',q.clientId)):byId('clients',q.clientId);
+    const c=q.source==='import'||q.source==='sap'?(byId('clients',q.clientId)||custByCode.get(normCode(q.clientCode))||byId('clients',q.clientId)):byId('clients',q.clientId);
     const rep=q.repId||c?.repId||'';
-    return {id:q.id,no:q.no,src:q.source==='import'?'import':'app',cid:c?.id||null,code:q.clientCode||c?.code||'',cname:c?.name||q.cname||'—',rep,reg:c?.region||q.region||byId('team',rep)?.region||'',
-      date:q.source==='import'?q.date:(q.createdAt||'').slice(0,10),value:qTotal(q),st:pipeSt(q),exp:q.source==='import'?q.expClose:q.validUntil,
+    return {id:q.id,no:q.no,src:q.source==='import'?'import':q.source==='sap'?'sap':'app',cid:c?.id||null,code:q.clientCode||c?.code||'',cname:c?.name||q.cname||'—',rep,reg:c?.region||q.region||byId('team',rep)?.region||'',
+      date:q.source==='import'||q.source==='sap'?q.date:(q.createdAt||'').slice(0,10),value:qTotal(q),st:pipeSt(q),exp:q.source==='import'?q.expClose:q.validUntil,
       close:q.source==='import'?q.closeDate:((q.orderedAt||q.status==='rejected'&&q.updatedAt||'')+'').slice(0,10),reason:q.reason||'',
       cat:q.source==='import'?q.cat:(PRODUCTS.find(p=>p.id===q.lines?.[0]?.product)?.fam||'')}});
   const tx=new Map(),act=new Map();
@@ -1619,7 +1620,7 @@ V.quotes=()=>{
   const lim=fv('qLim',200);const t=TODAY();
   return `<div class="fbar"><label class="fl" style="flex:2 1 200px" for="qq">${L('بحث','Search')}<input id="qq" type="search" value="${esc(fv('qq',''))}" placeholder="${L('رقم العرض أو العميل','Quote no. or customer')}" data-act="filtIn" data-k="qq"></label>
    <label class="fl" for="qst">${L('الحالة','Status')}<select id="qst" data-act="filtSel" data-k="qst">${opt(Object.entries(PIPE_ST).map(([k,v])=>[k,L(v[0],v[1])]),sf,L('كل الحالات','All'))}</select></label>
-   <label class="fl" for="qsrc">${L('المصدر','Source')}<select id="qsrc" data-act="filtSel" data-k="qsrc">${opt([['import',L('مستورد من Excel/SAP','Imported')],['app',L('أُعد داخل النظام','In-app')]],src,L('الكل','All'))}</select></label>
+   <label class="fl" for="qsrc">${L('المصدر','Source')}<select id="qsrc" data-act="filtSel" data-k="qsrc">${opt([['sap',L('من ساب','From SAP')],['import',L('مستورد من Excel','Imported')],['app',L('أُعد داخل النظام','In-app')]],src,L('الكل','All'))}</select></label>
    ${isLead()?`<label class="fl" for="fl_rep2">${L('المندوب','Rep')}<select id="fl_rep2" data-act="flt" data-k="rep">${opt(repOpts(),FL.rep,L('الكل','All'))}</select></label>`:''}
    <button class="btn p" data-act="newQuote">+ ${L('عرض داخل النظام','In-app quote')}</button></div>
    <div class="small muted">${rows.length} ${L('عرض','quotations')} · ${L('القيمة','value')} ${smoney(rows.reduce((s,x)=>s+x.value,0))}</div>
@@ -3774,7 +3775,7 @@ ${q.terms?`<div class="tr"><h3>الشروط والأحكام</h3>${esc(q.terms)}
 ${k.foot?`<div class="ft">${esc(k.foot)}</div>`:''}
 <script>window.onload=()=>setTimeout(()=>print(),300)<\/script></body></html>`);w.document.close()}
 /* print + company-details buttons in the quotation drawer */
-{const _q=OPEN.quote;OPEN.quote=(id,refresh)=>{_q(id,refresh);const q=byId('quotes',id);if(!q||q.source==='import')return;
+{const _q=OPEN.quote;OPEN.quote=(id,refresh)=>{_q(id,refresh);const q=byId('quotes',id);if(!q||q.source==='import'||q.source==='sap')return;
   const tb=document.querySelector('#mbody .toolbar');if(tb&&!tb.querySelector('[data-act="qPrint"]')){tb.insertAdjacentHTML('beforeend',`<button class="btn" data-act="qPrint" data-id="${id}">${L('طباعة / PDF','Print / PDF')}</button>${isLead()?`<button class="btn s" data-act="qCfg" title="${L('بيانات الشركة في العرض','Company details')}">⚙</button>`:''}`)}}}
 /* credit warnings: client drawer and new quotation form */
 {const _c=OPEN.client;if(_c)OPEN.client=(id,refresh)=>{_c(id,refresh);const b=arBanner(id);if(!b)return;const mb=document.getElementById('mbody');if(mb&&!mb.querySelector('.ar-ban'))mb.insertAdjacentHTML('afterbegin',b)}}
@@ -3832,7 +3833,7 @@ function plpDefault(sec,src,o,inclVat){const v=plVat();const k=inclVat?1:v;
   if(sec==='opps')return src!=='clients'&&o.total?Math.round(o.total*k):o.ar>0?Math.round(o.ar):o.c3>0?Math.round(o.c3/3):'';
   if(sec==='backlog3'||sec==='backlogLater')return o.total?Math.round(o.total*k):'';return ''}
 function plpOpen(sec){
-  const {rep,month,doc}=plCurrent();if(!rep)return;PLP={sec,rep,month,src:sec==='opps'?'orders':'quotes',q:'',sel:new Map(),inclVat:true,prob:'',lim:200};
+  const {rep,month,doc}=plCurrent();if(!rep)return;PLP={sec,rep,month,src:sec==='opps'?'orders':'quotes',q:'',sel:new Map(),inclVat:false,prob:'',lim:200};
   if(sec!=='opps'&&!plpRows('quotes',rep,month).length)PLP.src='clients';else if(sec==='opps'&&!plpRows('orders',rep,month).length)PLP.src=plpRows('quotes',rep,month).length?'quotes':'clients';
   plpPaint()}
 function plpPaint(){
@@ -3874,6 +3875,15 @@ function plpPaint(){
        if(t.id==='plp_all')P.prob=t.value});
    }});
 }
+/* one click: every customer of the rep with open quotations or open sales orders (SAP values are before VAT, so VAT is added) */
+function plpBulk(sec){const {rep,month,doc}=plCurrent();if(!rep)return;const have=new Set((doc[sec]||[]).map(x=>plpKey(plCustId(x.name,x.cid),x.name)));
+  const m=new Map();[...plpRows('quotes',rep,month),...plpRows('orders',rep,month)].forEach(o=>m.set(o.key,o));const ix=I();const out=[];let skip=0;
+  m.forEach(o=>{if(have.has(plpKey(o.cid,o.name))){skip++;return}const amt=Math.round(((o.q||0)+(o.o||0))*plVat());if(!(amt>0))return;
+    const paidBefore=o.cid&&ix.coll.some(r=>r.cid===o.cid&&r.d<month+'-01');
+    out.push({name:o.name,cid:o.cid||'',status:o.kind==='lead'||!paidBefore?'new':'old',size:'',amount:amt,prob:'',actual:''})});
+  if(!out.length){toast(skip?L('كل العملاء اللي عندهم مستندات مفتوحة مضافين من قبل','Every customer with open documents is already listed'):L('ما فيه عروض أسعار أو أوامر بيع مفتوحة لعملاء هذا المندوب','No open quotations or sales orders for this rep’s customers'));return}
+  out.sort((a,b)=>b.amount-a.amount);doc[sec]=[...(doc[sec]||[]).filter(x=>String(x.name||'').trim()),...out];PL.dirty=true;render();
+  toast(L(`أُضيف ${out.length} عميل${skip?` (و${skip} موجودين من قبل)`:''} — عبّ نسبة التحصيل واضغط «حفظ»`,`Added ${out.length} customers${skip?` (${skip} already listed)`:''} — fill the probability and press Save`))}
 function plpAdd(){
   const P=PLP;if(!P)return;const err=m=>{const e=document.getElementById('plp_err');if(e)e.textContent=m};
   if(!P.sel.size)return err(L('حدد عميل واحد على الأقل','Select at least one customer'));
@@ -3890,14 +3900,16 @@ function plpAdd(){
 
 /* buttons in each section + collections shown clearly in the actual column */
 {const _v=plSheetView;plSheetView=function(){let h=_v();const {rep}=plCurrent();if(!rep||!plCanEdit(rep))return h;
-  ['opps','risks','backlog3','backlogLater'].forEach(sec=>{const a=`<button class="btn s" data-act="plAdd" data-s="${sec}">`;h=h.replace(a,`<button class="btn s p" data-act="plpOpen" data-s="${sec}">⇣ ${L('اختيار من العروض والأوامر والعملاء','Pick from quotes, orders, customers')}</button>`+a)});
+  ['opps','risks','backlog3','backlogLater'].forEach(sec=>{const a=`<button class="btn s" data-act="plAdd" data-s="${sec}">`;
+    h=h.replace(a,(sec==='opps'?`<button class="btn s p" data-act="plpBulk" data-s="${sec}" title="${L('يضيف كل عملاء المندوب اللي عندهم عروض أسعار أو أوامر بيع مفتوحة في ساب، سطر لكل عميل','Adds every customer of this rep with open SAP quotations or sales orders, one line per customer')}">⇊ ${L('إضافة كل العروض والأوامر المفتوحة','Add all open quotes & orders')}</button><button class="btn s" data-act="plpCust" data-s="${sec}">👤 ${L('اختيار عملاء فردي','Pick customers')}</button>`:'')
+      +`<button class="btn s ${sec==='opps'?'':'p'}" data-act="plpOpen" data-s="${sec}">⇣ ${L('اختيار من العروض والأوامر والعملاء','Pick from quotes, orders, customers')}</button>`+a)});
   return h}}
 {const _c=plCalc;plCalc=function(doc){const c=_c(doc);c.rows.forEach(x=>{x.autoNote=!x.manual&&x.auto>0});return c}}
 {const _v2=plSheetView;plSheetView=function(){let h=_v2();const c=plCalc(PL.doc||{opps:[]});
   c.rows.forEach((x,i)=>{if(x.autoNote)h=h.replace(new RegExp(`(<input id="pl_opps_${i}_actual"[^>]*>)`),`$1<div class="small up" title="${L('محسوب تلقائياً من سندات التحصيل خلال الشهر — اكتب رقم لو تبي تعدّله يدوياً','Auto from collection vouchers this month — type a number to override')}">${L('تلقائي من التحصيل','auto from collections')}: ${plNum(x.auto)}</div>`)});
   const n=c.rows.filter(x=>x.autoNote).length;if(n)h=h.replace(`<span class="sub">${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`,`<span class="sub"><b class="up">${L(`${n} عميل تعبّأ فعليهم من ملف التحصيل`,`${n} customers filled from collections`)}</b> · ${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`);
   return h}}
-Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
+Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpBulk:d=>plpBulk(d.s),plpCust:d=>{plpOpen(d.s);if(PLP){PLP.src='clients';plpPaint()}},plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
   plpAll:()=>{const v=document.getElementById('plp_all')?.value;if(v===''||v==null)return;PLP.prob=v;document.querySelectorAll('#mbody .plp_ck:checked').forEach(c=>{const tr=c.closest('tr');const p=tr.querySelector('.plp_prob');if(p){p.value=v;const s=PLP.sel.get(c.dataset.k);if(s)s.prob=v}})}});
 
 /* ===== Rule-based recommendations (no AI): every card = rule + evidence numbers + suggested action + owner.
@@ -5067,6 +5079,7 @@ function sdForm(kind,pre){SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invo
     <div class="sd-col"><div class="sd-f"><label>${L('الرقم','No.')}</label><input value="${L('يُحدد من ساب عند الترحيل','Assigned by SAP on posting')}" readonly class="sd-ro"></div>
      <div class="sd-f"><label>${L('الحالة','Status')}</label><input value="${L('جديد','New')}" readonly class="sd-ro"></div>
      <div class="sd-f"><label>${L('تاريخ الترحيل','Posting Date')}</label><input type="date" id="sd_date" value="${TODAY()}"></div>
+     ${isPay?`<div class="sd-f"><label>${L('الفرع','Branch')} <span class="req">*</span></label><select id="sd_pbpl"><option value="">…</option></select></div>`:''}
      ${isPay?'':`<div class="sd-f"><label>${kind==='quotation'?L('صالح حتى','Valid Until'):L('تاريخ الاستحقاق / التسليم','Due / Delivery Date')}</label><input type="date" id="sd_due" value="${addDays(TODAY(),kind==='quotation'?14:kind==='invoice'?30:3)}"></div>`}</div></div>
    <div id="sd_cust"></div>
    ${isPay?`<div id="sd_pay"></div>`:`<div class="toolbar" style="margin:8px 0">${SD_BASES[kind]?`<button class="btn s" data-act="sdCopyFrom">${L('نسخ من…','Copy From…')}</button>`:''}
@@ -5077,6 +5090,8 @@ function sdForm(kind,pre){SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invo
    <div id="sd_err" class="flag"></div><div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><span class="grow"></span><button class="btn p" data-act="sdSubmit">${L('ترحيل إلى ساب','Add to SAP')}</button></div></div>`);
   sdPaint();const ci=document.getElementById('sd_client');ci.addEventListener('change',()=>sdPickClient(ci.value.split(' — ')[0].trim()));
   wCust(ci,true);const qi=document.getElementById('sd_q');if(qi)sdItemCombo(qi);setTimeout(()=>ci.focus(),60);
+  if(isPay&&typeof swSetup==='function')swSetup().then(S=>{const bs=document.getElementById('sd_pbpl');if(!bs)return;const br=S.branches||[];let sv=null;try{sv=localStorage.getItem('sw_bpl')}catch(e){}
+    const d=(br.find(b=>String(b.id)===sv)||br.find(b=>b.main)||br[0]||{}).id;bs.innerHTML=br.map(b=>`<option value="${b.id}" ${b.id===d?'selected':''}>${esc(b.name)}</option>`).join('')}).catch(()=>{});
   if(pre)setTimeout(()=>sdPrefill(pre),0)}
 async function sdBpSearch(t){const box=document.getElementById('sd_bpres');if(!box)return;if((t||'').trim().length<2){box.innerHTML='';return}box.innerHTML=`<div class="small muted">${L('جاري البحث…','Searching…')}</div>`;
   try{const r=await sdRead('bp_search',{q:t});box.innerHTML=(r.bps||[]).map(b=>`<div class="li" data-act="sdPickBp" data-c="${esc(b.CardCode)}"><div class="main"><div class="t">${esc(b.CardName)}</div><div class="m">${esc(b.CardCode)} · ${L('الرصيد','Balance')} ${sdM(b.CurrentAccountBalance||0)}</div></div></div>`).join('')||`<div class="small muted">${L('ما فيه','None')}</div>`}catch(e){box.innerHTML=`<span class="flag">${esc(e.message)}</span>`}}
@@ -5175,13 +5190,14 @@ document.addEventListener('change',e=>{const el=e.target;if(!el.dataset||el.data
 
 async function sdSubmit(){const err=document.getElementById('sd_err');err.textContent='';if(!SDE.cust){err.textContent=L('اختر العميل','Pick the customer');return}
   const g=id=>(document.getElementById(id)||{}).value||'';const k=SDE.kind;let p;
-  if(k==='payment'){const P=SDE.pay;p={card_code:SDE.cust.CardCode,card_name:SDE.cust.CardName,doc_date:g('sd_date'),note:g('sd_note'),cash_sum:P.cash||'0',cash_account:P.cacc||'',transfer_sum:P.tr||'0',transfer_account:P.tacc||'',transfer_ref:P.tref||'',transfer_date:P.tdate||g('sd_date'),
+  if(k==='payment'){const P=SDE.pay;p={bpl:g('sd_pbpl')||null,card_code:SDE.cust.CardCode,card_name:SDE.cust.CardName,doc_date:g('sd_date'),note:g('sd_note'),cash_sum:P.cash||'0',cash_account:P.cacc||'',transfer_sum:P.tr||'0',transfer_account:P.tacc||'',transfer_ref:P.tref||'',transfer_date:P.tdate||g('sd_date'),
     invoices:P.invoices.filter(x=>sdNum(x.applied)>0).map(x=>({entry:x.entry,num:x.num,applied:x.applied,type:'invoice'}))}}
   else{if(!SDE.lines.length){err.textContent=L('أضف سطر واحد على الأقل','Add at least one line');return}
     if(SDE.over){err.textContent=L('المستند يتجاوز الحد الائتماني للعميل في ساب أو العميل موقوف','Exceeds the SAP credit limit or the customer is frozen');return}
     const fo=k==='delivery'?g('sd_fleet'):'';const f=SDE.fleet.find(x=>String(x.id)===String(fo));
     p={card_code:SDE.cust.CardCode,card_name:SDE.cust.CardName,doc_date:g('sd_date'),due_date:g('sd_due'),ref:g('sd_ref'),note:g('sd_note'),disc:SDE.disc||0,
       lines:SDE.lines.map(l=>({item_code:l.item_code,qty:l.qty,price:l.price,disc:l.disc||0,vat_group:l.vat_group,wh:l.wh,...(l.base_entry?{base_type:l.base_type,base_entry:l.base_entry,base_line:l.base_line,open:l.open,base_num:l.base_num}:{})}))};
+    if(typeof swExtra==='function')Object.assign(p,swExtra());
     if(k==='delivery'&&SDE.order)Object.assign(p,{base_num:SDE.order.num,fleet_order_id:fo||null,fleet_ref:f?`${L('طلب توصيل','Fleet order')} #${f.id}${f.vehicle?' — '+L('سيارة','vehicle')+' '+f.vehicle:''}${f.driver?' — '+f.driver:''}`:''})}
   BUSY=true;try{const {data,error}=await window.__sb.rpc('sap_doc_submit',{p_type:k,p});BUSY=false;if(error)throw error;
     if(!data.ok){err.innerHTML=(data.errors||[]).map(esc).join('<br>');return}closeModal();toast(L('انرسل لساب، الرقم يطلع خلال ثواني','Sent to SAP; the number appears shortly'));F.sdTab=k;sdLoad(true)}
@@ -5271,9 +5287,29 @@ function sdStmtPrint(){const r=SDX.stmt?.res;if(!r)return;
 function sdSettingsView(){const A=SDX.set?.pay_accounts||{cash:[],transfer:[]};const all=SDX.accts;
   if(!all){if(!SDX.acctBusy){SDX.acctBusy=true;sdRead('pay_accounts',{}).then(r=>{SDX.accts=r.accounts||[];SDX.acctBusy=false;render()}).catch(e=>{SDX.accts=[];SDX.acctBusy=false;toast(e.message);render()})}return `<div class="card empty">${L('جاري جلب الحسابات من ساب…','Loading accounts from SAP…')}</div>`}
   const box=(k,l)=>`<div class="card"><b>${l}</b><div class="small muted">${L('اختر الحسابات اللي تظهر في سند التحصيل','Accounts offered on incoming payments')}</div>${all.length?all.map(a=>`<label style="display:flex;gap:6px;align-items:center;margin:3px 0"><input type="checkbox" class="sds_${k}" value="${esc(a.code)}" data-n="${esc(a.name)}" ${(A[k]||[]).some(x=>x.code===a.code)?'checked':''} style="width:auto"> ${esc(a.code)} — ${esc(a.name)}</label>`).join(''):`<div class="small muted">${L('ما فيه حسابات نقدية معرّفة في ساب','No cash accounts in SAP')}</div>`}</div>`;
-  return box('cash',L('حسابات النقدية (الخزينة والعهد)','Cash accounts'))+box('transfer',L('حسابات البنوك للتحويل','Bank accounts for transfers'))+`<div class="formbar"><span class="grow"></span><button class="btn p" data-act="sdSetSave">${L('حفظ','Save')}</button></div>`}
+  return sdDbCard()+box('cash',L('حسابات النقدية (الخزينة والعهد)','Cash accounts'))+box('transfer',L('حسابات البنوك للتحويل','Bank accounts for transfers'))+`<div class="formbar"><span class="grow"></span><button class="btn p" data-act="sdSetSave">${L('حفظ','Save')}</button></div>`+sdMapCard()}
+/* which SAP company the screens read and post to */
+function sdDbCard(){const db=SDX.set?.db||'test';return `<div class="card"><b>${L('قاعدة ساب المربوطة','Connected SAP company')}</b>
+  <div style="margin:6px 0">${db==='prod'?pill(L('✓ القاعدة الأساسية (الإنتاج) A20967_WADI_P02','✓ Production A20967_WADI_P02'),'ok'):pill(L('⚠ قاعدة التجربة TEST_A20967_WADI_T02','⚠ TEST company TEST_A20967_WADI_T02'),'warn')}</div>
+  <div class="small muted">${L('القراءة (العملاء، الأصناف، الأسعار، المستندات، كشف الحساب) والترحيل كلها على هذه القاعدة. الترحيل على الأساسي يحتاج ربط المستخدم بمستخدم ساب واعتماده تحت.','Reads and posting both use this company. Posting to production needs each user linked to a SAP user and approved below.')}</div></div>`}
+/* link each platform user to a SAP user and sales employee; posting to production only for approved links */
+function sdMapCard(){if(!SDX.map){if(!SDX.mapBusy){SDX.mapBusy=true;Promise.all([window.__sb.rpc('sap_user_map_list'),typeof swSetup==='function'?swSetup().catch(()=>null):null]).then(([r])=>{SDX.map=r.data||[];SDX.mapBusy=false;render()}).catch(e=>{SDX.map=[];SDX.mapBusy=false;toast(e.message)})}
+    return `<div class="card empty">${L('جاري تحميل ربط المستخدمين…','Loading user links…')}</div>`}
+  const slps=(SDX.setup&&SDX.setup.slps)||[];const n=SDX.map.filter(x=>x.verified).length;
+  return `<div class="card"><b>${L('ربط المستخدمين بساب','Users ↔ SAP users')}</b> <span class="small muted">${n} / ${SDX.map.length} ${L('معتمد','approved')}</span>
+   <div class="small muted" style="margin:4px 0 8px">${L('راجع كل سطر: كود مستخدم ساب ورقمه الداخلي (InternalKey) ومندوب المبيعات، ثم علّم «معتمد» واحفظ. بدون اعتماد ما يقدر المستخدم يرحّل على القاعدة الأساسية.','Check each row: SAP user code, its internal key and the sales employee, then tick Approved and save. Unapproved users cannot post to production.')}</div>
+   <div class="tw"><table><thead><tr><th>${L('المستخدم','User')}</th><th>${L('كود مستخدم ساب','SAP user code')}</th><th>${L('الرقم الداخلي','Internal key')}</th><th>${L('مندوب المبيعات في ساب','SAP sales employee')}</th><th>${L('معتمد','Approved')}</th><th>${L('ملاحظة','Note')}</th><th></th></tr></thead><tbody>
+   ${SDX.map.map((m,i)=>`<tr><td><b>${esc(m.name||m.username||'')}</b><div class="small muted">${esc(m.role||'')}</div></td>
+     <td><input id="sdm_c_${i}" value="${esc(m.sap_user_code||'')}" style="width:110px" dir="ltr"></td><td><input id="sdm_u_${i}" value="${esc(m.sap_user_id??'')}" inputmode="numeric" style="width:70px" dir="ltr"></td>
+     <td><select id="sdm_s_${i}" data-nopick><option value="">—</option>${slps.map(x=>`<option value="${x.code}" ${String(x.code)===String(m.slp_code)?'selected':''}>${esc(x.name)} (${x.code})</option>`).join('')}${m.slp_code!=null&&!slps.some(x=>String(x.code)===String(m.slp_code))?`<option value="${m.slp_code}" selected>#${m.slp_code}</option>`:''}</select></td>
+     <td><input type="checkbox" id="sdm_v_${i}" ${m.verified?'checked':''} style="width:auto"></td><td class="small">${esc(m.note||'')}</td>
+     <td><button class="btn s" data-act="sdMapSave" data-i="${i}">${L('حفظ','Save')}</button></td></tr>`).join('')}</tbody></table></div></div>`}
 
-Object.assign(ACT,{sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSubmit(),sdCopyFrom:()=>sdCopyFrom(),
+Object.assign(ACT,{sdMapSave:async d=>{const i=+d.i;const m=SDX.map&&SDX.map[i];if(!m)return;const g=k=>(document.getElementById(`sdm_${k}_${i}`)||{});
+    const p={profile_id:m.profile_id,sap_user_code:g('c').value.trim(),sap_user_id:g('u').value.trim(),slp_code:g('s').value,verified:!!g('v').checked};
+    if(p.sap_user_id&&!/^\d+$/.test(p.sap_user_id))return toast(L('الرقم الداخلي لازم يكون رقم','Internal key must be a number'));
+    try{const {data,error}=await window.__sb.rpc('sap_user_map_save',{p});if(error)throw error;if(data&&data.ok===false)return toast((data.errors||[]).join(' · '));toast(L('تم حفظ الربط','Link saved'));SDX.map=null;render()}catch(e){toast(e.message)}},
+  sdRe:()=>sdLoad(true),sdNew:d=>sdForm(d.k),sdSubmit:()=>sdSubmit(),sdCopyFrom:()=>sdCopyFrom(),
   sdBase:d=>sdAddBase(SDE.bases[+d.i]),sdPickBp:d=>{document.getElementById('sd_bpres').innerHTML='';document.getElementById('sd_bpq').value='';sdPickClient(d.c)},
   sdAdd:d=>{const x=(SDE.found||[])[+d.i];if(!x)return;SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh});document.getElementById('sd_res').innerHTML='';const q=document.getElementById('sd_q');if(q)q.value='';sdPaint()},
   sdDel:d=>{SDE.lines.splice(+d.i,1);sdPaint()},
@@ -5731,6 +5767,10 @@ const wpItemOpts=cur=>{const items=(S.items||[]).filter(x=>x.active!==false).sor
 document.addEventListener('change',e=>{const t=e.target;if(!FORM||t.dataset.row!=='lines'||t.dataset.sk!=='product')return;const it=(S.items||[]).find(x=>x.code===t.value);if(!it)return;
   const r=FORM.rows.lines[+t.dataset.i];if(!r)return;r.product=it.code;if(it.unit)r.unit=it.unit;if((r.price===''||r.price==null||+r.price===0)&&it.price!=null&&it.price!=='')r.price=it.price;if(!r.size&&it.size)r.size=it.size;
   renderRows('lines');const q=document.querySelector(`[data-row="lines"][data-i="${t.dataset.i}"][data-sk="qty"]`);if(q){q.focus();q.select()}});
+/* choosing the client fills its rep automatically (quotations, orders, visits — any form that has both fields) */
+document.addEventListener('change',e=>{const t=e.target;if(!t||t.name!=='clientId'||!t.closest('#theform'))return;const c=byId('clients',t.value);if(!c||!c.repId)return;
+  const r=t.closest('#theform').querySelector('select[name="repId"]');if(!r||r.value===c.repId||![...r.options].some(o=>o.value===c.repId))return;
+  r.value=c.repId;r.dispatchEvent(new Event('input',{bubbles:true}));r.dispatchEvent(new Event('change',{bubbles:true}))});
 
 /* ===== SAP Business One–style document window (نفس شاشات ساب) for: Sales Quotation, Sales Order, Delivery,
    A/R Invoice, A/R Credit Memo and Return Request. Same layout and data-entry flow as SAP B1:
@@ -5776,9 +5816,9 @@ function swCFL({title,titleAr,cols,rows,find='',multi=false,onChoose,remote}){
 function swCflItems(find,after){if(!SDE||!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');document.getElementById('sd_client')?.focus();return}
   const go=items=>swCFL({title:'List of Items',titleAr:'قائمة الأصناف',find,multi:true,rows:items,
     cols:[{l:'Item No.',f:(r,q)=>`<b>${wpHi(r.code,q)}</b>`},{l:'Item Description',f:(r,q)=>wpHi(r.name,q)},{l:'In Stock',cls:'n',f:r=>swQ(r.stock)},{l:'Price',cls:'n',f:r=>r.price!=null?swM(r.price):'<span class="sw-red">—</span>'},{l:'UoM',f:r=>esc(r.unit||'')}],
-    onChoose:list=>{list.forEach(x=>SDE.lines.push({item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:x.wh}));sdPaint();
+    onChoose:list=>{list.forEach(x=>swAddLine(x));sdPaint();
       const i=SDE.lines.length-list.length;const n=document.querySelector(`[data-sdl="${i}"][data-f="qty"]`);if(n){n.focus();n.select()}
-      if(list.some(x=>x.price==null))swMsg('Item has no price in the customer price list — enter the price. الصنف ما له سعر في قائمة العميل','warn');if(after)after()}});
+      if(after)after()}});
   const c=SDX.cat[String(SDE.cust.PriceListNum)];if(c&&c.items)return go(c.items);swMsg('Loading items from SAP… جاري تحميل الأصناف','info');
   sdCatalog(SDE.cust.PriceListNum).then(items=>{swMsg('');go(items)}).catch(e=>swMsg(e.message,'err'))}
 function swCflBP(find){swCFL({title:'List of Business Partners',titleAr:'قائمة العملاء',find,rows:wpClients(),
@@ -5793,16 +5833,17 @@ function swWin(kind,mode,d,next){SW={mode,sel:-1,kind,doc:d||null,next:next||[]}
   const html=`<div class="sw" dir="ltr">
    <div class="sw-tb"><button class="sw-tbb" data-act="swNew" data-k="${kind}" title="Add — جديد">＋ Add</button><button class="sw-tbb" data-act="swFind" data-k="${kind}" title="Find — بحث">🔍 Find</button>
     ${view?`<button class="sw-tbb" data-act="sdPrint" title="Print — طباعة">🖨 Print</button>`:''}<span class="sw-tbt">${SD_T[kind][1]} <i>${SW_AR[kind]}</i></span>
-    <span class="sw-mode ${mode}">${view?'View — عرض':find?'Find — بحث':'Add — إضافة'}</span><span class="sw-test">SAP TEST</span></div>
+    <span class="sw-mode ${mode}">${view?'View — عرض':find?'Find — بحث':'Add — إضافة'}</span>${SDX.set&&SDX.set.db==='prod'?'<span class="sw-test prod">SAP</span>':'<span class="sw-test">SAP TEST</span>'}</div>
    <div class="sw-hd"><div class="sw-c">
      <div class="sw-r">${swLbl('Customer','العميل')}<div class="sw-f">${swArrow}<input id="sd_client" class="sw-in ${find?'fm':''}" value="${esc(c.card||'')}" ${view?'readonly':''} autocomplete="off">${view?'':`<button class="sw-cfl" data-act="swBP" title="Choose From List">≡</button>`}</div></div>
      <div class="sw-r">${swLbl('Name','الاسم')}<div class="sw-f"><input id="sw_name" class="sw-in ro" value="${esc(c.name||'')}" readonly dir="auto"></div></div>
-     <div class="sw-r">${swLbl('Contact Person','جهة الاتصال')}<div class="sw-f"><input id="sw_cp" class="sw-in ro" readonly></div></div>
+     <div class="sw-r">${swLbl('Contact Person','جهة الاتصال')}<div class="sw-f">${view||find?`<input id="sw_cp" class="sw-in ro" readonly>`:`<select id="sw_cp" class="sw-in"><option value="">—</option></select><span id="sw_cpph" class="sw-mut"></span>`}</div></div>
      <div class="sw-r">${swLbl('Customer Ref. No.','مرجع العميل')}<div class="sw-f"><input id="sd_ref" class="sw-in ${view?'ro':''}" value="${esc(c.ref||'')}" ${view?'readonly':''}></div></div>
      <div class="sw-r">${swLbl('Local Currency','العملة')}<div class="sw-f"><input class="sw-in ro" value="SAR" readonly style="width:70px"></div></div>
+     <div class="sw-r">${swLbl('Branch','الفرع')}<div class="sw-f">${view||find?`<input id="sw_bpl" class="sw-in ro" readonly value="${esc(c.bpl_name||c.bpl||'')}">`:`<select id="sw_bpl" class="sw-in"><option value="">Loading… جاري التحميل</option></select>`}</div></div>
      <div id="sd_cust" class="sw-cr"></div></div>
     <div class="sw-c sw-c2">
-     <div class="sw-r">${swLbl('No.','الرقم')}<div class="sw-f"><input class="sw-in ro" value="Primary" readonly style="width:80px"><input id="sw_no" class="sw-in ${find?'fm':'ro'}" value="${view?c.num:''}" ${find?'':'readonly'} placeholder="${view||find?'':'Assigned by SAP on Add'}"></div></div>
+     <div class="sw-r">${swLbl('No.','الرقم')}<div class="sw-f">${view||find?`<input class="sw-in ro" value="${esc(c.series_name||'')}" readonly style="width:110px">`:`<select id="sw_series" class="sw-in" style="width:110px"></select>`}<input id="sw_no" class="sw-in ${find?'fm':'ro'}" value="${view?c.num:''}" ${find?'':'readonly'} placeholder="${view||find?'':'Assigned by SAP on Add'}" title="The next number in SAP; SAP confirms it on Add — الرقم التالي في ساب ويتأكد عند الإضافة"></div></div>
      <div class="sw-r">${swLbl('Status','الحالة')}<div class="sw-f"><input class="sw-in ro" readonly value="${view?(c.cancelled?'Canceled':c.status==='bost_Close'?'Closed':'Open'):find?'':'Open'}"></div></div>
      <div class="sw-r">${swLbl('Posting Date','تاريخ الترحيل')}<div class="sw-f"><input type="date" id="sd_date" class="sw-in ${view?'ro':find?'fm':''}" value="${view?String(c.date||'').slice(0,10):find?'':TODAY()}" ${view?'readonly':''}></div></div>
      <div class="sw-r">${swLbl(due,kind==='quotation'?'صالح حتى':kind==='invoice'||kind==='creditnote'?'تاريخ الاستحقاق':'تاريخ التسليم')}<div class="sw-f"><input type="date" id="sd_due" class="sw-in ${view?'ro':''}" value="${view?String(c.due||'').slice(0,10):find?'':addDays(TODAY(),kind==='quotation'?14:kind==='invoice'?30:3)}" ${ro}></div></div>
@@ -5818,7 +5859,7 @@ function swWin(kind,mode,d,next){SW={mode,sel:-1,kind,doc:d||null,next:next||[]}
       <div class="sw-r">${swLbl('Payment Terms','شروط الدفع')}<div class="sw-f"><input id="sw_pt" class="sw-in ro" readonly></div></div><div class="sw-r">${swLbl('Federal Tax ID','الرقم الضريبي')}<div class="sw-f"><input id="sw_vat" class="sw-in ro" readonly></div></div></div>
       <div class="sw-c"><div id="sw_credit"></div></div></div></div>
    <div class="sw-ft"><div class="sw-c">
-     <div class="sw-r">${swLbl('Sales Employee','مندوب المبيعات')}<div class="sw-f"><input class="sw-in ro" readonly value="${esc(view?'':me()?.name||'')}"></div></div>
+     <div class="sw-r">${swLbl('Sales Employee','مندوب المبيعات')}<div class="sw-f">${view||find?`<input id="sw_slp" class="sw-in ro" readonly value="${esc(c.slp_name||'')}">`:`<select id="sw_slp" class="sw-in"><option value="-1">-No Sales Employee-</option></select>`}</div></div>
      <div class="sw-r">${swLbl('Owner','المالك')}<div class="sw-f"><input class="sw-in ro" readonly value="${esc(view?'':me()?.name||'')}"></div></div>
      <div class="sw-r top">${swLbl('Remarks','ملاحظات')}<div class="sw-f"><textarea id="sd_note" class="sw-in ${view?'ro':''}" rows="3" ${ro} dir="auto">${esc(view?c.comments||'':'')}</textarea></div></div></div>
     <div class="sw-c sw-c2" id="sd_tot"></div></div>
@@ -5830,7 +5871,8 @@ function swWin(kind,mode,d,next){SW={mode,sel:-1,kind,doc:d||null,next:next||[]}
 
 const _sdFormOld=sdForm;
 sdForm=function(kind,pre){if(kind==='payment')return _sdFormOld(kind,pre);
-  SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]}};swWin(kind,'add');sdPaint();
+  SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]},bpl:null,series:null,slp:null,contact:null,round:false};swWin(kind,'add');sdPaint();
+  swSetup().then(swFillHdr).catch(e=>swMsg('Could not read branches and series from SAP — '+esc(e.message),'err'));
   const ci=document.getElementById('sd_client');swBindCust(ci);setTimeout(()=>ci.focus(),60);if(pre)setTimeout(()=>sdPrefill(pre),0)};
 function swBindCust(ci){ci.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter')return;const v=ci.value.trim();if(e.shiftKey)return;
   if(!v){if(e.key==='Enter'){e.preventDefault();swCflBP('')}return}
@@ -5842,9 +5884,10 @@ function swBindCust(ci){ci.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.ke
 /* credit / customer details in SAP fields */
 const _sdCreditOld=sdCredit;
 sdCredit=function(){if(!document.querySelector('.sw')||SW.mode!=='add')return _sdCreditOld();const box=document.getElementById('sd_cust');const c=SDE&&SDE.cust;SDE&&(SDE.over=false);if(!box)return;
-  if(!c){box.innerHTML='';['sw_name','sw_ship','sw_pl','sw_pt','sw_vat','sw_cp'].forEach(id=>{const e=document.getElementById(id);if(e&&id!=='sw_name')e.value=''});return}
+  if(!c){box.innerHTML='';SDE&&(SDE._ca=null);['sw_ship','sw_pl','sw_pt','sw_vat'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});return}
+  if(SDE._ca!==c.CardCode){SDE._ca=c.CardCode;swApplyCust(c)}
   const set=(id,v)=>{const e=document.getElementById(id);if(e)e.value=v??''};const ci=document.getElementById('sd_client');if(ci&&document.activeElement!==ci)ci.value=c.CardCode;
-  set('sw_name',c.CardName);set('sw_cp',[c.Phone1,c.Cellular].filter(Boolean).join(' / '));set('sw_ship',c.Address||'');set('sw_pl',c.PriceListName||c.PriceListNum);set('sw_pt',c.PayTermsGrpCode!=null?String(c.PayTermsGrpCode):'');set('sw_vat',c.FederalTaxID||'');
+  set('sw_name',c.CardName);set('sw_pl',c.PriceListName||c.PriceListNum);set('sw_pt',c.PayTermsGrpCode!=null?String(c.PayTermsGrpCode):'');set('sw_vat',c.FederalTaxID||'');
   const credit=SD_CREDIT.has(SDE.kind);const hd=sdNum(SDE.disc);
   const t=credit?SDE.lines.filter(l=>+l.base_type!==15).reduce((s,l)=>s+sdLineNet(l)*(1-hd/100)*(/0%|EX|ZR/i.test(l.vat_group||'')?1:1.15),0):0;
   const after=c.Exposure+t;const over=credit&&t>0&&after>sdNum(c.CreditLimit)+0.005;const frozen=c.Frozen==='tYES'||c.Valid==='tNO';
@@ -5860,32 +5903,83 @@ sdCredit=function(){if(!document.querySelector('.sw')||SW.mode!=='add')return _s
 const _sdPaintOld=sdPaint;
 sdPaint=function(){if(!SDE)return;const box=document.getElementById('sd_lines');if(!box||!document.querySelector('.sw')||SW.mode!=='add')return _sdPaintOld();
   const free=SDE.kind!=='delivery'&&SDE.kind!=='retreq';const qv=document.getElementById('sd_q')?.value||'';
-  box.innerHTML=`<table class="sw-grid sw-lines"><thead><tr><th>#</th><th>Item No.</th><th>Item Description</th><th>Quantity</th><th>UoM</th><th>Unit Price</th><th>Discount %</th><th>Tax Code</th><th>Total (LC)</th><th>Whse</th><th>Base Document</th></tr></thead><tbody>
+  const hasBase=SDE.lines.some(l=>l.base_entry);const nc=hasBase?12:11;
+  box.innerHTML=`<table class="sw-grid sw-lines"><thead><tr><th>#</th><th>Item No.</th><th>Item Description</th><th>Quantity</th><th>Unit Price</th><th>Discount %</th><th>VAT Code</th><th>Total (LC)</th><th>Whse</th><th>In Stock</th><th>Qty in Whse</th>${hasBase?'<th>Base Document</th>':''}</tr></thead><tbody>
    ${SDE.lines.map((l,i)=>{const b=!!l.base_entry;return `<tr class="${SW.sel===i?'sel':''}" data-swrow="${i}"><td class="n rn" data-act="swSel" data-i="${i}">${i+1}</td>
      <td class="ro">${swArrow}<b>${esc(l.item_code||'')}</b></td><td class="ro" dir="auto">${esc(l.name||'')}</td>
-     <td><input data-sdl="${i}" data-f="qty" class="sw-ci n" inputmode="decimal" value="${esc(l.qty)}"></td><td class="ro">${esc(l.unit||'')}</td>
-     <td${b?' class="ro n"':''}>${b?swM(l.price):`<input data-sdl="${i}" data-f="price" class="sw-ci n" inputmode="decimal" value="${esc(l.price??'')}">`}</td>
+     <td title="${esc(l.unit||'')}"><input data-sdl="${i}" data-f="qty" class="sw-ci n" inputmode="decimal" value="${esc(l.qty)}"></td>
+     <td${b?' class="ro n"':''}>${b?swM(l.price):`<input data-sdl="${i}" data-f="price" class="sw-ci n" inputmode="decimal" value="${esc(l.price??'')}"${l._pr==='busy'?' placeholder="…"':''}>`}</td>
      <td${b?' class="ro n"':''}>${b?swQ(l.disc||0):`<input data-sdl="${i}" data-f="disc" class="sw-ci n" inputmode="decimal" value="${esc(l.disc||0)}">`}</td>
      <td class="ro">${esc(l.vat_group||'')}</td><td class="ro n sd-lt">${swM(sdLineNet(l))}</td><td class="ro">${esc(l.wh||'')}</td>
-     <td class="ro">${b?`${swArrow}${SD_T[SD_TYPE_OF[l.base_type]]?.[1]||''} ${l.base_num||''}${l.open!=null?` <span class="sw-mut">(open ${swQ(l.open)})</span>`:''}`:''}</td></tr>`}).join('')}
+     <td class="ro n g">${l.stock!=null?swQ(l.stock):''}</td><td class="ro n g">${l.whStock!=null?swQ(l.whStock):''}</td>
+     ${hasBase?`<td class="ro">${b?`${swArrow}${SD_T[SD_TYPE_OF[l.base_type]]?.[1]||''} ${l.base_num||''}${l.open!=null?` <span class="sw-mut">(open ${swQ(l.open)})</span>`:''}`:''}</td>`:''}</tr>`}).join('')}
    ${free?`<tr class="sw-new"><td class="n rn">${SDE.lines.length+1}</td><td><div class="sw-cell"><input id="sd_q" class="sw-ci" value="${esc(qv)}" placeholder="Item No." autocomplete="off"><button class="sw-cfl" data-act="swItems" title="Choose From List — قائمة الأصناف">≡</button></div></td>
-     <td><input id="sw_desc" class="sw-ci" placeholder="Item Description — اكتب الوصف" autocomplete="off" dir="auto"></td><td colspan="8" class="sw-hint">Type an item code or description, then Tab or Enter — اكتب الكود أو الوصف ثم Tab أو Enter</td></tr>`
-   :!SDE.lines.length?`<tr><td colspan="11" class="sw-empty">Use “Copy From” to draw lines from a base document — استخدم «Copy From» لنسخ الأسطر</td></tr>`:''}</tbody></table>`;
+     <td><input id="sw_desc" class="sw-ci" placeholder="Item Description — اكتب الوصف" autocomplete="off" dir="auto"></td><td></td><td></td><td class="ro n">0.00</td><td class="ro">VAT 15%</td><td></td><td class="ro">${esc(swWh()||'')}</td><td class="g"></td><td class="g"></td>${hasBase?'<td></td>':''}</tr>`
+   :!SDE.lines.length?`<tr><td colspan="${nc}" class="sw-empty">Use “Copy From” to draw lines from a base document — استخدم «Copy From» لنسخ الأسطر</td></tr>`:''}</tbody></table>`;
   const qi=document.getElementById('sd_q'),di=document.getElementById('sw_desc');
   if(qi)qi.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=qi.value.trim();if(!v){if(e.key==='Enter'){e.preventDefault();swCflItems('')}return}e.preventDefault();swItemCode(v)});
   if(di)di.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=di.value.trim();if(!v)return;e.preventDefault();di.value='';swCflItems(v)});
   const t=sdTotals();document.getElementById('sd_tot').innerHTML=`<div class="sw-r">${swLbl('Total Before Discount','الإجمالي قبل الخصم')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.net0)} SAR"></div></div>
    <div class="sw-r">${swLbl('Discount','الخصم')}<div class="sw-f"><input id="sd_disc" class="sw-in n" style="width:64px" inputmode="decimal" value="${esc(SDE.disc||0)}"><span class="sw-pct">%</span><input class="sw-in ro n" readonly value="${swM(t.disc)} SAR"></div></div>
-   <div class="sw-r">${swLbl('Freight','الشحن')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(0)} SAR"></div></div>
+   <div class="sw-r">${swLbl('Freight','الشحن')}<div class="sw-f">${swArrow}<input class="sw-in ro n" readonly value="${swM(0)} SAR"></div></div>
+   <div class="sw-r">${swLbl('Rounding','التقريب')}<div class="sw-f"><input type="checkbox" id="sw_round" ${SDE.round?'checked':''} title="Round the total as SAP does — تقريب الإجمالي"><input class="sw-in ro n" readonly value="${swM(SDE.round?Math.round(t.total)-t.total:0)} SAR"></div></div>
    <div class="sw-r">${swLbl('Tax','الضريبة')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.vat)} SAR" title="Estimate — SAP computes the final tax"></div></div>
-   <div class="sw-r tot">${swLbl('Total Payment Due','الإجمالي المستحق')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.total)} SAR"></div></div>`;
+   <div class="sw-r tot">${swLbl('Total','الإجمالي')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(SDE.round?Math.round(t.total):t.total)} SAR"></div></div>`;
+  const rc=document.getElementById('sw_round');if(rc)rc.addEventListener('change',()=>{SDE.round=rc.checked;sdPaint()});
   const di2=document.getElementById('sd_disc');di2.addEventListener('change',()=>{SDE.disc=di2.value;sdPaint()});
   sdCredit()};
-function swItemCode(v){const go=items=>{const ex=items.find(x=>String(x.code).toLowerCase()===v.toLowerCase());if(ex){SDE.lines.push({item_code:ex.code,name:ex.name,unit:ex.unit,qty:1,price:ex.price,disc:0,vat_group:ex.vat||'',wh:ex.wh});
-      document.getElementById('sd_q').value='';sdPaint();const n=document.querySelector(`[data-sdl="${SDE.lines.length-1}"][data-f="qty"]`);if(n){n.focus();n.select()}if(ex.price==null)swMsg('Item has no price in the customer price list — enter the price','warn')}
+function swItemCode(v){const go=items=>{const ex=items.find(x=>String(x.code).toLowerCase()===v.toLowerCase());if(ex){swAddLine(ex);
+      document.getElementById('sd_q').value='';sdPaint();const n=document.querySelector(`[data-sdl="${SDE.lines.length-1}"][data-f="qty"]`);if(n){n.focus();n.select()}}
     else{document.getElementById('sd_q').value='';swCflItems(v)}};
   if(!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');return}const c=SDX.cat[String(SDE.cust.PriceListNum)];if(c&&c.items)return go(c.items);
   swMsg('Loading items from SAP… جاري تحميل الأصناف','info');sdCatalog(SDE.cust.PriceListNum).then(it=>{swMsg('');go(it)}).catch(e=>swMsg(e.message,'err'))}
+
+/* ---------- header data from SAP: branches, numbering series, sales employees (read once per page) ---------- */
+function swSetup(){if(SDX.setup)return Promise.resolve(SDX.setup);if(SDX.setupP)return SDX.setupP;
+  SDX.setupP=sdRead('setup',{}).then(r=>{SDX.setup=r;SDX.setupP=null;return r}).catch(e=>{SDX.setupP=null;throw e});return SDX.setupP}
+const swWh=()=>{const b=(SDX.setup?.branches||[]).find(x=>String(x.id)===String(SDE?.bpl));return b?.wh||''};
+function swFillHdr(){const S=SDX.setup;if(!S||!SDE||SW.mode!=='add')return;const bs=document.getElementById('sw_bpl');if(!bs)return;const br=S.branches||[];
+  if(SDE.bpl==null){let saved=null;try{saved=localStorage.getItem('sw_bpl')}catch(e){}SDE.bpl=(br.find(b=>String(b.id)===saved)||br.find(b=>b.main)||br[0]||{}).id??''}
+  bs.innerHTML=br.length?br.map(b=>`<option value="${b.id}" ${String(b.id)===String(SDE.bpl)?'selected':''}>${esc(b.name)}</option>`).join(''):'<option value="">—</option>';
+  swFillSeries();
+  const ss=document.getElementById('sw_slp');if(ss){ss.innerHTML=`<option value="-1">-No Sales Employee-</option>`+(S.slps||[]).map(x=>`<option value="${x.code}">${esc(x.name)}</option>`).join('');ss.value=SDE.slp!=null?String(SDE.slp):'-1'}
+  SDE.lines.forEach(l=>{if(!l.base_entry&&swWh())l.wh=swWh()});swRepaint()}
+function swFillSeries(){const S=SDX.setup;const sel=document.getElementById('sw_series');if(!S||!sel||!SDE)return;
+  const list=((S.series&&S.series[SDE.kind])||[]).filter(x=>!x.error&&(x.bpl==null||String(x.bpl)===String(SDE.bpl)));
+  if(!list.some(x=>String(x.series)===String(SDE.series)))SDE.series=(list.find(x=>x.def)||list[0]||{}).series??'';
+  sel.innerHTML=list.length?list.map(x=>`<option value="${x.series}" ${String(x.series)===String(SDE.series)?'selected':''}>${esc(x.name)}</option>`).join(''):'<option value="">Primary</option>';
+  const n=list.find(x=>String(x.series)===String(SDE.series));const no=document.getElementById('sw_no');if(no)no.value=n&&n.next!=null?n.next:''}
+/* the customer's own sales employee, contact person and ship-to come in automatically, as in SAP */
+function swApplyCust(c){SDE.slp=c.SalesPersonCode!=null&&+c.SalesPersonCode>=0?+c.SalesPersonCode:-1;
+  const ss=document.getElementById('sw_slp');if(ss){if(SDE.slp>=0&&!ss.querySelector(`option[value="${SDE.slp}"]`))ss.insertAdjacentHTML('beforeend',`<option value="${SDE.slp}">${esc(c.SalesPersonName||('#'+SDE.slp))}</option>`);ss.value=String(SDE.slp)}
+  const cs=document.getElementById('sw_cp');if(cs&&cs.tagName==='SELECT'){const cl=c.Contacts||[];const def=cl.find(x=>x.name===c.ContactPerson)||cl[0];SDE.contact=def?def.code:'';
+    cs.innerHTML=`<option value="">—</option>`+cl.map(x=>`<option value="${x.code}" ${def&&x.code===def.code?'selected':''}>${esc(x.name)}</option>`).join('');swCpPhone()}
+  const sh=document.getElementById('sw_ship');if(sh)sh.value=(c.ShipTo&&c.ShipTo[0])||c.Address||'';
+  SDE.lines.filter(l=>!l.base_entry).forEach(l=>swPrice(l))}
+function swCpPhone(){const p=document.getElementById('sw_cpph');if(!p||!SDE||!SDE.cust)return;const x=(SDE.cust.Contacts||[]).find(y=>String(y.code)===String(SDE.contact));p.textContent=x&&x.phone?x.phone:[SDE.cust.Phone1,SDE.cust.Cellular].filter(Boolean)[0]||''}
+/* a new row: SAP's price for this customer (GetItemPrice: special prices, discount groups, price list) and stock in the branch warehouse */
+function swAddLine(x){const l={item_code:x.code,name:x.name,unit:x.unit,qty:1,price:x.price,disc:0,vat_group:x.vat||'',wh:swWh()||x.wh,stock:x.stock??null,whStock:null,_pr:'busy'};SDE.lines.push(l);swPrice(l);return l}
+async function swPrice(l){if(!SDE||!SDE.cust)return;const card=SDE.cust.CardCode;l._pr='busy';
+  try{const r=await sdRead('price',{card,item:l.item_code,qty:sdNum(l.qty)||1,date:(document.getElementById('sd_date')||{}).value||undefined});
+    if(!SDE||!SDE.cust||SDE.cust.CardCode!==card||!SDE.lines.includes(l))return;
+    l._whs=r.wh||[];l.stock=l._whs.reduce((s,w)=>s+sdNum(w.stock),0);swWhStock(l);
+    if(r.price!=null&&!l._userPrice){l.price=Math.round(sdNum(r.price)*10000)/10000;l.disc=0}
+    if(r.price==null&&(l.price==null||l.price===''))swMsg(`${esc(l.item_code)}: no price in SAP for this customer — enter the price. الصنف ما له سعر في ساب لهذا العميل`,'warn')}
+  catch(e){/* keep the price-list price */}l._pr='';swRepaint()}
+function swWhStock(l){if(!l._whs)return;const w=l._whs.find(w=>String(w.wh)===String(l.wh));l.whStock=w?sdNum(w.stock):0}
+/* repaint the grid without losing the cursor */
+function swRepaint(){if(!SDE||!document.querySelector('.sw'))return;const f=document.activeElement;const k=f&&f.dataset&&f.dataset.sdl!=null?[f.dataset.sdl,f.dataset.f,f.selectionStart,f.selectionEnd]:null;
+  const d=f&&f.id==='sw_desc'?[f.value,f.selectionStart]:null;sdPaint();
+  if(k){const n=document.querySelector(`[data-sdl="${k[0]}"][data-f="${k[1]}"]`);if(n){n.focus();try{n.setSelectionRange(k[2],k[3])}catch(x){}}}
+  else if(d){const n=document.getElementById('sw_desc');if(n){n.value=d[0];n.focus();try{n.setSelectionRange(d[1],d[1])}catch(x){}}}}
+function swExtra(){if(!SDE||!document.querySelector('.sw')||SW.mode!=='add')return {};
+  return {bpl:SDE.bpl||null,series:SDE.series||null,slp_code:SDE.slp!=null?+SDE.slp:null,contact:SDE.contact||null,rounding:!!SDE.round}}
+document.addEventListener('change',e=>{const t=e.target;if(!SDE||!t||!t.id||!document.querySelector('.sw'))return;
+  if(t.id==='sw_bpl'){SDE.bpl=t.value;try{localStorage.setItem('sw_bpl',t.value)}catch(x){}swFillSeries();SDE.lines.forEach(l=>{if(!l.base_entry){l.wh=swWh()||l.wh;swWhStock(l)}});swRepaint()}
+  else if(t.id==='sw_series'){SDE.series=t.value;swFillSeries()}
+  else if(t.id==='sw_slp')SDE.slp=t.value;
+  else if(t.id==='sw_cp'){SDE.contact=t.value;swCpPhone()}});
+document.addEventListener('input',e=>{const t=e.target;if(SDE&&t.dataset&&t.dataset.f==='price'&&t.dataset.sdl!=null){const l=SDE.lines[+t.dataset.sdl];if(l)l._userPrice=true}},true);
 
 /* Copy From: choose the base document from a SAP-style list */
 async function swCopyFrom(type){if(!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');return}swMsg(`Loading open ${SW_LIST[type]}… جاري التحميل`,'info');
@@ -5953,7 +6047,11 @@ document.addEventListener('click',e=>{const m=document.getElementById('sw_ctx');
 .sw-tb{display:flex;align-items:center;gap:4px;padding:4px 8px;background:#F5F6F8;border-bottom:1px solid #C5CBD3}
 .sw-tbb{border:1px solid transparent;background:none;padding:3px 8px;border-radius:3px;font:12px "Segoe UI",Arial;cursor:pointer;color:#1F2D3D}.sw-tbb:hover{border-color:#B6BEC9;background:#fff}
 .sw-tbt{margin-inline-start:12px;font-weight:700;font-size:13px;color:#1F2D3D}.sw-mode{margin-inline-start:auto;font-size:11px;padding:2px 8px;border-radius:2px;background:#DDE7F3;color:#24476E}.sw-mode.find{background:#FFF4C2;color:#7A5A00}.sw-mode.view{background:#E4EFE4;color:#2C5E2C}
-.sw-test{font-size:10px;font-weight:700;color:#fff;background:#C0392B;padding:2px 6px;border-radius:2px}
+.sw-test{font-size:10px;font-weight:700;color:#fff;background:#C0392B;padding:2px 6px;border-radius:2px}.sw-test.prod{background:#1E7B34}
+.sw-grid td.g{background:#ECEEF1;color:#555}
+#modal.sapmode .sw select.sw-in{height:22px!important;min-height:0!important;padding:0 3px!important;font-size:12px!important;border-radius:2px!important;border:1px solid #A5ADB8!important;background:#fff!important;box-shadow:none!important}
+#sw_cpph{white-space:nowrap}
+#modal.sapmode .sw input[type=checkbox]{width:14px!important;height:14px!important;min-height:0!important;margin:0 4px!important;flex:none;accent-color:#E8A317}
 .sw-hd,.sw-ft{display:grid;grid-template-columns:1fr 1fr;gap:6px 40px;padding:10px 14px}
 .sw-c2{justify-self:end;width:min(100%,420px)}
 .sw-r{display:grid;grid-template-columns:150px 1fr;align-items:center;margin:2px 0;min-height:24px}.sw-r.top{align-items:start}
