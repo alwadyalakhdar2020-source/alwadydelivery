@@ -2435,6 +2435,170 @@ function qbBatchView(){const B=QB.batches;
     {l:'المستودع',f:b=>b.rcpt_status?pill(...RC_ST[b.rcpt_status]):'—'},
     {l:'',c:'nw',f:b=>['pass','released'].includes(b.qc_status)?`<button class="btn s" data-act="qbCert" data-k="${esc(bKey(b))}">شهادة جودة</button>`:''}],B,{empty:'ما فيه إنتاج مسجل في الفترة'})}</div>`}
 
+/* ===== Maintenance: asset register, preventive schedule (days or meter), work orders, spare parts with auto reorder, mould life, MTBF/MTTR ===== */
+const MT={key:'',sub:'wo',assets:[],wo:[],parts:[],moves:[],log:[],prs:[],busy:false,flt:'open',days:90};
+const WO_ST={open:['🔔 بلاغ جديد','bad'],in_progress:['🔧 قيد التنفيذ','warn'],waiting_parts:['⏳ بانتظار قطع','warn'],done:['✓ مقفل','ok'],cancelled:['ملغي','']};
+const WO_K={breakdown:['عطل','bad'],preventive:['وقائية','ok'],improvement:['تحسين','info']};
+const WO_P={normal:'عادي',high:'مهم',urgent:'عاجل — الخط واقف'};
+const mtEd=()=>prodEd('maint');
+const mtRep=()=>mtEd()||prodEd('actual')||prodTabLvl('maint')>=1;
+const assetName=id=>MT.assets.find(a=>a.id===id)?.name||'—';
+const hrs=(a,b)=>a?Math.max(0,((b?new Date(b):new Date())-new Date(a))/36e5):null;
+const fH=h=>h==null?'—':h<1?`${Math.round(h*60)} د`:`${(Math.round(h*10)/10).toLocaleString('en-US')} س`;
+const toIso=v=>v?new Date(v).toISOString():'';
+const toLocal=s=>{if(!s)return '';const d=new Date(s);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16)};
+async function mtLoad(){MT.busy=true;
+  try{await ppRefs();const since=addDays(TODAY(),-180);
+    const [a,w,p,mv,l,pr]=await Promise.all([fetchAll(()=>sb.from('prod_assets').select('*').order('name')),
+      fetchAll(()=>sb.from('prod_wo').select('*').or(`status.in.(open,in_progress,waiting_parts),created_at.gte.${since}`).order('created_at',{ascending:false})),
+      fetchAll(()=>sb.from('prod_parts').select('*').order('name')),
+      sb.from('prod_part_moves').select('*').order('at',{ascending:false}).limit(60),
+      fetchAll(()=>sb.from('prod_maint').select('*').gte('day',since).order('day',{ascending:false})),
+      fetchAll(()=>sb.from('purchase_requests').select('id,no,status,part_id,qty').not('part_id','is',null).in('status',['pending','approved','ordered']))]);
+    if(mv.error)throw mv.error;MT.assets=a;MT.wo=w;MT.parts=p;MT.moves=mv.data||[];MT.log=l;MT.prs=pr;PM.assets=a;PM.log=l;MT.key='ok'}
+  catch(e){toast(errText(e));MT.key='err'}finally{MT.busy=false;render()}}
+/* preventive status: by calendar days and/or by meter (hours or cycles); the worse of the two wins */
+function mtDue(a){const out=[];
+  if(+a.every_days>0){if(!a.last_done)out.push({t:'ما سُجلت صيانة',tone:'warn',s:-1});else{const d=addDays(a.last_done,+a.every_days),left=dDiff(TODAY(),d);out.push({t:left<0?`متأخرة ${-left} يوم`:`بعد ${left} يوم`,tone:left<0?'bad':left<=7?'warn':'ok',s:left,due:d})}}
+  if(+a.every_meter>0&&a.meter!=null){const u=a.meter_unit==='cycles'?'دورة':'ساعة';const next=(+a.last_meter||0)+(+a.every_meter);const left=next-(+a.meter);
+    out.push({t:left<0?`متأخرة ${num(-left)} ${u}`:`باقي ${num(left)} ${u}`,tone:left<0?'bad':left<=+a.every_meter*.1?'warn':'ok',s:left<0?-1:left<=+a.every_meter*.1?3:999})}
+  if(!out.length)return {t:'بدون جدول',tone:'',s:9999};return out.sort((x,y)=>x.s-y.s)[0]}
+const mtLife=a=>+a.life_meter>0&&a.meter!=null?(+a.meter)/(+a.life_meter):null;
+const openWoOf=(id,k)=>MT.wo.find(w=>w.asset_id===id&&(!k||w.kind===k)&&['open','in_progress','waiting_parts'].includes(w.status));
+function ppMaintView(){
+  if(MT.key==='err')return `<div class="card empty">تعذّر تحميل بيانات الصيانة. <button class="btn s" data-act="mtRetry">إعادة المحاولة</button></div>`;
+  if(!ensureRefs()||MT.key!=='ok'){if(!MT.busy){MT.busy=true;setTimeout(mtLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const A=MT.assets.filter(a=>a.active!==false);const open=MT.wo.filter(w=>['open','in_progress','waiting_parts'].includes(w.status));
+  const stopped=open.filter(w=>w.down_from);const od=A.filter(a=>mtDue(a).tone==='bad').length;const low=MT.parts.filter(p=>p.active!==false&&p.min_qty!=null&&+p.qty<=+p.min_qty).length;
+  const life=A.filter(a=>(mtLife(a)??0)>=.9).length;
+  const subs=[['wo',`أوامر العمل${open.length?` (${open.length})`:''}`],['pm',`الصيانة الوقائية${od?` (${od})`:''}`],['assets','سجل الأصول'],['parts',`قطع الغيار${low?` (${low})`:''}`],['rep','تقارير الصيانة']];
+  let h=`<div class="toolbar noprint">${subs.map(([k,l])=>`<button class="chip ${MT.sub===k?'on':''}" data-act="mtSub" data-v="${k}">${l}</button>`).join('')}<span class="grow"></span>${mtRep()?`<button class="btn p" data-act="mtNewWo">+ بلاغ عطل</button>`:''}</div>`;
+  h+=`<div class="kpis k4">${kpiTile('خطوط واقفة الحين',num(stopped.length),stopped.length?stopped.map(w=>esc(assetName(w.asset_id))).slice(0,2).join('، '):'')}${kpiTile('أوامر عمل مفتوحة',num(open.length),`${num(open.filter(w=>w.status==='waiting_parts').length)} بانتظار قطع`)}${kpiTile('وقائية متأخرة',num(od))}${kpiTile('قطع تحت الحد الأدنى',num(low),life?`${life} قالب قرب نهاية عمره`:'')}</div>`;
+  if(!A.length&&MT.sub!=='assets')h+=`<div class="banner info noprint"><span class="sp">ابدأ بتسجيل المكائن والقوالب في «سجل الأصول» مع جدول صيانتها، وبعدها تنفتح أوامر العمل والتقارير.</span>${mtEd()?`<button class="btn s" data-act="mtSub" data-v="assets">سجل الأصول</button>`:''}</div>`;
+  if(MT.sub==='pm')return h+mtPmView();if(MT.sub==='assets')return h+mtAssetsView();if(MT.sub==='parts')return h+mtPartsView();if(MT.sub==='rep')return h+mtRepView();
+  return h+mtWoView()}
+function mtWoView(){const ed=mtEd();const W=MT.wo.filter(w=>MT.flt==='all'||(MT.flt==='open'?['open','in_progress','waiting_parts'].includes(w.status):w.status===MT.flt))
+  .sort((a,b)=>(b.priority==='urgent')-(a.priority==='urgent')||(b.down_from?1:0)-(a.down_from?1:0)||(a.created_at<b.created_at?1:-1));
+  const act=w=>{if(!ed||['done','cancelled'].includes(w.status))return '';let x='';
+    if(w.status==='open')x+=`<button class="btn s p" data-act="mtWoAct" data-id="${w.id}" data-a="start">بدء العمل</button> `;
+    if(w.status==='in_progress')x+=`<button class="btn s" data-act="mtWoAct" data-id="${w.id}" data-a="wait">بانتظار قطع</button> `;
+    if(w.status==='waiting_parts')x+=`<button class="btn s" data-act="mtWoAct" data-id="${w.id}" data-a="start">استئناف</button> `;
+    return x+`<button class="btn s p" data-act="mtClose" data-id="${w.id}">إقفال</button> <button class="btn s" data-act="mtCancel" data-id="${w.id}">إلغاء</button>`};
+  return `<div class="toolbar noprint">${[['open','المفتوحة'],['done','المقفلة'],['all','الكل (آخر 6 شهور)']].map(([k,l])=>`<button class="chip ${MT.flt===k?'on':''}" data-act="mtFlt" data-v="${k}">${l}</button>`).join('')}</div>
+   <div class="card"><h2>أوامر العمل<span class="sub">${num(W.length)}</span></h2>${table([{l:'#',c:'n',f:w=>`<bdi dir="ltr">${w.id}</bdi>`},
+    {l:'الماكينة / القالب',f:w=>{const a=MT.assets.find(x=>x.id===w.asset_id);return `<b>${esc(a?.name||'—')}</b><div class="small muted">${esc(lineName(a?.line_id))}</div>`}},
+    {l:'النوع',f:w=>pill(...WO_K[w.kind])+(w.priority!=='normal'?' '+pill(WO_P[w.priority],w.priority==='urgent'?'bad':'warn'):'')},
+    {l:'المشكلة / العمل',f:w=>`${esc(w.problem)}${w.action?`<div class="small muted">✓ ${esc(w.action)}</div>`:''}${w.cause?`<div class="small muted">السبب: ${esc(w.cause)}</div>`:''}`},
+    {l:'البلاغ',f:w=>`<span class="small">${esc(pName(w.reported_by))}<br><span class="muted">${fdt(w.created_at)}</span></span>`},
+    {l:'التوقف',c:'n',f:w=>w.down_from?(w.down_to?fH(hrs(w.down_from,w.down_to)):`<span class="flag">${fH(hrs(w.down_from))} ⏱</span>`):'—'},
+    {l:'الفني',f:w=>esc(w.technician||'—')},{l:'الحالة',f:w=>pill(...WO_ST[w.status])},{l:'',c:'nw',f:act}],W,{empty:'ما فيه أوامر عمل'})}</div>`}
+function mtPmView(){const ed=mtEd();const A=MT.assets.filter(a=>a.active!==false).map(a=>({...a,d:mtDue(a)})).filter(a=>a.d.tone!==''||+a.every_days>0||+a.every_meter>0).sort((a,b)=>a.d.s-b.d.s);
+  return `<p class="small muted noprint" style="margin:0 0 8px">الجدول بالأيام أو بالعداد (ساعات تشغيل أو دورات قالب)، والأقرب للموعد يطلع فوق. «أمر عمل» يفتح أمر صيانة وقائية فيه بنود الفحص، وإقفاله يحدّث آخر صيانة.</p>
+   <div class="card"><h2>جدول الصيانة الوقائية</h2>${table([{l:'الماكينة / القالب',f:a=>`<b>${esc(a.name)}</b>${a.critical?' '+pill('حرجة','bad'):''}<div class="small muted">${esc(lineName(a.line_id))}</div>`},
+    {l:'الجدول',f:a=>[+a.every_days>0?`كل ${a.every_days} يوم`:'',+a.every_meter>0?`كل ${num(a.every_meter)} ${a.meter_unit==='cycles'?'دورة':'ساعة'}`:''].filter(Boolean).join(' أو ')||'—'},
+    {l:'آخر صيانة',c:'nw',f:a=>a.last_done?fdate(a.last_done):'—'},{l:'العداد',c:'n',f:a=>a.meter!=null?`${num(a.meter)}<div class="small muted">${a.meter_at?fdate(a.meter_at):''}</div>`:'—'},
+    {l:'الحالة',f:a=>pill(a.d.t,a.d.tone)},
+    {l:'',c:'nw',f:a=>{const o=openWoOf(a.id,'preventive');return (o?`<span class="small muted">أمر عمل #${o.id} مفتوح</span> `:ed?`<button class="btn s p" data-act="mtPmWo" data-id="${a.id}">أمر عمل</button> `:'')+(a.meter_unit&&mtRep()?`<button class="btn s" data-act="mtMeter" data-id="${a.id}">قراءة العداد</button>`:'')}}],A,{empty:'ما فيه أصول لها جدول صيانة'})}</div>`}
+function mtAssetsView(){const ed=mtEd();const A=MT.assets.filter(a=>a.active!==false);
+  return `<div class="toolbar noprint"><span class="grow"></span>${ed?`<button class="btn p" data-act="mtAsset">+ ماكينة / قالب</button>`:''}</div>
+   <div class="card"><h2>سجل الأصول<span class="sub">${num(A.length)}</span></h2>${table([{l:'الرقم',f:a=>a.code?`<bdi dir="ltr">${esc(a.code)}</bdi>`:'—'},
+    {l:'الاسم',f:a=>`<b>${esc(a.name)}</b>${a.critical?' '+pill('حرجة','bad'):''}<div class="small muted">${a.kind==='mould'?'قالب':a.kind==='other'?'أخرى':'ماكينة'} · ${esc(lineName(a.line_id))}</div>`},
+    {l:'الشركة / الرقم التسلسلي',f:a=>`${esc(a.make||'—')}${a.serial?`<div class="small muted" dir="ltr">${esc(a.serial)}</div>`:''}`},{l:'التركيب',c:'nw',f:a=>a.install_date?fdate(a.install_date):'—'},
+    {l:'العداد',c:'n',f:a=>a.meter!=null?`${num(a.meter)} ${a.meter_unit==='cycles'?'دورة':'ساعة'}`:'—'},
+    {l:'العمر الافتراضي',f:a=>{const l=mtLife(a);return l==null?'—':pill(`${Math.round(l*100)}% من ${num(a.life_meter)}`,l>=1?'bad':l>=.9?'warn':'ok')}},
+    {l:'أعطال 90 يوم',c:'n',f:a=>{const n=MT.wo.filter(w=>w.asset_id===a.id&&w.kind==='breakdown'&&w.created_at>=addDays(TODAY(),-90)).length;return n?`<span class="flag">${n}</span>`:'—'}},
+    {l:'',c:'nw',f:a=>ed?`<button class="btn s" data-act="mtAsset" data-id="${a.id}">تعديل</button>`:''}],A,{empty:'ما فيه أصول مسجلة'})}</div>`}
+function mtPartsView(){const ed=mtEd();const P=MT.parts.filter(p=>p.active!==false).sort((a,b)=>((+a.qty<=+a.min_qty)?0:1)-((+b.qty<=+b.min_qty)?0:1)||a.name.localeCompare(b.name,'ar'));
+  const prOf=id=>MT.prs.find(r=>r.part_id===id);
+  return `<p class="small muted noprint" style="margin:0 0 8px">الرصيد ينقص تلقائي لما تنصرف القطعة في أمر عمل، ولو نزل للحد الأدنى يطلع طلب شراء تلقائي لمدير المصنع. لما يتعلّم الطلب «تم الاستلام» تنضاف الكمية للرصيد.</p>
+   <div class="toolbar noprint"><span class="grow"></span>${ed?`<button class="btn p" data-act="mtPart">+ قطعة غيار</button>`:''}</div>
+   <div class="card"><h2>قطع الغيار<span class="sub">${num(P.length)}</span></h2>${table([{l:'الكود',f:p=>p.code?`<bdi dir="ltr">${esc(p.code)}</bdi>`:'—'},{l:'القطعة',f:p=>`<b>${esc(p.name)}</b>${p.location?`<div class="small muted">${esc(p.location)}</div>`:''}`},
+    {l:'الرصيد',c:'n',f:p=>`<b class="${p.min_qty!=null&&+p.qty<=+p.min_qty?'flag':''}">${num(p.qty)}</b> ${esc(p.unit||'')}`},{l:'الحد الأدنى',c:'n',f:p=>p.min_qty!=null?num(p.min_qty):'—'},{l:'سعر الوحدة',c:'n',f:p=>p.unit_cost!=null?num(p.unit_cost):'—'},
+    {l:'الحالة',f:p=>{const r=prOf(p.id);return r?pill(`طلب شراء #${r.no} — ${PR_ST[r.status][0]}`,'info'):p.min_qty!=null&&+p.qty<=+p.min_qty?pill('تحت الحد','bad'):pill('متوفر','ok')}},
+    {l:'',c:'nw',f:p=>ed?`<button class="btn s" data-act="mtPart" data-id="${p.id}">تعديل</button>`:''}],P,{empty:'ما فيه قطع غيار مسجلة'})}</div>
+   ${MT.moves.length?`<div class="card"><h2>آخر حركات القطع</h2>${table([{l:'التاريخ',c:'nw',f:m=>fdt(m.at)},{l:'القطعة',f:m=>esc(MT.parts.find(p=>p.id===m.part_id)?.name||'—')},{l:'الكمية',c:'n',f:m=>`<bdi dir="ltr" class="${+m.qty<0?'flag':''}">${+m.qty>0?'+':''}${num(m.qty)}</bdi>`},{l:'النوع',f:m=>({in:'استلام',use:'صرف',adjust:'تعديل'})[m.kind]},{l:'المرجع',f:m=>esc(m.note||'')},{l:'بواسطة',f:m=>esc(pName(m.by))}],MT.moves)}</div>`:''}`}
+function mtRepView(){const from=addDays(TODAY(),-MT.days);const W=MT.wo.filter(w=>w.status==='done'&&(w.finished_at||'')>=from);
+  const B=W.filter(w=>w.kind==='breakdown');const P=W.filter(w=>w.kind==='preventive');const onTime=P.filter(w=>!w.due_date||w.finished_at.slice(0,10)<=addDays(w.due_date,3)).length;
+  const cost=w=>(+w.labor_cost||0)+(+w.parts_cost||0);
+  const by=new Map();W.forEach(w=>{const o=by.get(w.asset_id)||{id:w.asset_id,b:[],down:0,cost:0,pm:0};if(w.kind==='breakdown'){o.b.push(w);o.down+=hrs(w.down_from,w.down_to)||0}else if(w.kind==='preventive')o.pm++;o.cost+=cost(w);by.set(w.asset_id,o)});
+  const R=[...by.values()].map(o=>{const d=o.b.map(w=>w.created_at).sort();const mtbf=d.length>=2?dDiff(d[0].slice(0,10),d[d.length-1].slice(0,10))/(d.length-1):null;
+    const dn=o.b.filter(w=>w.down_from&&w.down_to);return {...o,n:o.b.length,mttr:dn.length?dn.reduce((s,w)=>s+hrs(w.down_from,w.down_to),0)/dn.length:null,mtbf}}).sort((a,b)=>b.down-a.down||b.n-a.n);
+  const totDown=R.reduce((s,o)=>s+o.down,0);
+  return `<div class="toolbar noprint">${[[30,'30 يوم'],[90,'90 يوم'],[180,'180 يوم']].map(([k,l])=>`<button class="chip ${MT.days===k?'on':''}" data-act="mtDays" data-v="${k}">${l}</button>`).join('')}</div>
+   <div class="kpis k4">${kpiTile('أعطال مقفلة',num(B.length))}${kpiTile('ساعات توقف الأعطال',fH(totDown))}${kpiTile('الالتزام بالوقائية',P.length?Math.round(onTime/P.length*100)+'%':'—',P.length?`${onTime} من ${P.length} خلال 3 أيام من موعدها`:'ما فيه وقائية مقفلة')}${kpiTile('تكلفة الصيانة',num(W.reduce((s,w)=>s+cost(w),0)),'ر.س (عمالة + قطع)')}</div>
+   <p class="small muted" style="margin:0 0 8px">MTTR = متوسط زمن الإصلاح من التوقف لرجوع التشغيل. MTBF هنا بالأيام بين الأعطال (التقويمية)، لأن ساعات التشغيل الفعلية مو مسجلة لكل ماكينة.</p>
+   <div class="card"><h2>حسب الماكينة<span class="sub">آخر ${MT.days} يوم</span></h2>${table([{l:'الماكينة / القالب',f:o=>esc(assetName(o.id))},{l:'الأعطال',c:'n',f:o=>o.n?`<span class="flag">${o.n}</span>`:'—'},{l:'ساعات التوقف',c:'n',f:o=>o.down?fH(o.down):'—'},
+    {l:'MTTR',c:'n',f:o=>fH(o.mttr)},{l:'MTBF (أيام)',c:'n',f:o=>o.mtbf!=null?(Math.round(o.mtbf*10)/10).toLocaleString('en-US'):'—'},{l:'وقائية منفذة',c:'n',f:o=>num(o.pm)},{l:'التكلفة',c:'n',f:o=>o.cost?num(o.cost):'—'}],R,{empty:'ما فيه أوامر عمل مقفلة في الفترة'})}</div>
+   ${(()=>{const m=new Map();B.forEach(w=>{const k=(w.cause||'غير محدد').trim();m.set(k,(m.get(k)||0)+1)});const L=[...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10);
+     return L.length?`<div class="card"><h2>أكثر أسباب الأعطال</h2>${table([{l:'السبب',f:x=>esc(x[0])},{l:'مرات',c:'n',f:x=>num(x[1])}],L)}</div>`:''})()}`}
+
+/* ---------- modals ---------- */
+function mtNewWo(d){const a0=d&&d.id?MT.assets.find(a=>a.id===d.id):null;const pm=d&&d.pm;
+  openModal(pm?`أمر صيانة وقائية — ${a0.name}`:'بلاغ عطل / أمر عمل',`<div class="fgrid">
+   <label class="fl" style="grid-column:1/-1">الماكينة / القالب<select id="wo_a">${opt(MT.assets.filter(a=>a.active!==false).map(a=>[a.id,`${a.name} — ${lineName(a.line_id)}`]),a0?.id,'— اختر —')}</select></label>
+   <label class="fl">النوع<select id="wo_k">${opt([['breakdown','عطل'],['improvement','تحسين / تعديل'],...(mtEd()?[['preventive','صيانة وقائية']]:[])],pm?'preventive':'breakdown')}</select></label>
+   <label class="fl">الأولوية<select id="wo_p">${opt(Object.entries(WO_P),pm?'normal':'high')}</select></label>
+   <label class="fl" style="grid-column:1/-1">${pm?'العمل المطلوب':'وصف العطل'}<textarea id="wo_pr" rows="2">${pm?esc(`صيانة وقائية مجدولة${(a0.checklist||[]).length?': '+a0.checklist.join('، '):''}`):''}</textarea></label>
+   <label class="fl ck"><input type="checkbox" id="wo_stop" ${pm?'':'checked'}> الماكينة واقفة</label><label class="fl">واقفة من<input type="datetime-local" id="wo_from" value="${toLocal(new Date().toISOString())}"></label>
+   ${mtEd()?`<label class="fl">الفني<input id="wo_t"></label>`:''}</div><div id="ops_e" class="flag"></div>
+   <div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="mtWoSave" data-due="${pm?esc(mtDue(a0).due||TODAY()):''}">${pm?'فتح أمر العمل':'إرسال البلاغ للصيانة'}</button></div>`)}
+async function mtWoSave(d){const e=document.getElementById('ops_e');if(!v_('wo_a')){e.textContent='اختر الماكينة أو القالب';return}if(!v_('wo_pr')){e.textContent='اكتب الوصف';return}
+  const p={asset_id:v_('wo_a'),kind:v_('wo_k'),priority:v_('wo_p'),problem:v_('wo_pr'),stopped:v_('wo_stop'),down_from:toIso(v_('wo_from')),technician:v_('wo_t'),due_date:d.due||''};
+  const {data,error}=await sb.rpc('prod_wo_save',{p});if(error){e.textContent=errText(error);return}closeModal();toast(`انفتح أمر العمل #${data}`);MT.key='';MT.sub='wo';render()}
+async function mtWoAct(id,a,extra){const {error}=await sb.rpc('prod_wo_save',{p:{id,action_type:a,...(extra||{})}});if(error)return toast(errText(error));toast(a==='start'?'بدأ العمل':a==='wait'?'بانتظار قطع':'تم');MT.key='';render()}
+function mtClose(id){const w=MT.wo.find(x=>x.id==id);if(!w)return;const a=MT.assets.find(x=>x.id===w.asset_id)||{};const P=MT.parts.filter(p=>p.active!==false);
+  const prow=i=>`<div class="fgrid" style="grid-template-columns:2fr 1fr;margin:0"><select id="cl_p${i}">${opt(P.map(p=>[p.id,`${p.name} (رصيد ${num(p.qty)} ${p.unit||''})`]),'','— قطعة غيار —')}</select><input type="number" inputmode="decimal" id="cl_q${i}" placeholder="الكمية"></div>`;
+  openModal(`إقفال أمر العمل #${w.id} — ${a.name||''}`,`<div class="fgrid">
+   <label class="fl">الفني<input id="cl_t" value="${esc(w.technician||'')}"></label><label class="fl">تكلفة العمالة / الخدمة (ر.س)<input type="number" inputmode="decimal" id="cl_lab"></label>
+   ${w.kind==='breakdown'?`<label class="fl" style="grid-column:1/-1">سبب العطل<input id="cl_c"></label>`:''}
+   <label class="fl" style="grid-column:1/-1">اللي انعمل<textarea id="cl_a" rows="2"></textarea></label>
+   ${w.kind==='preventive'&&(a.checklist||[]).length?`<div class="fl" style="grid-column:1/-1"><span>بنود الفحص</span>${a.checklist.map((c,i)=>`<label class="ck"><input type="checkbox" id="cl_ck${i}" data-ck="${esc(c)}"> ${esc(c)}</label>`).join('')}</div>`:''}
+   ${w.down_from||w.kind==='breakdown'?`<label class="fl">واقفة من<input type="datetime-local" id="cl_df" value="${toLocal(w.down_from)}"></label><label class="fl">رجعت تشتغل<input type="datetime-local" id="cl_dt" value="${toLocal(new Date().toISOString())}"></label>`:''}
+   ${a.meter_unit?`<label class="fl">قراءة العداد الحين (${a.meter_unit==='cycles'?'دورات':'ساعات'})<input type="number" inputmode="decimal" id="cl_m" value="${a.meter??''}"></label>`:''}
+   <div class="fl" style="grid-column:1/-1"><span>قطع الغيار المصروفة (تنخصم من الرصيد)</span>${[0,1,2].map(prow).join('')}</div></div><div id="ops_e" class="flag"></div>
+   <div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="mtCloseSave" data-id="${w.id}">إقفال أمر العمل</button></div>`)}
+async function mtCloseSave(id){const w=MT.wo.find(x=>x.id==id);const e=document.getElementById('ops_e');
+  if(!v_('cl_a')){e.textContent='اكتب اللي انعمل';return}if(w.kind==='breakdown'&&!v_('cl_c')){e.textContent='اكتب سبب العطل';return}
+  const parts=[0,1,2].map(i=>({part_id:v_('cl_p'+i),qty:v_('cl_q'+i)})).filter(x=>x.part_id&&x.qty);
+  const ck={};document.querySelectorAll('[data-ck]').forEach(x=>ck[x.dataset.ck]=x.checked);
+  if(Object.keys(ck).length&&Object.values(ck).some(v=>!v)&&!confirm('فيه بنود فحص ما تعلّمت. تقفل أمر العمل كذا؟'))return;
+  const p={id,action_type:'close',technician:v_('cl_t'),labor_cost:v_('cl_lab'),cause:v_('cl_c'),action:v_('cl_a'),down_from:toIso(v_('cl_df')),down_to:toIso(v_('cl_dt')),meter:v_('cl_m'),parts,checklist:Object.keys(ck).length?ck:null};
+  const {error}=await sb.rpc('prod_wo_save',{p});if(error){e.textContent=errText(error);return}closeModal();toast(`انقفل أمر العمل #${id}`);MT.key='';PR.key='';render()}
+function mtAsset(id){const a=id?MT.assets.find(x=>x.id===id):{kind:'machine',every_days:30,checklist:[]};if(!a)return;
+  openModal(id?'تعديل '+a.name:'ماكينة / قالب جديد',`<div class="fgrid">
+   <label class="fl">الاسم<input id="as_name" value="${esc(a.name||'')}" placeholder="مثال: مكبس ماسا 3"></label><label class="fl">رقم الأصل<input id="as_code" dir="ltr" value="${esc(a.code||'')}"></label>
+   <label class="fl">النوع<select id="as_kind">${opt([['machine','ماكينة'],['mould','قالب'],['other','أخرى']],a.kind)}</select></label><label class="fl">الخط<select id="as_line">${lineOpts(a.line_id)}</select></label>
+   <label class="fl">الشركة المصنعة / الموديل<input id="as_make" value="${esc(a.make||'')}"></label><label class="fl">الرقم التسلسلي<input id="as_serial" dir="ltr" value="${esc(a.serial||'')}"></label>
+   <label class="fl">تاريخ التركيب<input type="date" id="as_inst" value="${a.install_date||''}"></label><label class="fl ck"><input type="checkbox" id="as_crit" ${a.critical?'checked':''}> ماكينة حرجة (توقفها يوقف الخط)</label>
+   <label class="fl">الوقائية كل (يوم)<input type="number" id="as_every" value="${a.every_days??''}"></label><label class="fl">تاريخ آخر صيانة<input type="date" id="as_last" value="${a.last_done||''}"></label>
+   <label class="fl">العداد<select id="as_mu">${opt([['hours','ساعات تشغيل'],['cycles','دورات (للقوالب)']],a.meter_unit,'— بدون عداد —')}</select></label><label class="fl">القراءة الحالية<input type="number" id="as_meter" value="${a.meter??''}"></label>
+   <label class="fl">الوقائية كل (ساعة/دورة)<input type="number" id="as_em" value="${a.every_meter??''}"></label><label class="fl">القراءة عند آخر صيانة<input type="number" id="as_lm" value="${a.last_meter??''}"></label>
+   <label class="fl">العمر الافتراضي (ساعات/دورات)<input type="number" id="as_life" value="${a.life_meter??''}" placeholder="للقوالب خصوصاً"></label><span></span>
+   <label class="fl" style="grid-column:1/-1">بنود الفحص الوقائي (كل بند في سطر)<textarea id="as_ck" rows="3">${esc((a.checklist||[]).join('\n'))}</textarea></label>
+   <label class="fl" style="grid-column:1/-1">ملاحظات<textarea id="as_notes" rows="2">${esc(a.notes||'')}</textarea></label></div><div id="ops_e" class="flag"></div>
+   <div class="formbar">${id?`<button class="btn d" data-act="mtAssetDel" data-id="${id}">حذف</button>`:''}<span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="mtAssetSave" data-id="${id||''}">حفظ</button></div>`)}
+async function mtAssetSave(id){if(!v_('as_name')){document.getElementById('ops_e').textContent='الاسم مطلوب';return}
+  const p={id:id||null,name:v_('as_name'),code:v_('as_code'),kind:v_('as_kind'),line_id:v_('as_line'),make:v_('as_make'),serial:v_('as_serial'),install_date:v_('as_inst'),critical:v_('as_crit'),
+    every_days:v_('as_every'),last_done:v_('as_last'),meter_unit:v_('as_mu'),meter:v_('as_meter'),every_meter:v_('as_em'),last_meter:v_('as_lm'),life_meter:v_('as_life'),checklist:v_('as_ck').split('\n').map(s=>s.trim()).filter(Boolean),notes:v_('as_notes')};
+  if(await rpcSave('prod_asset_save',p)){MT.key='';render()}}
+function mtPart(id){const p=id?MT.parts.find(x=>x.id===id):{};if(!p)return;
+  openModal(id?'تعديل '+p.name:'قطعة غيار جديدة',`<div class="fgrid"><label class="fl">الكود<input id="pt_code" dir="ltr" value="${esc(p.code||'')}"></label><label class="fl">اسم القطعة<input id="pt_name" value="${esc(p.name||'')}"></label>
+   <label class="fl">الوحدة<input id="pt_unit" value="${esc(p.unit||'')}" placeholder="حبة، لتر…"></label><label class="fl">الرصيد${id?' (تعديله يحتاج سبب)':' الافتتاحي'}<input type="number" inputmode="decimal" id="pt_qty" value="${p.qty??''}"></label>
+   <label class="fl">الحد الأدنى<input type="number" id="pt_min" value="${p.min_qty??''}"></label><label class="fl">كمية إعادة الطلب<input type="number" id="pt_re" value="${p.reorder_qty??''}"></label>
+   <label class="fl">سعر الوحدة (ر.س)<input type="number" inputmode="decimal" id="pt_cost" value="${p.unit_cost??''}"></label><label class="fl">مكان التخزين<input id="pt_loc" value="${esc(p.location||'')}"></label>
+   ${id?`<label class="fl" style="grid-column:1/-1">سبب تعديل الرصيد<input id="pt_note" placeholder="مثال: جرد ${fdate(TODAY())}"></label>`:''}</div><div id="ops_e" class="flag"></div>
+   <div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="mtPartSave" data-id="${id||''}">حفظ</button></div>`)}
+async function mtPartSave(id){if(!v_('pt_name')){document.getElementById('ops_e').textContent='اسم القطعة مطلوب';return}
+  const p={id:id||null,code:v_('pt_code'),name:v_('pt_name'),unit:v_('pt_unit'),qty:v_('pt_qty'),min_qty:v_('pt_min'),reorder_qty:v_('pt_re'),unit_cost:v_('pt_cost'),location:v_('pt_loc'),note:v_('pt_note')};
+  if(await rpcSave('prod_part_save',p)){MT.key='';PR.key='';render()}}
+Object.assign(ACT,{mtRetry:()=>{MT.key='';render()},mtSub:d=>{MT.sub=d.v;render()},mtFlt:d=>{MT.flt=d.v;render()},mtDays:d=>{MT.days=+d.v;render()},
+  mtNewWo:()=>mtNewWo(),mtPmWo:d=>mtNewWo({id:d.id,pm:true}),mtWoSave:d=>mtWoSave(d),mtWoAct:d=>mtWoAct(+d.id,d.a,{technician:''}),
+  mtCancel:d=>{const n=prompt('سبب إلغاء أمر العمل؟');if(n)mtWoAct(+d.id,'cancel',{note:n})},mtClose:d=>mtClose(+d.id),mtCloseSave:d=>mtCloseSave(+d.id),
+  mtMeter:async d=>{const a=MT.assets.find(x=>x.id===d.id);const v=prompt(`قراءة العداد الحالية لـ ${a.name} (${a.meter_unit==='cycles'?'دورات':'ساعات'})`,a.meter??'');if(v==null||v==='')return;
+    const {error}=await sb.rpc('prod_meter_save',{p_asset:d.id,p_value:parseNum(v)});if(error)return toast(errText(error));toast('تم حفظ القراءة');MT.key='';render()},
+  mtAsset:d=>mtAsset(d.id),mtAssetSave:d=>mtAssetSave(d.id),mtAssetDel:async d=>{if(!confirm('حذف الأصل؟ لو له أوامر عمل يتوقف بس ويبقى سجله.'))return;if(await rpcSave('prod_asset_save',{id:d.id,del:true},'تم')){MT.key='';render()}},
+  mtPart:d=>mtPart(d.id),mtPartSave:d=>mtPartSave(d.id),pmAsset:d=>mtAsset(d.id),pmLog:d=>mtNewWo({id:d.id,pm:true})});
+
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
 const FL={loaded:false,loading:false,cfg:null,vehicles:[],days:{},range:'',carrier:{},f:null,entryDate:TODAY(),entryBranch:'',entryQ:'',vlog:{vid:'',month:TODAY().slice(0,7)},cmonth:TODAY().slice(0,7),pending:{},saveState:{},custs:{},log:null,
