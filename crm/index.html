@@ -1,10 +1,10 @@
-<!DOCTYPE html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><title>الوادي الأخضر — المبيعات</title>
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#051D48"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="المندوب"><title>CRM الوادي الأخضر</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
-<!--wady-brand--><script src="../brand/wady-brand.js"></script><meta name="theme-color" content="#051D48"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="الوادي الأخضر"><link rel="apple-touch-icon" href="../brand/icon-180.png"><link rel="manifest" href="manifest.webmanifest"><!--/wady-brand--><script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
 <script src="claude-shim.js"></script>
 <style>
@@ -3321,7 +3321,9 @@ editClient=function(id,preset){
    {k:'type',l:L('النشاط','Business type'),t:'sel',req:R('type'),opts:Object.entries(CLIENT_TYPES).map(([k,v])=>[k,L(v[0],v[1])])},{k:'category',l:L('تصنيف العميل','Category'),req:R('category')},
    {k:'status',l:L('الحالة','Status'),t:'sel',req:R('status'),opts:Object.entries(CLIENT_STATUS).map(([k,v])=>[k,L(v[0],v[1])])},
    {k:'potential',l:L('إمكانية التطوير','Potential'),t:'sel',empty:L('تُحسب تلقائياً','Automatic'),opts:Object.entries(POTENTIAL).map(([k,v])=>[k,L(v[0],v[1])])},
-   {k:'repId',l:L('المندوب المسؤول','Assigned rep'),t:'sel',req:R('repId'),ro:!isLead()&&!!id,opts:repOpts()},...cust(CF_SECTIONS[0]),
+   {k:'repId',l:L('المندوب المسؤول','Assigned rep'),t:'sel',req:R('repId'),ro:!isLead()&&!!id,opts:repOpts()},
+   {k:'leadSource',l:L('مصدر العميل (من وين عرفنا)','Lead source'),t:'sel',empty:L('— غير محدد —','— not set —'),opts:Object.entries(typeof LEAD_SRC!=='undefined'?LEAD_SRC:{}).filter(([k])=>k!=='unknown').map(([k,v])=>[k,L(v[0],v[1])])},
+   {k:'campaignId',l:L('جاء عن طريق حملة','From campaign'),t:'sel',empty:L('— بدون حملة —','— none —'),opts:(typeof MKO!=='undefined'?MKO.list:[]).map(x=>[String(x.id),x.name])},...cust(CF_SECTIONS[0]),
    hdr(CF_SECTIONS[1]),{k:'contact',l:L('اسم المسؤول','Contact person'),req:R('contact')},{k:'phone',l:L('الجوال','Phone'),req:R('phone')},{k:'email',l:L('البريد','Email'),req:R('email')},...cust(CF_SECTIONS[1]),
    hdr(CF_SECTIONS[2]),{k:'crNo',l:L('السجل التجاري','CR number'),req:R('crNo')},{k:'vatNo',l:L('الرقم الضريبي','VAT number'),req:R('vatNo')},{k:'creditLimit',l:L('حد الائتمان (ر.س)','Credit limit'),t:'num',req:R('creditLimit')},{k:'paymentTerms',l:L('شروط الدفع','Payment terms'),req:R('paymentTerms')},
    {k:'histValue',l:L('قيمة المبيعات التاريخية','Historical sales'),t:'num'},{k:'histVolume',l:L('حجم المبيعات التاريخي','Historical volume'),t:'num'},{k:'lastTxDate',l:L('تاريخ آخر عملية (SAP)','Last transaction'),t:'date'},...cust(CF_SECTIONS[2]),
@@ -5662,6 +5664,129 @@ NAV.push(['mkcamp','trend',()=>L('الحملات','Campaigns')]);
 NAV.push(['mkacct','users',()=>L('صفحات السوشال ميديا','Social pages')]);
 NAV.push(['mkreport','report',()=>L('تقارير أداء الحملات','Campaign performance')]);
 
+/* ===== Marketing ↔ sales: lead source & campaign on the customer card, campaign ROI from SAP quotes/orders, satisfaction surveys after delivery, content library ===== */
+const LEAD_SRC={instagram:['إنستقرام','Instagram'],x:['إكس','X'],tiktok:['تيك توك','TikTok'],snapchat:['سناب شات','Snapchat'],linkedin:['لينكدإن','LinkedIn'],facebook:['فيسبوك','Facebook'],
+  google:['بحث قوقل / إعلان قوقل','Google'],website:['موقع الشركة','Website'],whatsapp:['واتساب','WhatsApp'],call:['اتصال وارد','Inbound call'],referral:['توصية عميل','Referral'],
+  visit:['زيارة ميدانية من المندوب','Field visit'],exhibition:['معرض / فعالية','Exhibition'],radar:['رادار المشاريع','Project radar'],other:['أخرى','Other'],unknown:['غير محدد','Not set']};
+const MKO={list:[],at:0};
+async function mkoLoad(){if(!window.__sb||Date.now()-MKO.at<5*60e3)return;MKO.at=Date.now();try{const {data}=await window.__sb.rpc('mk_campaign_opts');MKO.list=data||[]}catch(e){}}
+{const _ec=editClient;editClient=function(id,preset){if(Date.now()-MKO.at>5*60e3&&window.__sb){mkoLoad().then(()=>_ec(id,preset))}else _ec(id,preset)}}
+const MK2={roi:null,src:null,srcKey:'',due:null,dueDays:14,sv:null,lib:null,busy:{}};
+const mk2Get=async(k,fn,args)=>{if(MK2.busy[k])return;MK2.busy[k]=1;try{const {data,error}=await window.__sb.rpc(fn,args);if(error)throw error;MK2[k]=data||[]}catch(e){MK2[k]={err:e.message}}MK2.busy[k]=0;render()};
+const mk2Err=x=>x&&x.err?`<div class="banner bad"><span class="sp">${esc(x.err)}</span></div>`:'';
+const srcName=k=>LEAD_SRC[k]?L(LEAD_SRC[k][0],LEAD_SRC[k][1]):esc(k);
+
+/* ---------- campaign ROI ---------- */
+V.mkroi=()=>{const h=mkHead();if(h&&!MKX.loaded)return h;if(!window.__sb)return h;
+  if(MK2.roi==null){mk2Get('roi','mk_campaign_roi');return `<div class="card empty">${L('جاري الحساب…','Calculating…')}</div>`}
+  const from=fv('mksFrom',addDays(TODAY(),-90)),to=fv('mksTo',TODAY());const sk=from+'|'+to;
+  if(MK2.srcKey!==sk){MK2.srcKey=sk;MK2.src=null;mk2Get('src','mk_source_report',{p_from:from,p_to:to})}
+  if(MK2.roi.err)return mk2Err(MK2.roi);
+  const R=MKX.camps.map(c=>{const r=MK2.roi.find(x=>x.id===c.id)||{};const spend=+r.spend||0;const cost=spend||(+c.budget||0);
+    return {...c,_id:c.id,id:null,r,spend,cost,costLbl:spend?'':L('(الميزانية — المصروف ما انسجل)','(budget — no spend entered)')}});
+  const T=R.filter(c=>!['planned','cancelled'].includes(c.status)).reduce((t,c)=>({cl:t.cl+(+c.r.clients||0),buy:t.buy+(+c.r.buyers||0),ov:t.ov+(+c.r.orders_value||0),cost:t.cost+c.cost}),{cl:0,buy:0,ov:0,cost:0});
+  const roas=c=>c.cost&&c.r.orders_value?(+c.r.orders_value/c.cost):null;
+  return (h||'')+`<p class="small muted" style="margin:0 0 8px">${L('العميل ينحسب على الحملة لما المندوب يختارها في بطاقة العميل («جاء عن طريق حملة»). عروض الأسعار وأوامر البيع من ساب تنحسب من بداية الحملة لين 60 يوم بعد نهايتها. «مبيعات لكل ريال» = قيمة أوامر البيع ÷ المصروف — مو ربح.','Customers count for a campaign when tagged on the customer card. SAP quotes and orders count from campaign start to 60 days after its end.')}</p>
+   <div class="kpis"><div class="kpi"><div class="kl">${L('عملاء من الحملات','Customers from campaigns')}</div><div class="kv">${num(T.cl)}</div></div><div class="kpi"><div class="kl">${L('اشتروا','Bought')}</div><div class="kv">${num(T.buy)}</div><div class="small muted">${T.cl?Math.round(T.buy/T.cl*100)+'%':''}</div></div>
+    <div class="kpi"><div class="kl">${L('قيمة أوامر البيع','Order value')}</div><div class="kv">${money(T.ov)}</div></div><div class="kpi"><div class="kl">${L('تكلفة الحملات الجارية والمنتهية','Cost of started campaigns')}</div><div class="kv">${money(T.cost)}</div></div>
+    <div class="kpi"><div class="kl">${L('مبيعات لكل ريال','Sales per SAR')}</div><div class="kv">${T.cost&&T.ov?(T.ov/T.cost).toFixed(1):'—'}</div></div></div>
+   <div class="card"><b>${L('عائد كل حملة','Return per campaign')}</b>${R.length?table([{l:L('الحملة','Campaign'),f:c=>`<b>${esc(c.name)}</b><div class="small muted">${c.r.from?fdate(c.r.from)+' ← '+fdate(c.r.to):''}</div>`},
+     {l:L('عملاء','Customers'),c:'n',f:c=>c.r.clients?`<a href="#" data-act="mkRoiList" data-id="${c._id}">${num(c.r.clients)}</a>`:'—'},{l:L('جدد','New'),c:'n',f:c=>num(c.r.new_clients)},
+     {l:L('عملاء محتملون (المنصة)','Platform leads'),c:'n',f:c=>c.r.platform_leads?num(c.r.platform_leads):'—'},
+     {l:L('عروض أسعار','Quotes'),c:'n',f:c=>c.r.quotes?`${num(c.r.quotes)}<div class="small muted">${money(c.r.quotes_value)}</div>`:'—'},
+     {l:L('أوامر بيع','Orders'),c:'n',f:c=>c.r.orders?`${num(c.r.orders)}<div class="small muted">${money(c.r.orders_value)}</div>`:'—'},{l:L('اشتروا','Bought'),c:'n',f:c=>num(c.r.buyers)},
+     {l:L('التكلفة','Cost'),c:'n',f:c=>c.cost?`${money(c.cost)}<div class="small muted">${c.costLbl}</div>`:'—'},
+     {l:L('تكلفة العميل','Cost / customer'),c:'n',f:c=>c.cost&&c.r.clients?money(c.cost/c.r.clients):'—'},{l:L('تكلفة المشتري','Cost / buyer'),c:'n',f:c=>c.cost&&c.r.buyers?money(c.cost/c.r.buyers):'—'},
+     {l:L('مبيعات لكل ريال','Sales / SAR'),c:'n',f:c=>{const x=roas(c);return x==null?'—':pill(x.toFixed(1),x>=5?'ok':x>=1?'warn':'bad')}}],R):`<div class="empty">${L('ما فيه حملات بعد','No campaigns yet')}</div>`}</div>
+   <div class="fbar"><label class="fl">${L('العملاء الجدد من','New customers from')}<input type="date" data-act="filtIn" data-k="mksFrom" value="${esc(from)}"></label><label class="fl">${L('إلى','To')}<input type="date" data-act="filtIn" data-k="mksTo" value="${esc(to)}"></label></div>
+   <div class="card"><b>${L('مصدر العملاء الجدد','Where new customers come from')}</b>${MK2.src==null?`<div class="small muted">${L('جاري الحساب…','…')}</div>`:MK2.src.err?mk2Err(MK2.src):table([{l:L('المصدر','Source'),f:x=>srcName(x.src)},{l:L('عملاء جدد','New customers'),c:'n',f:x=>num(x.n)},{l:L('اشتروا','Bought'),c:'n',f:x=>`${num(x.buyers)} <span class="small muted">${x.n?Math.round(x.buyers/x.n*100)+'%':''}</span>`},{l:L('قيمة أوامر البيع','Order value'),c:'n',f:x=>money(x.value)}],MK2.src.map(x=>({...x,id:null})))}
+    <div class="small muted" style="margin-top:6px">${L('«غير محدد» = عملاء انضافوا بدون ما يتحدد مصدرهم. اطلب من المناديب يعبّون «مصدر العميل» في بطاقة كل عميل جديد.','"Not set" = customers added without a source.')}</div></div>`};
+function mkRoiList(id){const r=(MK2.roi||[]).find(x=>x.id===+id);if(!r)return;
+  openModal(L('عملاء الحملة','Campaign customers')+' — '+esc(mkCamp(id)?.name||''),`<div class="list">${(r.list||[]).map(c=>`<div class="li"><div class="main"><div class="t"><a href="#" data-open="client" data-id="${esc(c.id)}">${esc(c.name||'')}</a></div><div class="s" dir="ltr">${esc(c.code||'')}</div></div><div class="end small muted">${c.created?fdate(c.created):''}</div></div>`).join('')}</div>`)}
+
+/* ---------- satisfaction surveys ---------- */
+V.mksurvey=()=>{if(!window.__sb)return mkHead();const can=mkLvl2('mksurvey')>=3;const dd=+fv('svDays',14);if(MK2.dueDays!==dd){MK2.dueDays=dd;MK2.due=null}
+  if(MK2.due==null){mk2Get('due','mk_survey_due',{p_days:MK2.dueDays});mk2Sv();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(MK2.due.err)return mk2Err(MK2.due);const S9=Array.isArray(MK2.sv)?MK2.sv:[];
+  const avg=k=>{const a=S9.filter(x=>x[k]!=null);return a.length?(a.reduce((s,x)=>s+(+x[k]),0)/a.length):null};const pctT=k=>{const a=S9.filter(x=>x[k]!=null);return a.length?Math.round(a.filter(x=>x[k]).length/a.length*100):null};
+  const q=(fv('svq','')||'').trim();const D=MK2.due.filter(x=>!q||(x.name||'').includes(q)||(x.code||'').includes(q.toUpperCase())||(x.order_no||'').includes(q));
+  const stars=n=>'★'.repeat(n)+'☆'.repeat(5-n);
+  return `<p class="small muted" style="margin:0 0 8px">${L('أوامر البيع اللي تسلّمت (من ساب) وما انسجل لها استبيان. اتصل بالعميل وسجّل رأيه، والنتيجة تطلع في بطاقة العميل عند المندوب.','Delivered SAP orders without a survey.')}</p>
+   <div class="kpis"><div class="kpi"><div class="kl">${L('بانتظار الاستبيان','Awaiting survey')}</div><div class="kv">${num(MK2.due.length)}</div><div class="small muted">${L('آخر','last')} ${MK2.dueDays} ${L('يوم','days')}</div></div>
+    <div class="kpi"><div class="kl">${L('متوسط الرضا (آخر 90 يوم)','Avg rating (90d)')}</div><div class="kv">${avg('rating')==null?'—':avg('rating').toFixed(1)+' / 5'}</div><div class="small muted">${S9.length} ${L('استبيان','surveys')}</div></div>
+    <div class="kpi"><div class="kl">${L('وصل في موعده','On time')}</div><div class="kv">${pctT('on_time')==null?'—':pctT('on_time')+'%'}</div></div>
+    <div class="kpi"><div class="kl">${L('ينصح فينا','Would recommend')}</div><div class="kv">${pctT('recommend')==null?'—':pctT('recommend')+'%'}</div></div></div>
+   <div class="fbar"><label class="fl" style="flex:2 1 220px">${L('بحث','Search')}<input type="search" data-act="filtIn" data-k="svq" value="${esc(q)}" placeholder="${L('العميل أو الكود أو رقم الأمر','Customer, code or order')}"></label>
+    <label class="fl">${L('الفترة','Period')}<select data-act="filtSel" data-k="svDays">${opt([[7,L('آخر 7 أيام','7 days')],[14,L('آخر 14 يوم','14 days')],[30,L('آخر 30 يوم','30 days')]],MK2.dueDays)}</select></label></div>
+   <div class="card"><b>${L('تسليمات بانتظار الاستبيان','Deliveries awaiting survey')}</b>${table([{l:L('التسليم','Delivered'),c:'nw',f:x=>fdate(x.delivery)},{l:L('أمر البيع','Order'),f:x=>`<bdi dir="ltr">${esc(x.order_no||'')}</bdi>`},
+     {l:L('العميل','Customer'),f:x=>`<b>${esc(x.name||'')}</b> <bdi class="small muted" dir="ltr">${esc(x.code||'')}</bdi>`},{l:L('التواصل','Contact'),f:x=>`${esc(x.contact||'')}${x.phone?` <a href="tel:${esc(x.phone)}" dir="ltr">${esc(x.phone)}</a>`:''}`},
+     {l:L('القيمة','Value'),c:'n',f:x=>money(+x.value||0)},{l:'',c:'nw',f:x=>can?`<button class="btn s p" data-act="mkSv" data-o="${esc(x.order_no||'')}">${L('تسجيل الاستبيان','Record')}</button>`:''}],D.slice(0,200).map(x=>({...x,id:null})))}</div>
+   ${S9.length?`<div class="card"><b>${L('آخر الاستبيانات','Latest surveys')}</b>${table([{l:L('التاريخ','Date'),c:'nw',f:x=>fdate(x.day)},{l:L('العميل','Customer'),f:x=>esc(x.card_name||x.card_code)},{l:L('التقييم','Rating'),f:x=>`<span style="color:${x.rating<=2?'#B3261E':'#C98A00'}">${stars(x.rating)}</span>`},
+     {l:L('الموعد','On time'),c:'n',f:x=>x.on_time==null?'—':x.on_time?'✓':'<span class="flag">✗</span>'},{l:L('الجودة','Quality'),c:'n',f:x=>x.quality??'—'},{l:L('الخدمة','Service'),c:'n',f:x=>x.service??'—'},{l:L('الملاحظة','Comment'),f:x=>esc(x.comment||'')}],S9.slice(0,60).map(x=>({...x,id:null})))}</div>`:''}`};
+const mkLvl2=p=>typeof wadyLvl==='function'?wadyLvl('crm',p):(isAdmin()?3:0);
+async function mk2Sv(){try{const {data}=await window.__sb.from('mk_surveys').select('*').gte('day',addDays(TODAY(),-90)).order('day',{ascending:false}).limit(1000);MK2.sv=data||[]}catch(e){MK2.sv=[]}render()}
+function mkSv(no){const x=(MK2.due||[]).find(y=>y.order_no===no);if(!x)return;const sc=(id,l)=>`<div class="fld"><label>${l}</label><select id="${id}">${opt([[5,'5 — ممتاز'],[4,'4 — جيد جداً'],[3,'3 — جيد'],[2,'2 — ضعيف'],[1,'1 — سيء']],'', '—')}</select></div>`;
+  openModal(L('استبيان رضا','Satisfaction survey')+' — '+esc(x.name||''),`<p class="small muted">${L('أمر البيع','Order')} <bdi dir="ltr">${esc(no)}</bdi> · ${L('تسلّم','delivered')} ${fdate(x.delivery)}${x.phone?` · <a href="tel:${esc(x.phone)}" dir="ltr">${esc(x.phone)}</a>`:''}</p>
+   <div class="fgrid">${sc('sv_r',L('التقييم العام *','Overall *'))}${sc('sv_q',L('جودة المنتج','Product quality'))}${sc('sv_s',L('خدمة المندوب والتوصيل','Service'))}
+    <div class="fld"><label>${L('وصل في موعده؟','On time?')}</label><select id="sv_t">${opt([['true',L('نعم','Yes')],['false',L('لا','No')]],'','—')}</select></div>
+    <div class="fld"><label>${L('ينصح فينا غيره؟','Would recommend?')}</label><select id="sv_n">${opt([['true',L('نعم','Yes')],['false',L('لا','No')]],'','—')}</select></div>
+    <div class="fld"><label>${L('طريقة الاستبيان','Channel')}</label><select id="sv_c">${opt([['call',L('اتصال','Call')],['whatsapp','واتساب'],['visit',L('زيارة','Visit')]],'call')}</select></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('ملاحظات العميل','Comment')}</label><textarea id="sv_m" rows="3"></textarea></div></div>
+   <div id="mk_err" class="flag"></div><div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="mkSvSave" data-o="${esc(no)}">${L('حفظ','Save')}</button></div>`)}
+
+/* ---------- content library ---------- */
+const LIB_K={image:['صور منتجات','Product photos'],project:['مشاريع منفذة','Completed projects'],catalog:['كتالوجات وبروشورات','Catalogs'],video:['فيديو','Video'],cert:['شهادات واعتمادات','Certificates'],other:['أخرى','Other']};
+V.mklib=()=>{if(!window.__sb)return mkHead();const can=mkLvl2('mklib')>=3;
+  if(MK2.lib==null){MK2.lib=[];(async()=>{const {data,error}=await window.__sb.from('mk_library').select('*').eq('active',true).order('id',{ascending:false});MK2.lib=error?{err:error.message}:(data||[]);render()})();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(MK2.lib.err)return mk2Err(MK2.lib);const k=fv('lbk',''),fam=fv('lbf',''),q=(fv('lbq','')||'').trim();
+  const F=MK2.lib.filter(x=>(!k||x.kind===k)&&(!fam||x.family===fam)&&(!q||(x.title+' '+(x.tags||'')).includes(q)));
+  const isImg=u=>/\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
+  return `<div class="fbar"><label class="fl" style="flex:2 1 200px">${L('بحث','Search')}<input type="search" data-act="filtIn" data-k="lbq" value="${esc(q)}"></label>
+    <label class="fl">${L('النوع','Type')}<select data-act="filtSel" data-k="lbk">${opt(Object.entries(LIB_K).map(([a,b])=>[a,L(b[0],b[1])]),k,L('الكل','All'))}</select></label>
+    <label class="fl">${L('المنتج','Product')}<select data-act="filtSel" data-k="lbf">${opt(Object.entries(typeof FAMILIES!=='undefined'?FAMILIES:{}).map(([a,b])=>[a,L(b[0],b[1])]),fam,L('الكل','All'))}</select></label>
+    <span class="grow"></span>${can?`<button class="btn p" data-act="mkLib">+ ${L('ملف','File')}</button>`:''}</div>
+   <p class="small muted" style="margin:0 0 8px">${L('صور المنتجات والمشاريع المنفذة والكتالوجات اللي يرسلها المندوب للعميل. اضغط «نسخ الرابط» وأرسله بالواتساب.','Photos, projects and catalogs reps share with customers.')}</p>
+   ${F.length?`<div class="mk-lib">${F.map(x=>`<div class="card mk-li">${isImg(x.url)?`<img src="${esc(x.url)}" alt="${esc(x.title)}" loading="lazy">`:`<div class="mk-li-ic">${x.kind==='video'?'▶':x.kind==='catalog'?'📘':'📄'}</div>`}
+     <b>${esc(x.title)}</b><div class="small muted">${L(LIB_K[x.kind]?.[0]||x.kind,LIB_K[x.kind]?.[1]||x.kind)}${x.family&&typeof FAMILIES!=='undefined'&&FAMILIES[x.family]?' · '+L(FAMILIES[x.family][0],FAMILIES[x.family][1]):''}</div>${x.tags?`<div class="small muted">${esc(x.tags)}</div>`:''}
+     <div class="formbar" style="margin-top:6px"><a class="btn s" href="${esc(x.url)}" target="_blank" rel="noopener">${L('فتح','Open')}</a><button class="btn s" data-act="mkLibCopy" data-u="${esc(x.url)}">${L('نسخ الرابط','Copy link')}</button>${can?`<button class="btn s" data-act="mkLib" data-id="${x.id}">${L('تعديل','Edit')}</button>`:''}</div></div>`).join('')}</div>`:`<div class="card empty">${L('المكتبة فاضية','Library is empty')}</div>`}`};
+function mkLib(id){const x=id?(MK2.lib||[]).find(y=>y.id===+id):{kind:'image'};if(!x)return;
+  openModal(id?L('تعديل ملف','Edit file'):L('ملف جديد في المكتبة','New library file'),`<div class="fgrid"><div class="fld" style="grid-column:1/-1"><label>${L('العنوان *','Title *')}</label><input id="lb_t" value="${esc(x.title||'')}"></div>
+    <div class="fld"><label>${L('النوع','Type')}</label><select id="lb_k">${opt(Object.entries(LIB_K).map(([a,b])=>[a,L(b[0],b[1])]),x.kind)}</select></div>
+    <div class="fld"><label>${L('المنتج','Product')}</label><select id="lb_f">${opt(Object.entries(typeof FAMILIES!=='undefined'?FAMILIES:{}).map(([a,b])=>[a,L(b[0],b[1])]),x.family||'',L('— عام —','— general —'))}</select></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('رابط الملف *','File link *')}</label><input id="lb_u" dir="ltr" value="${esc(x.url||'')}" placeholder="https://"></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('أو ارفع ملف','Or upload a file')}</label><input type="file" id="lb_file" accept="image/*,application/pdf,video/*"><div class="small muted" id="lb_up"></div></div>
+    <div class="fld" style="grid-column:1/-1"><label>${L('كلمات للبحث','Tags')}</label><input id="lb_g" value="${esc(x.tags||'')}" placeholder="${L('مثال: جدة، أرصفة، رمادي','e.g. Jeddah, paving')}"></div></div>
+   <div id="mk_err" class="flag"></div><div class="formbar">${id?`<button class="btn d" data-act="mkLibDel" data-id="${id}">${L('حذف','Delete')}</button>`:''}<span class="grow"></span><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="mkLibSave" data-id="${id||''}">${L('حفظ','Save')}</button></div>`,
+   {mount:b=>{b.querySelector('#lb_file').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;const st=b.querySelector('#lb_up');st.textContent=L('جاري الرفع…','Uploading…');
+     try{const a=await window.claude?.use?.('assets');if(!a)throw new Error(L('الرفع غير متاح هنا — حط رابط الملف','Upload unavailable — paste a link'));const r=await a.upload(f);b.querySelector('#lb_u').value=r.url;st.textContent=L('✓ انرفع','✓ Uploaded');if(!b.querySelector('#lb_t').value)b.querySelector('#lb_t').value=f.name.replace(/\.[^.]+$/,'')}
+     catch(err){st.textContent=err.message}})}})}
+
+/* ---------- customer card: source, campaign and survey results ---------- */
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||!window.__sb)return;
+  const box=document.createElement('div');box.className='card';box.id='mk_cc';
+  const cmp=c.campaignId?(MKO.list.find(x=>String(x.id)===String(c.campaignId))?.name||('#'+c.campaignId)):'';
+  box.innerHTML=`<b>${L('التسويق ورضا العميل','Marketing & satisfaction')}</b><div class="small" style="margin:4px 0">${L('المصدر','Source')}: <b>${c.leadSource?srcName(c.leadSource):L('غير محدد','Not set')}</b>${cmp?` · ${L('الحملة','Campaign')}: <b>${esc(cmp)}</b>`:''}</div><div class="small muted" id="mk_cc_s">…</div>`;
+  mb.appendChild(box);
+  window.__sb.rpc('mk_client_surveys',{p_code:c.code}).then(({data})=>{const el=document.getElementById('mk_cc_s');if(!el)return;const a=data||[];
+    if(!a.length){el.textContent=L('ما فيه استبيانات رضا مسجلة','No satisfaction surveys yet');return}
+    const av=a.reduce((s,x)=>s+x.rating,0)/a.length;
+    el.innerHTML=`${L('متوسط الرضا','Average')}: <b style="color:${av<3?'#B3261E':'#1E7B3C'}">${av.toFixed(1)} / 5</b> (${a.length})`+a.slice(0,3).map(x=>`<div>${fdate(x.day)} — ${'★'.repeat(x.rating)}${x.comment?' · '+esc(x.comment):''}</div>`).join('')})}}
+
+Object.assign(ACT,{mkRoiList:d=>mkRoiList(d.id),mkSv:d=>mkSv(d.o),
+  mkSvSave:async d=>{const x=(MK2.due||[]).find(y=>y.order_no===d.o);const g=id=>(document.getElementById(id)||{}).value||'';
+    if(!g('sv_r'))return document.getElementById('mk_err').textContent=L('اختر التقييم العام','Choose the overall rating');
+    try{await mkRpc('mk_survey_save',{p:{card_code:x.code,card_name:x.name,order_no:x.order_no,delivery:x.delivery,rating:g('sv_r'),quality:g('sv_q'),service:g('sv_s'),on_time:g('sv_t'),recommend:g('sv_n'),channel:g('sv_c'),comment:g('sv_m')}});
+      closeModal();toast(L('انحفظ الاستبيان','Saved'));MK2.due=null;MK2.sv=null;render()}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkLib:d=>mkLib(d.id),mkLibCopy:async d=>{try{await navigator.clipboard.writeText(d.u);toast(L('انسخ الرابط','Link copied'))}catch(e){prompt(L('انسخ الرابط','Copy the link'),d.u)}},
+  mkLibSave:async d=>{const g=id=>(document.getElementById(id)||{}).value||'';try{await mkRpc('mk_library_save',{p:{id:d.id||null,title:g('lb_t'),kind:g('lb_k'),family:g('lb_f'),url:g('lb_u').trim(),tags:g('lb_g')}});closeModal();MK2.lib=null;render()}catch(e){document.getElementById('mk_err').textContent=e.message}},
+  mkLibDel:async d=>{if(!confirm(L('حذف الملف من المكتبة؟','Delete?')))return;try{await mkRpc('mk_library_save',{p:{id:d.id,del:true}});closeModal();MK2.lib=null;render()}catch(e){toast(e.message)}}});
+NAV.push(['mkroi','trend',()=>L('عائد الحملات والمصادر','Campaign ROI')]);
+NAV.push(['mksurvey','gauge',()=>L('رضا العملاء','Customer satisfaction')]);
+NAV.push(['mklib','doc',()=>L('مكتبة المحتوى','Content library')]);
+setTimeout(()=>mkoLoad(),1500);
+(()=>{const st=document.createElement('style');st.textContent=`.mk-lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}.mk-li{display:flex;flex-direction:column;gap:3px;padding:10px}
+ .mk-li img{width:100%;height:150px;object-fit:cover;border-radius:8px;background:#EDECED}.mk-li-ic{height:150px;border-radius:8px;background:#EDECED;display:flex;align-items:center;justify-content:center;font-size:42px}`;document.head.appendChild(st)})();
+
 /* ===== Smart search pickers (البحث السريع) — used across the platform.
    1) wCombo(input, opts): type-ahead search on any text input (local lists or async sources such as SAP),
       Arabic-aware matching (أ/إ/آ=ا، ى=ي، ة=ه، حركات، أرقام هندية), multi-word, highlighted matches,
@@ -6195,7 +6320,7 @@ const NAV_TREE=[
   ['doc',()=>L('العقود القانونية','Legal contracts'),['credit','contracts','acctopen','letters','lcset']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
   ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
-  ['chat',()=>L('التسويق','Marketing'),['mkcal','mkposts','mkapprove','mkcamp','mkacct','mkreport']],
+  ['chat',()=>L('التسويق','Marketing'),['mkcal','mkposts','mkapprove','mkcamp','mkroi','mkreport','mksurvey','mklib','mkacct']],
   ['db',()=>L('الإعدادات','Settings'),['imports','items','integrity','dups','kpi','team','audit','data']],
   ['build',null,['prodplan']]];
 const DROP=new Set(['dlvvehicle','dlvdrivers']);
