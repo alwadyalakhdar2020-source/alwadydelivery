@@ -2254,7 +2254,7 @@ function ppQcView(){
   if(QB.key==='err')return `<div class="card empty">تعذّر تحميل بيانات الجودة. <button class="btn s" data-act="qbRetry">إعادة المحاولة</button></div>`;
   if(!ensureRefs()||QB.key!==QC.from+'|'+QC.to){if(!QB.busy&&QB.key!=='err'){QB.busy=true;setTimeout(qbLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
   const ed=prodEd('qc');const D=qbDue();const held=QB.batches.filter(b=>b.qc_status==='hold');const od=D.rows.filter(x=>x.left<0).length;
-  const subs=[['due',`عينات مستحقة${D.rows.length?` (${D.rows.length})`:''}`],['hold',`دفعات محجوزة${held.length?` (${held.length})`:''}`],['log','سجل الفحوصات'],['specs','مواصفات المنتجات'],['rep','تقارير الجودة']];
+  const subs=[['due',`عينات مستحقة${D.rows.length?` (${D.rows.length})`:''}`],['hold',`دفعات محجوزة${held.length?` (${held.length})`:''}`],['log','سجل الفحوصات'],['batches','الدفعات والشهادات'],['cmp',`شكاوى العملاء${QB.cmp.filter(c=>c.status!=='closed').length?` (${QB.cmp.filter(c=>c.status!=='closed').length})`:''}`],['specs','مواصفات المنتجات'],['rep','تقارير الجودة']];
   let h=`<div class="toolbar noprint">${subs.map(([k,l])=>`<button class="chip ${QB.sub===k?'on':''}" data-act="qbSub" data-v="${k}">${l}</button>`).join('')}<span class="grow"></span>${ed?`<button class="btn p" data-act="qbTest">+ نتيجة فحص</button>`:''}</div>`;
   const tested=QB.batches.filter(b=>testsOf(b).length).length;
   h+=`<div class="kpis k4">${kpiTile(`دفعات آخر ${QB.days} يوم`,num(QB.batches.length),`${num(tested)} منها مفحوصة`)}${kpiTile('عينات متأخرة',num(od),od?'مرّ موعد فحصها':'')}${kpiTile('دفعات محجوزة',num(held.length),held.length?`${num(held.reduce((s,b)=>s+(+b.qty||0),0))} وحدة`:'')}${kpiTile('هالك الفترة',num(QB.batches.reduce((s,b)=>s+(+b.scrap_qty||0),0)),'بقرار الجودة')}</div>`;
@@ -2262,6 +2262,8 @@ function ppQcView(){
   if(QB.sub==='hold')return h+qbHoldView(held,ed);
   if(QB.sub==='specs')return h+qbSpecsView(ed);
   if(QB.sub==='rep')return h+qbRepView();
+  if(QB.sub==='cmp')return h+qbCmpView(ed);
+  if(QB.sub==='batches')return h+qbBatchView();
   return h+qbLogView(ed)}
 const bCell=b=>`<b dir="ltr">${esc(batchNo(b))}</b><div class="small muted">${esc(lineName(b.line_id))} · ${fdate(b.day)} ${b.shift==='m'?'صباحي':'مسائي'}</div>`;
 function qbDueView(D,ed){let h='';
@@ -2301,6 +2303,7 @@ function qbRepView(){const R=QC.rows;const by=(kf,lf)=>{const m=new Map();R.forE
   return `<p class="small muted" style="margin:0 0 8px">الفحوصات من ${fdate(QC.from)} إلى ${fdate(QC.to)} (غيّر الفترة من «سجل الفحوصات»). الهالك من دفعات آخر ${QB.days} يوم.</p>
    <div class="card"><h2>نسبة المطابقة حسب الخط</h2>${table([{l:'الخط',f:o=>esc(o.l)},{l:'الفحوصات',c:'n',f:o=>num(o.n)},{l:'غير مطابق / موقوف',c:'n',f:o=>o.f?`<span class="flag">${o.f}</span>`:'—'},{l:'نسبة المطابقة',c:'n',f:rate}],by(r=>r.line_id||'-',r=>r.line_id?lineName(r.line_id):'بدون خط'),{empty:'ما فيه فحوصات في الفترة'})}</div>
    <div class="card"><h2>المقاومة حسب المنتج</h2>${table([{l:'المنتج',f:o=>`${esc(o.l||'')} <bdi class="small muted" dir="ltr">${esc(o.k)}</bdi>`},{l:'الفحوصات',c:'n',f:o=>num(o.n)},{l:'متوسط مقاومة 7 أيام',c:'n',f:o=>avg(o.s7)},{l:'متوسط مقاومة 28 يوم',c:'n',f:o=>avg(o.s28)},{l:'أدنى مطلوب',c:'n',f:o=>specOf(o.k)?.strength_min??'—'},{l:'نسبة المطابقة',c:'n',f:rate}],by(r=>r.code||r.item||'—',r=>r.item),{empty:'ما فيه فحوصات في الفترة'})}</div>
+   ${(()=>{const m=new Map();QB.cmp.forEach(c=>{const o=m.get(c.category)||{k:c.category,n:0,open:0,cost:0};o.n++;if(c.status!=='closed')o.open++;o.cost+=+c.cost||0;m.set(c.category,o)});return `<div class="card"><h2>شكاوى العملاء حسب النوع<span class="sub">آخر 6 شهور</span></h2>${table([{l:'النوع',f:o=>esc(o.k)},{l:'الشكاوى',c:'n',f:o=>num(o.n)},{l:'مفتوحة',c:'n',f:o=>o.open?`<span class="flag">${o.open}</span>`:'—'},{l:'تكلفة المعالجة',c:'n',f:o=>o.cost?num(o.cost)+' ر.س':'—'}],[...m.values()].sort((a,b)=>b.n-a.n),{empty:'ما فيه شكاوى'})}</div>`})()}
    <div class="card"><h2>الهالك بقرار الجودة</h2>${table([{l:'المنتج',f:o=>`${esc(o.item||'')} <bdi class="small muted" dir="ltr">${esc(o.code)}</bdi>`},{l:'دفعات فيها هالك',c:'n',f:o=>num(o.n)},{l:'كمية الهالك',c:'n',f:o=>num(o.q)},{l:'من إجمالي إنتاج المنتج',c:'n',f:o=>o.tot?(o.q/o.tot*100).toFixed(1)+'%':'—'}],[...sc.values()].sort((a,b)=>b.q-a.q),{empty:'ما فيه هالك مسجل'})}</div>`}
 
 /* ---------- test entry, linked to a batch ---------- */
@@ -2351,6 +2354,86 @@ Object.assign(ACT,{qbRetry:()=>{QB.key='';render()},qbSub:d=>{QB.sub=d.v;render(
   qbDecide:d=>qbDecide(d),qbDecideSave:d=>qbDecideSave(d),
   qcEdit:d=>qbTest(d),qcDel:async d=>{if(!confirm('حذف الفحص؟'))return;if(await rpcSave('prod_qc_save',{id:d.id,del:true},'تم الحذف')){QB.key='';RC.key='';render()}},
   qcPer:()=>{QC.from=v_('qc_from')||QC.from;QC.to=v_('qc_to')||QC.to;QB.key='';render()}});
+
+/* ---------- customer complaints ---------- */
+const CMP_CAT=['كسر أو تشقق','اختلاف اللون','أبعاد غير مطابقة','مقاومة أو جودة','كمية ناقصة','تغليف أو تحميل','تأخير التسليم','أخرى'];
+const CMP_ST={open:['مفتوحة','bad'],investigating:['قيد التحقيق','warn'],closed:['مغلقة','ok']};
+QB.cmp=[];QB.cflt='open';
+const _qbLoad0=qbLoad;
+qbLoad=async function(){await _qbLoad0();const since=addDays(TODAY(),-180);
+  try{const [r,o]=await Promise.all([fetchAll(()=>sb.from('prod_complaints').select('*').gte('day',since).order('day',{ascending:false})),fetchAll(()=>sb.from('prod_complaints').select('*').neq('status','closed').lt('day',since))]);QB.cmp=[...r,...o]}
+  catch(e){toast('تعذّر تحميل الشكاوى: '+errText(e))}render()};
+function qbCmpView(ed){const C=QB.cmp.filter(c=>QB.cflt==='all'||(QB.cflt==='open'?c.status!=='closed':c.status===QB.cflt));
+  return `<div class="toolbar noprint">${[['open','المفتوحة'],['closed','المغلقة'],['all','الكل (آخر 6 شهور)']].map(([k,l])=>`<button class="chip ${QB.cflt===k?'on':''}" data-act="qbCflt" data-v="${k}">${l}</button>`).join('')}<span class="grow"></span>${ed?`<button class="btn p" data-act="qbCmp">+ شكوى عميل</button>`:''}</div>
+   <div class="card"><h2>شكاوى العملاء<span class="sub">${num(C.length)}</span></h2>${table([{l:'رقم',c:'n',f:c=>`<bdi dir="ltr">C-${c.id}</bdi>`},{l:'التاريخ',c:'nw',f:c=>fdate(c.day)},
+    {l:'العميل',f:c=>`${esc(c.card_name)}${c.card_code?` <bdi class="small muted" dir="ltr">${esc(c.card_code)}</bdi>`:''}${c.ref?`<div class="small muted">مرجع: ${esc(c.ref)}</div>`:''}`},
+    {l:'المنتج / الدفعة',f:c=>`${esc(c.item||c.code||'—')}${c.prod_day?`<div class="small muted" dir="ltr">${esc(batchNo({line_id:c.line_id,day:c.prod_day,shift:c.shift,code:c.code}))}</div>`:''}`},
+    {l:'النوع',f:c=>esc(c.category)},{l:'الكمية',c:'n',f:c=>c.qty!=null?num(c.qty):'—'},{l:'الحالة',f:c=>pill(...CMP_ST[c.status])},
+    {l:'السبب والإجراء',f:c=>c.root_cause||c.action?`<div class="small">${esc(c.root_cause||'')}</div><div class="small muted">${esc(c.action||'')}</div>`:'<span class="muted">—</span>'},
+    {l:'',c:'nw',f:c=>ed?`<button class="btn s" data-act="qbCmp" data-id="${c.id}">فتح</button>`:''}],C,{empty:'ما فيه شكاوى'})}</div>`}
+function qbCmp(d){const c=d.id?QB.cmp.find(x=>String(x.id)===String(d.id)):{day:TODAY(),status:'open'};if(!c)return;
+  const bk=c.prod_day?[c.line_id,c.prod_day,c.shift,c.code].join('|'):'';
+  const opts=QB.batches.map(y=>[bKey(y),`${batchNo(y)} — ${y.item||y.code}`]);if(bk&&!opts.some(o=>o[0]===bk))opts.unshift([bk,batchNo({line_id:c.line_id,day:c.prod_day,shift:c.shift,code:c.code})]);
+  openModal(d.id?`شكوى C-${c.id}`:'شكوى عميل جديدة',`<datalist id="dl_cc"></datalist><datalist id="dl_cp">${(PP.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.name)}</option>`).join('')}</datalist><div class="fgrid">
+   <label class="fl">التاريخ<input type="date" id="cm_day" value="${c.day||''}"></label><label class="fl">مرجع (أمر بيع / تسليم)<input id="cm_ref" dir="ltr" value="${esc(c.ref||'')}"></label>
+   <label class="fl" style="grid-column:1/-1">العميل (اكتب حرفين من الاسم أو الكود)<input id="cm_cust" list="dl_cc" autocomplete="off" value="${esc(c.card_name||'')}"><input type="hidden" id="cm_code" value="${esc(c.card_code||'')}"></label>
+   <label class="fl" style="grid-column:1/-1">الدفعة (اختياري — لو معروفة)<select id="cm_b">${opt(opts,bk,'— غير محددة —')}</select></label>
+   <label class="fl">كود المنتج<input id="cm_pc" list="dl_cp" dir="ltr" value="${esc(c.code||'')}"></label><label class="fl">اسم المنتج<input id="cm_pi" value="${esc(c.item||'')}"></label>
+   <label class="fl">نوع الشكوى<select id="cm_cat">${opt(CMP_CAT.map(x=>[x,x]),c.category,'— اختر —')}</select></label><label class="fl">الكمية المتأثرة<input type="number" inputmode="decimal" id="cm_q" value="${c.qty??''}"></label>
+   <label class="fl" style="grid-column:1/-1">وصف الشكوى<textarea id="cm_desc" rows="2">${esc(c.description||'')}</textarea></label>
+   <label class="fl">الحالة<select id="cm_st">${opt(Object.entries(CMP_ST).map(([k,v])=>[k,v[0]]),c.status)}</select></label><label class="fl">تكلفة المعالجة (ريال)<input type="number" inputmode="decimal" id="cm_cost" value="${c.cost??''}"></label>
+   <label class="fl" style="grid-column:1/-1">السبب الجذري<textarea id="cm_rc" rows="2">${esc(c.root_cause||'')}</textarea></label>
+   <label class="fl" style="grid-column:1/-1">الإجراء التصحيحي<textarea id="cm_act" rows="2">${esc(c.action||'')}</textarea></label></div>
+   <div class="small muted">الإقفال يحتاج السبب الجذري والإجراء التصحيحي.</div><div id="ops_e" class="flag"></div>
+   <div class="formbar"><span class="grow"></span><button class="btn" data-act="closeModal">إلغاء</button><button class="btn p" data-act="qbCmpSave" data-id="${c.id||''}">حفظ</button></div>`,
+   m=>{const inp=m.querySelector('#cm_cust'),dl=m.querySelector('#dl_cc'),code=m.querySelector('#cm_code');let tm,last=[];
+     inp.addEventListener('input',()=>{const v=inp.value.trim();const hit=last.find(x=>`${x.name} — ${x.code}`===v);if(hit){inp.value=hit.name;code.value=hit.code;return}code.value='';clearTimeout(tm);if(v.length<2)return;
+       tm=setTimeout(async()=>{const {data}=await sb.rpc('prod_customer_search',{p_q:v});last=data||[];dl.innerHTML=last.map(x=>`<option value="${esc(x.name+' — '+x.code)}">`).join('')},250)});
+     const b=m.querySelector('#cm_b');b.addEventListener('change',()=>{const y=QB.batches.find(z=>bKey(z)===b.value);if(y){m.querySelector('#cm_pc').value=y.code;m.querySelector('#cm_pi').value=y.item||''}});
+     const pc=m.querySelector('#cm_pc');pc.addEventListener('change',()=>{const p=(PP.products||[]).find(x=>normCode(x.code)===normCode(pc.value));if(p&&!v_('cm_pi'))m.querySelector('#cm_pi').value=p.name})})}
+async function qbCmpSave(id){const bk=v_('cm_b').split('|');const e=document.getElementById('ops_e');
+  if(!v_('cm_cust')){e.textContent='اختر العميل';return}if(!v_('cm_cat')||!v_('cm_desc')){e.textContent='نوع الشكوى ووصفها مطلوبين';return}
+  if(v_('cm_st')==='closed'&&(!v_('cm_rc')||!v_('cm_act'))){e.textContent='قبل الإقفال اكتب السبب الجذري والإجراء التصحيحي';return}
+  const p={id:id||null,day:v_('cm_day'),ref:v_('cm_ref'),card_name:v_('cm_cust'),card_code:v_('cm_code'),code:v_('cm_pc'),item:v_('cm_pi'),line_id:bk.length===4?bk[0]:'',prod_day:bk.length===4?bk[1]:'',shift:bk.length===4?bk[2]:'',
+    category:v_('cm_cat'),description:v_('cm_desc'),qty:v_('cm_q'),status:v_('cm_st'),cost:v_('cm_cost'),root_cause:v_('cm_rc'),action:v_('cm_act')};
+  if(await rpcSave('prod_complaint_save',p)){QB.key='';render()}}
+
+/* ---------- quality certificate of a batch (print / PDF) ---------- */
+function qbCert(k){const b=QB.batches.find(x=>bKey(x)===k);if(!b)return toast('الدفعة خارج آخر 45 يوم');
+  if(!['pass','released'].includes(b.qc_status))return toast('الشهادة تطلع للدفعة المطابقة أو المفرج عنها بس');
+  const T=testsOf(b).sort((a,c)=>(a.age_days??0)-(c.age_days??0));const s=specOf(b.code);const logo=window.WADY_LOGO_DATA||'';const bn=batchNo(b);
+  const row=t=>`<tr><td>${fdate(t.day)}</td><td>${t.age_days??'—'} يوم</td><td>${t.samples??'—'}</td><td>${t.strength??'—'}</td><td>${t.strength_min??'—'}</td><td>${t.absorption!=null?t.absorption+'%':'—'}</td><td>${t.absorption_max!=null?t.absorption_max+'%':'—'}</td><td>${t.dims_ok===false?'✗':'✓'}</td><td>${t.visual_ok===false?'✗':'✓'}</td><td><b>${t.result==='pass'?'مطابق':t.result==='hold'?'موقوف':'غير مطابق'}</b></td></tr>`;
+  const html=`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>شهادة جودة ${esc(bn)}</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet"><style>
+   @page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:"Tajawal",Tahoma,sans-serif;color:#0B1B33;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+   header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #051D48;padding-bottom:10px}header img{height:56px}
+   h1{text-align:center;color:#051D48;margin:18px 0 2px;font-size:24px}.en{text-align:center;color:#5A6A82;letter-spacing:2px;font-size:11px;margin-bottom:16px}
+   .g{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;background:#F2F5FA;border-right:5px solid #38AC57;border-radius:8px;padding:12px 14px;font-size:13px}.g span{color:#5A6A82}
+   table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11.5px}th,td{border:1px solid #C9D3E0;padding:6px;text-align:center}th{background:#051D48;color:#fff}
+   .ok{margin-top:16px;padding:10px 14px;border:2px solid #38AC57;border-radius:8px;color:#1E7B3C;font-weight:700}.note{font-size:11px;color:#5A6A82;margin-top:8px}
+   .sign{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:50px;font-size:12px}.sign div{border-top:1px solid #8B9AB3;padding-top:6px;text-align:center}
+   footer{position:fixed;bottom:0;left:0;right:0;font-size:9.5px;color:#8B9AB3;text-align:center}</style></head><body>
+   <header>${logo?`<img src="${logo}" alt="">`:'<b>الوادي الأخضر المميز</b>'}<div style="text-align:left;font-size:11px;color:#5A6A82" dir="ltr">QC-${esc(bn)}<br>${fdate(TODAY())}</div></header>
+   <h1>شهادة جودة</h1><div class="en">QUALITY CERTIFICATE</div>
+   <div class="g"><div><span>المنتج:</span> <b>${esc(b.item||'')}</b></div><div><span>الكود:</span> <b dir="ltr">${esc(b.code)}</b></div>
+    <div><span>رقم الدفعة:</span> <b dir="ltr">${esc(bn)}</b></div><div><span>تاريخ الإنتاج:</span> <b>${fdate(b.day)} — ${b.shift==='m'?'الوردية الصباحية':'الوردية المسائية'}</b></div>
+    <div><span>خط الإنتاج:</span> <b>${esc(lineName(b.line_id))}</b></div><div><span>الكمية:</span> <b>${num(b.qty-(+b.scrap_qty||0))}</b></div>
+    <div style="grid-column:1/-1"><span>المرجع:</span> <b>${esc(s?.standard||'—')}</b></div></div>
+   <table><thead><tr><th>تاريخ الفحص</th><th>عمر العينة</th><th>العينات</th><th>مقاومة الضغط (ميجاباسكال)</th><th>الحد الأدنى</th><th>الامتصاص</th><th>الحد الأعلى</th><th>الأبعاد</th><th>المظهر</th><th>النتيجة</th></tr></thead><tbody>${T.map(row).join('')||'<tr><td colspan="10">ما فيه نتائج فحص مسجلة</td></tr>'}</tbody></table>
+   <div class="ok">${b.qc_status==='released'?`أُفرج عن الدفعة بقرار الجودة: ${esc(b.qc_note||'')}`:'نتائج الفحوصات أعلاه مطابقة للحدود المعتمدة للمنتج.'}</div>
+   <div class="note">النتائج تخص العينات المأخوذة من الدفعة المذكورة فقط.</div>
+   <div class="sign"><div>مسؤول المختبر</div><div>مدير الجودة</div></div>
+   <footer>الوادي الأخضر المميز — صادرة من منصة الشركة</footer>
+   <script>window.addEventListener("load",function(){var go=function(){setTimeout(function(){window.print()},300)};if(document.fonts&&document.fonts.ready)document.fonts.ready.then(go);else setTimeout(go,600)});<\/script></body></html>`;
+  const w=window.open('','_blank');if(!w){downloadBlob(`شهادة_جودة_${bn}.html`,new Blob([html],{type:'text/html'}));return toast('افتح الملف المنزّل واطبعه')}w.document.open();w.document.write(html);w.document.close()}
+Object.assign(ACT,{qbCflt:d=>{QB.cflt=d.v;render()},qbCmp:d=>qbCmp(d),qbCmpSave:d=>qbCmpSave(d.id),qbCert:d=>qbCert(d.k)});
+
+function qbBatchView(){const B=QB.batches;
+  return `<p class="small muted noprint" style="margin:0 0 8px">كل وردية إنتاج لمنتج = دفعة لها رقم ثابت (التاريخ - الخط والوردية - الكود). شهادة الجودة تطلع للدفعة المطابقة أو المفرج عنها، وتنطبع أو تنحفظ PDF.</p>
+   <div class="card"><h2>دفعات آخر ${QB.days} يوم<span class="sub">${num(B.length)}</span></h2>${table([{l:'الدفعة',f:b=>bCell(b)},{l:'المنتج',f:b=>`${esc(b.item||'')} <bdi class="small muted" dir="ltr">${esc(b.code)}</bdi>`},{l:'الكمية',c:'n',f:b=>num(b.qty)},
+    {l:'الفحوصات',c:'n',f:b=>{const t=testsOf(b);return t.length?t.map(x=>`${x.age_days??'?'}ي ${x.result==='pass'?'✓':'✗'}`).join(' · '):'<span class="muted">—</span>'}},
+    {l:'الجودة',f:b=>b.qc_status?pill(...QB_ST[b.qc_status]):specOf(b.code)?pill('لم تُفحص بعد',''):'<span class="small muted">بدون مواصفة</span>'},
+    {l:'المستودع',f:b=>b.rcpt_status?pill(...RC_ST[b.rcpt_status]):'—'},
+    {l:'',c:'nw',f:b=>['pass','released'].includes(b.qc_status)?`<button class="btn s" data-act="qbCert" data-k="${esc(bKey(b))}">شهادة جودة</button>`:''}],B,{empty:'ما فيه إنتاج مسجل في الفترة'})}</div>`}
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
