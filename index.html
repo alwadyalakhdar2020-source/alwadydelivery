@@ -429,7 +429,7 @@ const PAGES={
     ['العقود القانونية',[['credit','طلبات التسهيلات الائتمانية'],['contracts','العقود'],['acctopen','طلبات فتح الحساب'],['letters','خطابات العملاء'],['lcset','إعدادات الموافقات وقوالب العقود']]],
     ['العمل الميداني',[['field','لوحة الميدان'],['plan','خطة الزيارات'],['visits','الزيارات الميدانية'],['complaints','الشكاوى'],['comms','الاتصالات']]],
     ['البيانات والإدارة',[['imports','مصدر البيانات (ساب)'],['integrity','سلامة البيانات'],['kpi','إعدادات المؤشرات'],['team','المستخدمون والفريق'],['audit','سجل التدقيق'],['data','الربط مع SAP']]],
-    ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية (الخطة والملخص والسجل)'],['prod_actual','الإنتاج الفعلي وتحليل التوقفات'],['prod_stock','المخزون والطلبات'],['prod_qc','الجودة والمختبر'],['prod_maint','الصيانة الوقائية'],['prod_pr','طلبات الشراء']]],
+    ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية (الخطة والملخص والسجل)'],['prod_actual','الإنتاج الفعلي وتحليل التوقفات'],['prod_stock','المخزون والطلبات'],['prod_qc','الجودة والمختبر'],['prod_maint','الصيانة الوقائية'],['prod_pr','طلبات الشراء'],['prod_wh','استلام المستودع (اعتماد استلام الإنتاج)']]],
     ['الذكاء الاصطناعي',[['ai','المساعد الذكي (ملخصات وصياغة وتحليل)']]]]},
   fleet:{name:'حركة السيارات والتوصيل',note:'الدور في التوصيل (مدير نظام، مدير عمليات، منسق حركة، مشرف مبيعات، مندوب) يحدد اللي يقدر يسويه على السيرفر، وهذي الصفحات تحدد اللي يظهر له. عرض أو مراجع = يشوف بس بدون تعديل.',groups:[['التشغيل والتوصيل',[['ops','لوحة الحركة'],['orders','طلبات التوصيل'],['plan','تخطيط الردود'],['reserve','الاحتياطي'],['maint','الصيانة'],['dreports','تقارير التوصيل']]],['الأداء والتوريد',[['dashboard','لوحة الأداء'],['entry','الإدخال اليومي'],['vehicle','سجل السيارة'],['drivers','السائقين وتقرير ردودهم'],['costs','تكاليف التشغيل'],['docs','الوثائق والتنبيهات'],['carrier','الناقل الخارجي'],['report','التقرير'],['places','الأحياء والمسافات'],['log','سجل الحركات']]],['الإدارة',[['admin','إدارة النظام'],['setup','الإعدادات']]]]},
   hr:{name:'الموارد البشرية والشؤون الإدارية',note:'الخدمة الذاتية (طلب جديد، طلباتي، ملفي، حضوري، الإشعارات) متاحة لكل موظف مربوط بحسابه وتعرض بياناته هو فقط. الصفحات تحت تعطي صلاحية على بيانات بقية الموظفين.',groups:[
@@ -458,8 +458,8 @@ function templatePages(app,key){const t=PAGE_TEMPLATES[app]?.[key];const all=lv=
   return {...(t||{})}}
 
 // production tabs: each tab is its own page so a user (e.g. quality) can be given one tab only
-const PROD_TAB_PAGE={plan:'prod',summary:'prod',weeks:'prod',import:'prod',actual:'prod_actual',stops:'prod_actual',stock:'prod_stock',qc:'prod_qc',maint:'prod_maint',pr:'prod_pr'};
-const PROD_PAGES=['prod','prod_actual','prod_stock','prod_qc','prod_maint','prod_pr'];
+const PROD_TAB_PAGE={plan:'prod',summary:'prod',weeks:'prod',import:'prod',actual:'prod_actual',stops:'prod_actual',stock:'prod_stock',qc:'prod_qc',maint:'prod_maint',pr:'prod_pr',rcpt:'prod_wh'};
+const PROD_PAGES=['prod','prod_actual','prod_stock','prod_qc','prod_maint','prod_pr','prod_wh'];
 const prodLegacy=()=>['prod','plant','admin','mgr'].includes(role());
 const prodTabLvl=t=>prodLegacy()||isAppAdmin('crm')?3:lvl('crm',PROD_TAB_PAGE[t]||'prod');
 const prodAny=()=>prodLegacy()||PROD_PAGES.some(p=>lvl('crm',p)>0);
@@ -1449,7 +1449,7 @@ async function ppReview(st,note){const {error}=await sb.rpc('review_prod_week',{
 
 /* ---------- views ---------- */
 V.prod=()=>{
-  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['recs','التوصيات'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
+  const tabs=[['plan','الخطة الأسبوعية'],['actual','الإنتاج الفعلي'],['rcpt','استلام المستودع'],['summary','ملخص الأسبوع'],['stops','تحليل التوقفات'],['stock','المخزون والطلبات'],['qc','الجودة والمختبر'],['maint','الصيانة الوقائية'],['pr','طلبات الشراء'],['recs','التوصيات'],['weeks','سجل الأسابيع'],...(isProdEditor()?[['import','استيراد Excel']]:[])];
   for(let i=tabs.length-1;i>=0;i--)if(tabs[i][0]==='recs'?!['plan','actual','qc','maint','pr'].some(k=>prodTabLvl(k)>0):prodTabLvl(tabs[i][0])<1)tabs.splice(i,1);
   if(!tabs.length)return `<div class="card empty">ما عندك صلاحية على شاشات الإنتاج.</div>`;
   if(!tabs.some(t=>t[0]===PP.tab))PP.tab=tabs[0][0];
@@ -1462,6 +1462,7 @@ V.prod=()=>{
   if(PP.tab==='maint')return h+ppMaintView();
   if(PP.tab==='pr')return h+ppPrView();
   if(PP.tab==='recs')return h+ppRecsView();
+  if(PP.tab==='rcpt')return h+rcView();
   if(PP.key!==PP.ws){if(!PP.loading){PP.loading=true;PP.key='…';setTimeout(ppLoad,0)}return h+`<div class="card empty">جارٍ التحميل…</div>`}
   if(!PP.doc)return h+`<div class="card empty">تعذّر تحميل الخطة. <button class="btn s" data-act="ppReload">إعادة المحاولة</button></div>`;
   if(PP.tab==='actual')return h+ppActualView();
@@ -1746,7 +1747,7 @@ function ppLinesForm(){
 }
 Object.assign(OPEN,{ppweek:id=>{const w=(PP.weeks||[]).find(x=>x.id===id);if(w)ppGoWeek(w.week_start)}});
 const PP_ACT={
-  ppTab:d=>{if(!['plan','summary','actual','stops','stock','qc','maint','pr'].includes(d.v)&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
+  ppTab:d=>{if(!['plan','summary','actual','rcpt','stops','stock','qc','maint','pr'].includes(d.v)&&!ppGuard())return;PP.tab=d.v;if(d.v==='import'&&PP.imp.step==='done')PP.imp={step:'pick'};render()},
   ppReload:()=>{PP.key='';render()},
   ppShift:d=>ppGoWeek(addDays(PP.ws,+d.n)),
   ppNewWeek:async()=>{const cur=satOf(TODAY());const {data,error}=await sb.from('prod_weeks').select('week_start').gte('week_start',cur).order('week_start',{ascending:false}).limit(1);if(error)return toast(errText(error));
@@ -1867,23 +1868,27 @@ function paStats(lines){let ps=0,ex=0,pq=0,aq=0,pqN=0,lost=0;const by=[];
     by.push({name:lineName(l.line_id),ps:lps,ex:lex,lost:pastLost,pq:lp,aq:la})});
   return {ps,ex,pq,aq,pqN,lost,by}}
 const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
+function paRcpt(a){if(!a||!a.rcpt_status)return '';const t=RC_ST[a.rcpt_status];
+  if(a.rcpt_status==='approved')return pill(`✓ استلم ${num(a.rcpt_qty)}`,+a.rcpt_qty===+a.qty?'ok':'warn')+(a.rcpt_note?`<div class="small muted">${esc(a.rcpt_note)}</div>`:'');
+  if(a.rcpt_status==='rejected')return pill(t[0],t[1])+`<div class="small" style="color:var(--bad)">${esc(a.rcpt_note||'')}</div>`+(prodEd('actual')?`<div class="small muted">عدّل الكمية واحفظ، أو <button class="btn s" data-act="paResend" data-k="${esc(paKey(a.line_id,a.day,a.shift,a.code))}">أعد الإرسال كما هي</button></div>`:'');
+  return pill(t[0],t[1])}
 function ppActualView(){
   if(PA.key!==PP.ws){if(!PA.busy){PA.busy=true;setTimeout(paLoad,0)}return ppWeekBar()+`<div class="card empty">جارٍ التحميل…</div>`}
   const ed=prodEd('actual');const lines=PP.lines.filter(l=>paSlots(l).length);const st=paStats(PP.lines);
   let h=ppWeekBar();
   if(!lines.length)return h+`<div class="card empty">ما فيه خطة لهذا الأسبوع. سجّل الخطة أولاً، وبعدها تسجّل الإنتاج الفعلي لكل وردية.</div>`;
   h+=`<div class="kpis k5">${kpiTile('ورديات إنتاج مخططة',num(st.ps))}${kpiTile('ورديات نُفّذت',num(st.ex),'سُجّل لها إنتاج فعلي')}${kpiTile('تحقيق الورديات',pct(st.ex,st.ps))}${kpiTile('ورديات ضائعة',num(st.lost),'مرّ موعدها بدون إنتاج')}${kpiTile('تحقيق الكمية',pct(st.aq,st.pq),st.pqN?`${num(st.aq)} من ${num(st.pq)}`:'الخطة بدون كميات رقمية')}</div>
-   <p class="small muted noprint" style="margin:0 0 8px">سجّل الكمية المنتجة فعلياً لكل منتج في كل وردية. لو ما تنفّذت الوردية أو نقصت، اختر السبب عشان يدخل في «تحليل التوقفات». الأرقام تنحفظ لما تضغط «حفظ الإنتاج الفعلي».</p>`;
+   <p class="small muted noprint" style="margin:0 0 8px">سجّل الكمية المنتجة فعلياً لكل منتج في كل وردية. لو ما تنفّذت الوردية أو نقصت، اختر السبب عشان يدخل في «تحليل التوقفات». الأرقام تنحفظ لما تضغط «حفظ الإنتاج الفعلي»، وكل كمية تنزل طلب استلام لأمين المستودع، وما تدخل المخزون إلا بعد ما يعتمدها. الكمية اللي استلمها المستودع ما تتعدل.</p>`;
   lines.forEach(l=>{const sl=paSlots(l);
-    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">${sl.filter(x=>!x.stop&&!x.mould).length} منتج × وردية</span></h2><div class="tw"><table class="pa-t"><thead><tr><th>اليوم</th><th>الوردية</th><th>المنتج</th><th class="n">المخطط</th><th class="n">الفعلي</th><th class="n">التحقيق</th><th>سبب النقص / التوقف</th><th>ملاحظة</th></tr></thead><tbody>
+    h+=`<div class="card pp-line"><h2>${esc(lineName(l.line_id))}<span class="sub">${sl.filter(x=>!x.stop&&!x.mould).length} منتج × وردية</span></h2><div class="tw"><table class="pa-t"><thead><tr><th>اليوم</th><th>الوردية</th><th>المنتج</th><th class="n">المخطط</th><th class="n">الفعلي</th><th class="n">التحقيق</th><th>استلام المستودع</th><th>سبب النقص / التوقف</th><th>ملاحظة</th></tr></thead><tbody>
     ${sl.map(x=>{const k=paKey(l.line_id,x.day,x.s,x.code);const a=PA.rows[k]||{};const id=`pa_${btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,'')}`;
       const q=a.qty!=null?+a.qty:null;const r=x.plan!=null&&q!=null?q/x.plan:null;const tone=r==null?'':r>=.95?'ok':r>=.7?'warn':'bad';
       const dd=`<td class="nw"><b>${DAY_AR[dow(x.day)]}</b> <span class="small muted">${fdate(x.day)}</span></td><td>${x.s==='m'?'صباحي':'مسائي'}</td>`;
-      if(x.stop||x.mould)return `<tr class="pa-stop">${dd}<td colspan="3">${pill(x.item,x.stop?'bad':'warn')}</td><td></td><td>${ed?`<select data-pa="${esc(k)}" data-f="stop_reason" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}"><option value="">— السبب —</option>${PA_REASONS.map(o=>`<option ${a.stop_reason===o?'selected':''}>${o}</option>`).join('')}</select>`:esc(a.stop_reason||'')}</td><td>${ed?`<input data-pa="${esc(k)}" data-f="note" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}" value="${esc(a.note||'')}">`:esc(a.note||'')}</td></tr>`;
+      if(x.stop||x.mould)return `<tr class="pa-stop">${dd}<td colspan="3">${pill(x.item,x.stop?'bad':'warn')}</td><td></td><td></td><td>${ed?`<select data-pa="${esc(k)}" data-f="stop_reason" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}"><option value="">— السبب —</option>${PA_REASONS.map(o=>`<option ${a.stop_reason===o?'selected':''}>${o}</option>`).join('')}</select>`:esc(a.stop_reason||'')}</td><td>${ed?`<input data-pa="${esc(k)}" data-f="note" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="" data-item="${esc(x.item)}" value="${esc(a.note||'')}">`:esc(a.note||'')}</td></tr>`;
       const at=`data-pa="${esc(k)}" data-line="${l.line_id}" data-day="${x.day}" data-s="${x.s}" data-code="${esc(x.code)}" data-item="${esc(x.item)}"`;
       return `<tr>${dd}<td>${esc(x.item)} <span class="small muted" dir="ltr">${esc(x.code)}</span></td><td class="n">${x.plan!=null?num(x.plan):`<span class="muted">${esc(x.planTxt||'—')}</span>`}</td>
-       <td class="n">${ed?`<input id="${id}" ${at} data-f="qty" inputmode="decimal" value="${q!=null?q:''}" style="width:90px;text-align:center" aria-label="الإنتاج الفعلي">`:(q!=null?num(q):'—')}</td>
-       <td class="n">${r!=null?pill(Math.round(r*100)+'%',tone):''}</td>
+       <td class="n">${ed&&a.rcpt_status!=='approved'?`<input id="${id}" ${at} data-f="qty" inputmode="decimal" value="${q!=null?q:''}" style="width:90px;text-align:center" aria-label="الإنتاج الفعلي">`:(q!=null?num(q):'—')}</td>
+       <td class="n">${r!=null?pill(Math.round(r*100)+'%',tone):''}</td><td>${paRcpt(a)}</td>
        <td>${ed?`<select ${at} data-f="stop_reason"><option value="">—</option>${PA_REASONS.map(o=>`<option ${a.stop_reason===o?'selected':''}>${o}</option>`).join('')}</select>`:esc(a.stop_reason||'')}</td>
        <td>${ed?`<input ${at} data-f="note" value="${esc(a.note||'')}">`:esc(a.note||'')}</td></tr>`}).join('')}</tbody></table></div></div>`});
   if(ed)h+=`<div class="formbar sticky noprint">${PA.dirty?'<span class="small" style="color:var(--warn)">تعديلات غير محفوظة</span>':''}<span style="flex:1"></span><button class="btn p" data-act="paSave" ${PA.dirty?'':'disabled'}>حفظ الإنتاج الفعلي</button></div>`;
@@ -1896,7 +1901,7 @@ document.addEventListener('change',e=>{const t=e.target;if(t.dataset&&t.dataset.
 async function paSave(){const rows=Object.values(PA.rows).filter(r=>r._dirty);if(!rows.length)return;
   if(rows.some(r=>r.qty!=null&&!(Number.isFinite(r.qty)&&r.qty>=0)))return toast('فيه كمية غير صحيحة — اكتب رقم');
   const {error}=await sb.rpc('prod_actuals_save',{p_rows:rows.map(r=>({line_id:r.line_id,day:r.day,shift:r.shift,code:r.code||'',item:r.item||'',qty:r.qty==null?'':String(r.qty),stop_reason:r.stop_reason||'',note:r.note||''}))});
-  if(error)return toast(errText(error));toast('تم حفظ الإنتاج الفعلي');PA.key='';render()}
+  if(error)return toast(errText(error));toast(rows.some(r=>r.qty>0)?'تم الحفظ وانرسل طلب الاستلام للمستودع':'تم حفظ الإنتاج الفعلي');PA.key='';RC.key='';render()}
 
 /* ---------- stoppage analysis over a period ---------- */
 const PS={from:'',to:'',key:'',data:null,busy:false};
@@ -1973,6 +1978,7 @@ document.addEventListener('change',async e=>{const t=e.target;if(!t.dataset)retu
   if(t.dataset.pkmin!=null){const [c,w]=t.dataset.pkmin.split('|');const v=t.value.trim()===''?null:parseNum(t.value);if(v!=null&&!(v>=0))return toast('اكتب رقم صحيح');
     const {error}=await sb.rpc('prod_min_save',{p_code:c,p_whs:w,p_min:v});if(error)return toast(errText(error));const k=normCode(c)+'|'+w;if(v==null)delete PK2.min[k];else PK2.min[k]=v;toast('تم حفظ الحد الأدنى');render()}});
 Object.assign(ACT,{paSave:()=>paSave(),psRun:()=>{PS.key='';render()},psXlsx:()=>psXlsx(),pkFlt:d=>{PK2.flt=d.v;render()},pkReload:()=>{PK2.key='';render()},pkMore:d=>{PK2.lim=+d.n;render()},pkLow:()=>{PK2.flt='low';PP.tab='stock';render()}});
+ACT.paResend=d=>{const r=PA.rows[d.k];if(!r)return;r._dirty=true;r.qty=r.qty==null?null:+r.qty;paSave()};
 
 /* ===== Production operations: quality lab log, preventive maintenance, purchase requests ===== */
 const QC={key:'',rows:[],busy:false,from:addDays(TODAY(),-30),to:TODAY(),flt:'all'};
@@ -2142,6 +2148,85 @@ function ppRecsView(){if(PRC.key!==TODAY()){if(!PRC.busy)setTimeout(prcLoad,0);r
    <div class="rc-sum" style="margin-top:8px"><span>🔴 عاجل: <b>${n(1)}</b></span><span>🟠 مهم: <b>${n(2)}</b></span><span>🔵 تحسين: <b>${n(3)}</b></span><span class="grow"></span><button class="btn s" data-act="prcRe">تحديث</button></div></div>
    ${L0.length?L0.map(prcCard).join(''):`<div class="card empty">${empty?'لسا ما فيه بيانات كافية (فحوصات، صيانة، طلبات شراء، إنتاج فعلي) عشان تطلع توصيات. أول ما تبدأ تتسجل تظهر هنا تلقائياً.':'ما فيه توصيات حالياً: كل المؤشرات ضمن الحدود.'}</div>`}`}
 ACT.prcRe=()=>{PRC.key='';render()};
+
+/* ===== Production receipt requests: every recorded output waits for the warehouse to approve what it received ===== */
+const RC={key:'',pend:[],hist:[],sap:{},post:null,busy:false,edit:{},days:14};
+const RC_ST={pending:['⏳ بانتظار المستودع','warn'],approved:['✓ مستلم','ok'],rejected:['✕ مرفوض','bad']};
+const rcCan=()=>isAdmin()||isAppAdmin('crm')||lvl('crm','prod_wh')>=3;
+const rcK=r=>[r.line_id,r.day,r.shift,r.code].join('|');
+async function rcLoad(){RC.busy=true;
+  try{await ppRefs();const since=new Date(Date.now()-RC.days*864e5).toISOString();
+    const [p,h,ps]=await Promise.all([fetchAll(()=>sb.from('prod_actuals').select('*').eq('rcpt_status','pending').order('day').order('shift')),
+      fetchAll(()=>sb.from('prod_actuals').select('*').in('rcpt_status',['approved','rejected']).gte('rcpt_at',since).order('rcpt_at',{ascending:false})),
+      sb.rpc('prod_post_setting')]);
+    RC.pend=p;RC.hist=h;RC.post=ps.data||'off';
+    const ids=[...new Set(h.map(r=>r.sap_doc_id).filter(Boolean))];RC.sap={};
+    if(ids.length){const {data}=await sb.rpc('prod_rcpt_sap',{p_ids:ids});(data||[]).forEach(d=>RC.sap[d.id]=d)}
+    RC.edit={};p.forEach(r=>RC.edit[rcK(r)]={qty:r.qty,note:''});RC.key='ok'}
+  catch(e){toast(errText(e))}finally{RC.busy=false;render()}}
+const rcWhs=id=>{const w=lineWhs(id);return w?`${w}${WHS_NAME[w]?' — '+WHS_NAME[w]:''}`:'—'};
+function rcSapCell(r){if(r.rcpt_status!=='approved')return '';
+  if(!r.sap_doc_id)return `<span class="small muted">${RC.post==='on'?'—':'غير مرحّل (الترحيل متوقف)'}</span>`;
+  const d=RC.sap[r.sap_doc_id];if(!d)return '<span class="small muted">…</span>';
+  if(d.status==='posted')return pill(`✓ إذن إضافة ${d.num}`,'ok')+(d.db==='test'?' <span class="small muted">TEST</span>':'');
+  if(d.status==='failed')return `${pill('✕ فشل الترحيل','bad')} <span class="small" style="color:var(--bad)">${esc(d.error||'')}</span>`;
+  return pill('⏳ جارٍ الترحيل لساب','warn')}
+function rcView(){
+  if(RC.key!=='ok'){if(!RC.busy){RC.busy=true;setTimeout(rcLoad,0)}return `<div class="card empty">جارٍ التحميل…</div>`}
+  const can=rcCan(),me=S.me?.id;let h='';
+  const pq=RC.pend.reduce((s,r)=>s+(+r.qty||0),0);const appr=RC.hist.filter(r=>r.rcpt_status==='approved'),rej=RC.hist.filter(r=>r.rcpt_status==='rejected');
+  const diff=appr.filter(r=>+r.rcpt_qty!==+r.qty).length;
+  h+=`<div class="kpis k4">${kpiTile('طلبات بانتظار المستودع',num(RC.pend.length),RC.pend.length?`${num(pq)} وحدة`:'')}${kpiTile(`مستلم آخر ${RC.days} يوم`,num(appr.length),`${num(appr.reduce((s,r)=>s+(+r.rcpt_qty||0),0))} وحدة`)}${kpiTile('استلام بفرق',num(diff),'المستلم يختلف عن المسجّل')}${kpiTile('مرفوض',num(rej.length),'رجع لمدير الإنتاج')}</div>`;
+  h+=`<div class="banner ${RC.post==='on'?'info':'warn'} noprint"><span class="sp">${RC.post==='on'
+    ?'<b>الترحيل لساب شغّال:</b> كل استلام يعتمده المستودع يطلع له إذن إضافة (Goods Receipt) في ساب على مستودع الخط، ورصيد ساب يتحدث في المنصة خلال 10 دقائق.'
+    :'<b>الترحيل لساب متوقف حالياً:</b> الاستلام يتسجل ويتعتمد في المنصة بس، وما يطلع مستند في ساب. يتفعّل بعد ما يحدد محاسب ساب حساب القيد لإذن الإضافة.'}</span>${isAdmin()||isAppAdmin('crm')?`<button class="btn s" data-act="rcPost" data-v="${RC.post==='on'?'off':'on'}">${RC.post==='on'?'إيقاف الترحيل لساب':'تفعيل الترحيل لساب'}</button>`:''}<button class="btn s" data-act="rcReload">تحديث</button></div>`;
+  h+=`<p class="small muted noprint" style="margin:0 0 8px">مدير الإنتاج يسجّل الكمية في «الإنتاج الفعلي» وتنزل هنا طلب استلام. أمين المستودع يعدّ الكمية ويعتمد المستلم فعلاً، ولو فيه فرق يكتب السبب. الرفض يرجّع الطلب لمدير الإنتاج يعدّله. ما يصير الشخص نفسه يسجّل ويعتمد.</p>`;
+  if(!RC.pend.length)h+=`<div class="card empty">ما فيه طلبات استلام معلّقة 👌</div>`;
+  else{
+    h+=`<style>.rc-mob{display:none}@media(max-width:700px){.rc-desk{display:none}.rc-mob{display:block}}
+     .rc-c{border:1px solid var(--line,#E3E8EF);border-radius:12px;padding:12px;margin-bottom:10px}.rc-c .hd{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+     .rc-c .q{font-size:22px;font-weight:700}.rc-c .fl{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}.rc-c input{width:100%;min-height:44px;font-size:16px}
+     .rc-c .bt{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.rc-c .bt .btn{min-height:44px;justify-content:center}</style>`;
+    h+=`<div class="card rc-mob"><h2>طلبات بانتظار الاستلام<span class="sub">${RC.pend.length} طلب</span></h2>${RC.pend.map(r=>{const k=rcK(r),e=RC.edit[k]||{},own=r.updated_by===me&&!isAdmin();
+      return `<div class="rc-c"><div class="hd"><div><b>${esc(r.item||'')}</b> <bdi class="small muted" dir="ltr">${esc(r.code)}</bdi><div class="small muted">${esc(lineName(r.line_id))} · ${DAY_AR[dow(r.day)]} ${fdate(r.day)} · ${r.shift==='m'?'صباحي':'مسائي'}</div><div class="small muted">مستودع <bdi dir="ltr">${esc(rcWhs(r.line_id))}</bdi> · سجّلها ${esc(pName(r.updated_by))}</div></div><div class="q">${num(r.qty)}</div></div>
+       ${can?(own?'<p class="small muted" style="margin:8px 0 0">سجّلتها أنت — يعتمدها غيرك</p>':`<div class="fl"><label class="small">المستلم فعلاً<input data-rc="${esc(k)}" data-f="qty" inputmode="decimal" value="${e.qty??''}"></label><label class="small">ملاحظة / سبب<input data-rc="${esc(k)}" data-f="note" value="${esc(e.note||'')}" placeholder="مطلوب لو فيه فرق أو رفض"></label></div>
+       <div class="bt"><button class="btn p" data-act="rcOne" data-k="${esc(k)}" data-s="approved">✓ استلام</button><button class="btn" data-act="rcOne" data-k="${esc(k)}" data-s="rejected">✕ رفض</button></div>`):''}</div>`}).join('')}
+       ${can?`<button class="btn p" style="width:100%;min-height:44px;justify-content:center" data-act="rcAll">اعتماد الكل المطابق</button>`:''}</div>`;
+    h+=`<div class="card rc-desk"><h2>طلبات بانتظار الاستلام<span class="sub">${RC.pend.length} طلب</span></h2><div class="tw"><table class="rc-t"><thead><tr><th>اليوم</th><th>الوردية</th><th>الخط</th><th>المنتج</th><th>المستودع</th><th class="n">المسجّل</th><th>سجّلها</th>${can?'<th class="n">المستلم فعلاً</th><th>ملاحظة / سبب</th><th></th>':''}</tr></thead><tbody>
+    ${RC.pend.map(r=>{const k=rcK(r),e=RC.edit[k]||{},own=r.updated_by===me&&!isAdmin();const id='rc_'+btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,'');
+      return `<tr><td class="nw"><b>${DAY_AR[dow(r.day)]}</b> <span class="small muted">${fdate(r.day)}</span></td><td>${r.shift==='m'?'صباحي':'مسائي'}</td><td>${esc(lineName(r.line_id))}</td>
+       <td>${esc(r.item||'')} <bdi class="small muted" dir="ltr">${esc(r.code)}</bdi></td><td><bdi dir="ltr">${esc(rcWhs(r.line_id))}</bdi></td><td class="n"><b>${num(r.qty)}</b></td><td class="small">${esc(pName(r.updated_by))}<br><span class="muted">${fdt(r.req_at||r.updated_at)}</span></td>
+       ${can?`<td class="n"><input id="${id}_q" data-rc="${esc(k)}" data-f="qty" inputmode="decimal" value="${e.qty??''}" style="width:90px;text-align:center" aria-label="الكمية المستلمة" ${own?'disabled':''}></td>
+       <td><input data-rc="${esc(k)}" data-f="note" value="${esc(e.note||'')}" placeholder="${+e.qty!==+r.qty?'سبب الفرق (مطلوب)':'اختياري'}" aria-label="ملاحظة" ${own?'disabled':''}></td>
+       <td class="nw">${own?'<span class="small muted">سجّلتها أنت — يعتمدها غيرك</span>':`<button class="btn s p" data-act="rcOne" data-k="${esc(k)}" data-s="approved">✓ استلام</button> <button class="btn s" data-act="rcOne" data-k="${esc(k)}" data-s="rejected">✕ رفض</button>`}</td>`:''}</tr>`}).join('')}</tbody></table></div>
+    ${can?`<div class="formbar noprint"><span class="small muted">«اعتماد الكل» يعتمد الطلبات اللي كميتها المستلمة نفس المسجّلة بس.</span><span style="flex:1"></span><button class="btn p" data-act="rcAll">اعتماد الكل المطابق</button></div>`:''}</div>`}
+  h+=`<div class="card"><h2>سجل الاستلام<span class="sub">آخر ${RC.days} يوم</span></h2>${RC.hist.length?`<div class="tw"><table><thead><tr><th>اليوم</th><th>الخط</th><th>المنتج</th><th class="n">المسجّل</th><th class="n">المستلم</th><th class="n">الفرق</th><th>الحالة</th><th>اعتمدها</th><th>ساب</th></tr></thead><tbody>
+   ${RC.hist.map(r=>{const d=r.rcpt_status==='approved'?(+r.rcpt_qty)-(+r.qty):null;
+     return `<tr><td class="nw">${fdate(r.day)} <span class="small muted">${r.shift==='m'?'ص':'م'}</span></td><td>${esc(lineName(r.line_id))}</td><td>${esc(r.item||'')} <bdi class="small muted" dir="ltr">${esc(r.code)}</bdi></td>
+      <td class="n">${num(r.qty)}</td><td class="n">${r.rcpt_qty!=null?num(r.rcpt_qty):'—'}</td><td class="n">${d?`<bdi dir="ltr">${pill((d>0?'+':'')+num(d),'warn')}</bdi>`:d===0?'<span class="muted">0</span>':''}</td>
+      <td>${pill(...RC_ST[r.rcpt_status])}${r.rcpt_note?`<div class="small muted">${esc(r.rcpt_note)}</div>`:''}</td><td class="small">${esc(pName(r.rcpt_by))}<br><span class="muted">${fdt(r.rcpt_at)}</span></td><td>${rcSapCell(r)}</td></tr>`}).join('')}</tbody></table></div>`:'<p class="muted">ما فيه استلام مسجّل في الفترة.</p>'}</div>`;
+  return h}
+document.addEventListener('input',e=>{const t=e.target;if(!t.dataset||t.dataset.rc==null)return;const o=RC.edit[t.dataset.rc]||(RC.edit[t.dataset.rc]={});
+  if(t.dataset.f==='qty')o.qty=t.value.trim()===''?null:parseNum(t.value);else o.note=t.value;
+  document.querySelectorAll(`[data-rc][data-f="${t.dataset.f}"]`).forEach(x=>{if(x!==t&&x.dataset.rc===t.dataset.rc)x.value=t.value})});
+async function rcSend(rows){
+  const {data,error}=await sb.rpc('prod_rcpt_review',{p_rows:rows});if(error)return toast(errText(error));
+  toast(rows.every(r=>r.status==='rejected')?'تم رفض الطلب ورجع لمدير الإنتاج':`تم اعتماد الاستلام${data?.sap_docs?` — ${data.sap_docs} إذن إضافة قيد الترحيل لساب`:''}`);
+  RC.key='';PA.key='';render()}
+Object.assign(ACT,{
+  rcReload:()=>{RC.key='';render()},
+  rcOne:d=>{const r=RC.pend.find(x=>rcK(x)===d.k);if(!r)return;const e=RC.edit[d.k]||{};
+    if(d.s==='approved'){if(e.qty==null||!(Number.isFinite(e.qty)&&e.qty>=0))return toast('اكتب الكمية المستلمة رقم');
+      if(+e.qty!==+r.qty&&!sv(e.note))return toast('الكمية المستلمة تختلف عن المسجّلة — اكتب سبب الفرق')}
+    else if(!sv(e.note))return toast('اكتب سبب الرفض في خانة الملاحظة');
+    rcSend([{line_id:r.line_id,day:r.day,shift:r.shift,code:r.code,status:d.s,qty:d.s==='approved'?String(e.qty):'',note:e.note||''}])},
+  rcAll:()=>{const me=S.me?.id;const rows=RC.pend.filter(r=>{const e=RC.edit[rcK(r)]||{};return (r.updated_by!==me||isAdmin())&&+e.qty===+r.qty});
+    if(!rows.length)return toast('ما فيه طلبات مطابقة للاعتماد');
+    if(!confirm(`اعتماد استلام ${rows.length} طلب بنفس الكميات المسجّلة؟`))return;
+    rcSend(rows.map(r=>({line_id:r.line_id,day:r.day,shift:r.shift,code:r.code,status:'approved',qty:String(r.qty),note:(RC.edit[rcK(r)]||{}).note||''})))},
+  rcPost:async d=>{if(!confirm(d.v==='on'?'تفعيل الترحيل لساب؟ كل استلام يُعتمد بعدها يطلع له إذن إضافة في شركة ساب الحالية. تأكد أن محاسب ساب حدد حساب القيد، وأن الاستلام ما يتسجل يدوي في ساب بعد (عشان ما يتكرر الرصيد).':'إيقاف الترحيل لساب؟'))return;
+    const {error}=await sb.rpc('prod_post_setting',{p_mode:d.v});if(error)return toast(errText(error));RC.key='';toast(d.v==='on'?'تفعّل الترحيل لساب':'توقف الترحيل لساب');render()}
+});
 
 /* ===== Fleet: daily deliveries & KPIs (same calculation rules as the fleet app) ===== */
 const FL_DEF={managers:{},thresholds:[1,0.9,0.75],rules:{'ونش|mak':{d:5,fr:1,w:[1,2,3]},'ونش|asf':{d:3,fr:1,w:[1,2,2]},'سطحة|mak':{d:3,fr:1,w:[1,1,2]},'سطحة|asf':{d:3,fr:1,w:[1,2,2]}},trailer:{one:3,two:2},friMode:'worked',reasons:[{name:'أعطال',cls:'داخلي'},{name:'تأخر في الموقع',cls:'خارجي'},{name:'عدم وجود ردود',cls:'خارجي'}],holidays:[],extReasons:['عجز في عدد السيارات أمام الطلب','سيارة الشركة معطلة','ذروة طلبيات','موقع بعيد','عدم توفر سائق','طلب العميل']};
