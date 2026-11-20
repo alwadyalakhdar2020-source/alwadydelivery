@@ -1317,7 +1317,7 @@ const NAV=[
  ['complaints','alert',()=>L('الشكاوى','Complaints'),ALL],
  ['comms','chat',()=>L('الاتصالات','Communications'),ALL],
  ['g',()=>L('البيانات والإدارة','Data & admin')],
- ['imports','upload',()=>L('مركز استيراد Excel','Excel import center'),()=>canImport()],
+ ['imports','upload',()=>L('مصدر البيانات (ساب)','Data source (SAP)'),()=>canImport()],
  ['integrity','shield',()=>L('سلامة البيانات','Data integrity'),()=>isMgr()],
  ['kpi','gauge',()=>L('إعدادات المؤشرات','KPI settings'),()=>isMgr()],
  ['team','user',()=>L('المستخدمون والفريق','Users & team'),ALL],
@@ -2265,8 +2265,8 @@ V.audit=()=>{
   const cf=fv('acol','');const rows=S.audit.filter(a=>!cf||a.col===cf).sort((a,b)=>(b.at||'').localeCompare(a.at||'')).slice(0,300);
   return `<div class="toolbar"><select id="acol" data-act="filtSel" data-k="acol">${opt(Object.entries(COL_NAMES).map(([k,v])=>[k,L(v[0],v[1])]),cf,L('كل السجلات','All records'))}</select><span class="small muted">${L('آخر 300 حركة: كل تعديل واستيراد وتصدير وتراجع، مع المستخدم والوقت. السجل لا يُعدَّل ولا يُحذف من الواجهة.','Latest 300 entries: every edit, import, export and reversal with user and time. The log can’t be edited or deleted from the app.')}</span></div>${auditTable(rows)}`;
 };
-V.data=()=>`<div class="card"><h2>${L('الربط مع SAP Business One','SAP Business One link')} ${pill(L('مرحلة لاحقة — الهيكل جاهز','Later phase — structure ready'),'warn')}</h2>
-  <p class="small muted">${L('في المرحلة الأولى تدخل البيانات عبر مركز استيراد Excel. هيكل البيانات مبني على المفاتيح نفسها التي يستخدمها SAP، فالربط لاحقاً عبر Service Layer يستبدل رفع الملف بمزامنة آلية بدون تغيير اللوحات أو المؤشرات.','Phase 1 loads data through the Excel import center. The data model uses the same keys as SAP, so a later Service Layer link replaces file uploads with automatic sync without changing dashboards or KPIs.')}</p>
+V.data=()=>`<div class="card"><h2>${L('الربط مع SAP Business One','SAP Business One link')} ${pill(L('✓ مربوط بالقاعدة الأساسية','✓ Connected to production'),'ok')}</h2>
+  <p class="small muted">${L('البيانات تُقرأ من ساب مباشرة، والاستيراد من Excel متوقف. حالة كل مزامنة وآخر وقت قراءة في «الإعدادات ← مصدر البيانات (ساب)»، والمستندات وكشف الحساب في «المبيعات ← مستندات ساب».','Data is read from SAP directly; Excel imports are off. Sync status is under Settings → Data source (SAP).')}</p>
   ${table([{l:L('البيانات في النظام','Data in this system'),f:x=>x[0]},{l:L('المفتاح الموحد','Key'),f:x=>`<code>${x[1]}</code>`},{l:L('المقابل في SAP B1','SAP B1 object'),f:x=>`<code>${x[2]}</code>`},{l:L('الاتجاه','Direction'),f:x=>x[3]}],[
    [L('العملاء','Customers'),'Customer Code','BusinessPartners.CardCode','SAP → CRM'],
    [L('المندوبون','Sales reps'),L('كود المندوب','Rep code'),'SalesPersons.SalesEmployeeCode','SAP → CRM'],
@@ -5336,6 +5336,18 @@ Object.assign(ACT,{sdMapSave:async d=>{const i=+d.i;const m=SDX.map&&SDX.map[i];
 NAV.push(['sapdocs','doc',()=>L('مستندات ساب (البيع والتحصيل)','SAP sales documents'),()=>sdLvl()>=1]);
 
 (()=>{const st=document.createElement('style');st.textContent=`.sapdoc .sd-q{flex:1;min-width:260px;max-width:560px;font-size:15px;padding:10px 12px;border:1.5px solid #38AC57;border-radius:10px}`;document.head.appendChild(st)})();
+/* ---------- data source: SAP. The Excel import screen is replaced by the SAP sync status (the server refuses Excel imports) ---------- */
+const SRC_KINDS=[['customers','العملاء','Customers','كل يوم كامل + التعديلات كل 10 دقائق'],['items','الأصناف','Items','مرة في اليوم'],['quotes','عروض الأسعار','Quotations','كل دقيقتين'],
+  ['orders','أوامر البيع','Sales orders','كل دقيقتين'],['payments','سندات القبض','Incoming payments','كل دقيقتين'],['stock','أرصدة المنتجات (005 / 1005)','Product balances','كل 10 دقائق']];
+V.imports=()=>{if(!SDX.pull&&!SDX.pullBusy){SDX.pullBusy=true;window.__sb.rpc('sap_pull_status').then(r=>{SDX.pull=r.data||{};SDX.pullBusy=false;render()}).catch(()=>{SDX.pull={};SDX.pullBusy=false;render()})}
+  const P=SDX.pull||{};
+  return `<div class="card"><b>${L('البيانات تُقرأ من ساب مباشرة','Data is read from SAP directly')}</b>
+   <p class="small muted" style="margin:6px 0 0">${L('الاستيراد من ملفات Excel متوقف. العملاء والأصناف وعروض الأسعار وأوامر البيع وسندات القبض وأرصدة المنتجات تنسحب تلقائي من قاعدة ساب الأساسية، وأي تعديل في ساب يظهر هنا خلال دقائق.','Excel imports are switched off. Customers, items, quotations, sales orders, payments and balances sync automatically from SAP.')}</p></div>
+  <div class="card"><div class="tw"><table><thead><tr><th>${L('البيان','Data')}</th><th>${L('التحديث','Refresh')}</th><th>${L('آخر قراءة','Last read')}</th><th>${L('الحالة','Status')}</th></tr></thead><tbody>
+  ${SRC_KINDS.map(([k,ar,en,fr])=>{const s=P[k]||{};return `<tr><td><b>${L(ar,en)}</b></td><td class="small">${fr}</td><td class="small" dir="ltr">${s.last_at?esc(fdt(s.last_at)):'—'}</td>
+    <td>${s.error?pill('⚠ '+esc(String(s.error).slice(0,120)),'warn'):s.last_at?pill(L('✓ متزامن','✓ In sync'),'ok'):pill(L('⏳ بانتظار أول قراءة','⏳ Waiting'),'')}</td></tr>`}).join('')}
+  </tbody></table></div><div class="formbar"><span class="grow"></span><button class="btn s" data-act="srcRe">${L('تحديث الحالة','Refresh')}</button></div></div>`};
+ACT.srcRe=()=>{SDX.pull=null;render()};
 
 /* ===== Marketing (التسويق) — inside the CRM: content calendar, posts written with the AI assistant, approval before
    publishing, campaigns, the company's social pages and campaign performance. Posts are published by the team on each

@@ -3069,6 +3069,13 @@ document.addEventListener("input",e=>{if(e.target.id==="gk-q"){GK.q=e.target.val
 {const _dr=doRender;doRender=function(){if(S.view==="gpskpi"){try{renderBanner();updateSyncBadge()}catch(e){}renderGpsKpi();return}return _dr.apply(this,arguments)}}
 setInterval(()=>{if(S.view==="gpskpi"&&!document.hidden){GK.key="";gkLoad()}},1800000);
 
+/* ===== Data source: SAP. Customers, products and sales orders sync from SAP automatically; the Excel import panel is replaced (the server refuses Excel imports) ===== */
+importPanelHtml=function(){ const s=S2.imp||{};
+  const box=(t,n,note)=>`<div class="loc"><div class="lh"><b>${t}</b><span class="cnt">${n??"…"}</span></div><p class="small muted" style="margin:0">${note}</p></div>`;
+  return `<div class="panel" id="imp-panel"><h2>مصدر البيانات: ساب (SAP Business One)</h2>
+   <div class="locs">${box("الأصناف",s.products,"تنسحب من ساب مرة في اليوم")}${box("العملاء",s.customers,"تنسحب من ساب كل يوم، والتعديلات كل 10 دقائق")}${box("أوامر البيع المفتوحة",s.open_orders,"تنسحب من ساب كل دقيقتين")}</div>
+   <p class="small muted" style="margin:8px 0 0">الاستيراد من ملفات Excel متوقف. أي تعديل في ساب (عميل جديد، أمر بيع، صنف) يظهر هنا تلقائي خلال دقائق.</p></div>`; };
+
 start();
 
 </script>

@@ -428,14 +428,14 @@ const PAGES={
     ['العملاء والمبيعات',[['clients','العملاء'],['custmap','خريطة العملاء'],['items','الأصناف'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['collections','التحصيل'],['aging','أعمار الديون'],['credex','استثناءات التوريد الائتماني'],['opps','فرص البيع'],['projects','المشاريع'],['samples','العينات والاعتمادات']]],
     ['العقود القانونية',[['credit','طلبات التسهيلات الائتمانية'],['contracts','العقود'],['acctopen','طلبات فتح الحساب'],['letters','خطابات العملاء'],['lcset','إعدادات الموافقات وقوالب العقود']]],
     ['العمل الميداني',[['field','لوحة الميدان'],['plan','خطة الزيارات'],['visits','الزيارات الميدانية'],['complaints','الشكاوى'],['comms','الاتصالات']]],
-    ['البيانات والإدارة',[['imports','مركز استيراد Excel'],['integrity','سلامة البيانات'],['kpi','إعدادات المؤشرات'],['team','المستخدمون والفريق'],['audit','سجل التدقيق'],['data','الربط مع SAP']]],
+    ['البيانات والإدارة',[['imports','مصدر البيانات (ساب)'],['integrity','سلامة البيانات'],['kpi','إعدادات المؤشرات'],['team','المستخدمون والفريق'],['audit','سجل التدقيق'],['data','الربط مع SAP']]],
     ['الإنتاج',[['prod','خطة الإنتاج الأسبوعية (الخطة والملخص والسجل)'],['prod_actual','الإنتاج الفعلي وتحليل التوقفات'],['prod_stock','المخزون والطلبات'],['prod_qc','الجودة والمختبر'],['prod_maint','الصيانة الوقائية'],['prod_pr','طلبات الشراء']]],
     ['الذكاء الاصطناعي',[['ai','المساعد الذكي (ملخصات وصياغة وتحليل)']]]]},
   fleet:{name:'حركة السيارات والتوصيل',note:'الدور في التوصيل (مدير نظام، مدير عمليات، منسق حركة، مشرف مبيعات، مندوب) يحدد اللي يقدر يسويه على السيرفر، وهذي الصفحات تحدد اللي يظهر له. عرض أو مراجع = يشوف بس بدون تعديل.',groups:[['التشغيل والتوصيل',[['ops','لوحة الحركة'],['orders','طلبات التوصيل'],['plan','تخطيط الردود'],['reserve','الاحتياطي'],['maint','الصيانة'],['dreports','تقارير التوصيل']]],['الأداء والتوريد',[['dashboard','لوحة الأداء'],['entry','الإدخال اليومي'],['vehicle','سجل السيارة'],['drivers','السائقين وتقرير ردودهم'],['costs','تكاليف التشغيل'],['docs','الوثائق والتنبيهات'],['carrier','الناقل الخارجي'],['report','التقرير'],['places','الأحياء والمسافات'],['log','سجل الحركات']]],['الإدارة',[['admin','إدارة النظام'],['setup','الإعدادات']]]]},
   hr:{name:'الموارد البشرية والشؤون الإدارية',note:'الخدمة الذاتية (طلب جديد، طلباتي، ملفي، حضوري، الإشعارات) متاحة لكل موظف مربوط بحسابه وتعرض بياناته هو فقط. الصفحات تحت تعطي صلاحية على بيانات بقية الموظفين.',groups:[
     ['شؤون الموظفين',[['employees','الموظفون وملفاتهم'],['directory','دليل الموظفين'],['orgchart','الهيكل التنظيمي'],['calendar','تقويم الفريق'],['attendance','الحضور والإجازات (إدارة)'],['docs','مركز الوثائق والبيانات الحساسة']]],
     ['الخدمات والمالية',[['talent','التوظيف والتدريب والأداء'],['adminaffairs','الشؤون الإدارية والعهد'],['forms','النماذج والسياسات (إدارة)'],['customs','التخليص الجمركي'],['payroll','الرواتب والمزايا']]],
-    ['المتابعة والنظام',[['reports','التقارير والمؤشرات'],['imports','الاستيراد من Excel'],['settings','الإعدادات ومسارات الاعتماد']]],
+    ['المتابعة والنظام',[['reports','التقارير والمؤشرات'],['imports','مصدر البيانات (ساب)'],['settings','الإعدادات ومسارات الاعتماد']]],
     ['الذكاء الاصطناعي',[['ai','مساعد الموارد البشرية الذكي (مقابلات، تهيئة، تقييم، رواتب، عروض، هيكل، تقارير، سياسات، توظيف)']]]]}
 };
 const LVLS=[['','N/A'],['view','Viewer — عرض'],['audit','Auditor — تدقيق'],['edit','Editor — تعديل']];
@@ -723,7 +723,7 @@ V.collections=()=>{
   if(COLL.key!==F.colMonth+'-01'||!COLL.rows){if(COLL.key!==F.colMonth+'-01')setTimeout(()=>collLoad(),0);return `<div class="card empty">جارٍ تحميل التحصيل…</div>`}
   const rows=COLL.rows;const total=rows.reduce((s,r)=>s+(+r.amount),0);const byRep={};rows.forEach(r=>{byRep[r.rep_id||'']=(byRep[r.rep_id||'']||0)+(+r.amount)});
   const cust=code=>S.customers.find(c=>normCode(c.code)===normCode(code));
-  return `<div class="fbar"><label class="fl" for="colMonth">الشهر<input type="month" id="colMonth" data-f="colMonth" value="${F.colMonth}"></label>${isMgr()?`<button class="btn p" data-act="goImport" data-t="collections">استيراد ملف تحصيل</button>`:''}</div>
+  return `<div class="fbar"><label class="fl" for="colMonth">الشهر<input type="month" id="colMonth" data-f="colMonth" value="${F.colMonth}"></label></div>
    <div class="kpis">${kpiTile('التحصيل في الشهر',smoney(total),`${rows.length} سند`)}${kpiTile('سندات بدون عميل مطابق',rows.filter(r=>!cust(r.customer_code)).length)}</div>
    ${isLead()?`<div class="card"><h2>حسب المندوب</h2>${table([{l:'المندوب',f:x=>x.id?esc(pName(x.id)):'<span class="muted">بدون مندوب</span>'},{l:'التحصيل',c:'n',f:x=>num(x.v),t:r=>num(total)}],Object.entries(byRep).map(([id,v])=>({id,v})).sort((a,b)=>b.v-a.v),{foot:1})}</div>`:''}
    <div class="card"><h2>سندات القبض</h2>${table([{l:'السند',f:r=>`<b>${esc(r.voucher_no)}</b>`},{l:'التاريخ',c:'nw',f:r=>fdate(r.coll_date)},{l:'العميل',f:r=>{const c=cust(r.customer_code);return c?esc(c.name):`${esc(r.customer_name||r.customer_code)} ${pill('غير مطابق','warn')}`}},{l:'الكود',f:r=>esc(r.customer_code)},{l:'المندوب',f:r=>esc(pName(r.rep_id))},{l:'المبلغ',c:'n',f:r=>num(r.amount),t:()=>num(total)},{l:'الطريقة',f:r=>esc(r.payment_method||'')},{l:'الفاتورة',f:r=>esc(r.invoice_ref||'')}],rows.slice(0,500),{foot:1})}</div>`;
@@ -2876,6 +2876,11 @@ V.fleet_import=()=>{if(!FL.loaded){const w=flEnsure();if(w)return w}return gimpV
 
 Object.assign(ACT,{icEdit:d=>icEdit(d.k,GDEF[d.k]?.label||d.k,gFieldsBase(d.k)),icSave:()=>icSave(),giTab:d=>{GI={step:'pick',key:d.k};render()},giReset:()=>{GI={step:'pick',key:GI.key};render()},giBack:()=>{GI.step='map';render()},giValidate:()=>giValidate(),giRun:()=>giRun(),giTemplate:()=>giTemplate()});
 document.addEventListener('change',e=>{const t=e.target;if(t.dataset.act==='giFile'){const f=t.files[0];t.value='';if(f)giFile(f);return}if(t.dataset.gimap){GI.map[t.dataset.gimap]=t.value;render()}});
+/* ===== Data source: SAP. Excel imports are switched off (the server refuses them); this page now says where the data comes from ===== */
+V.imports=()=>`<div class="card"><h3 style="margin-top:0">مصدر البيانات: ساب (SAP Business One)</h3>
+  <p>الاستيراد من ملفات Excel متوقف. العملاء والأصناف وعروض الأسعار وأوامر البيع وسندات القبض وأرصدة المنتجات تنسحب تلقائي من قاعدة ساب الأساسية:</p>
+  <ul class="small"><li>عروض الأسعار وأوامر البيع وسندات القبض: كل دقيقتين</li><li>العملاء: كل يوم كامل، والتعديلات كل 10 دقائق</li><li>أرصدة المنتجات (005 مكة و1005 عسفان): كل 10 دقائق</li><li>الأصناف: مرة في اليوم</li></ul>
+  <p class="small muted">حالة كل مزامنة وآخر وقت قراءة في تطبيق المبيعات ← الإعدادات ← مصدر البيانات (ساب).</p></div>`;
 
 
 </script>
