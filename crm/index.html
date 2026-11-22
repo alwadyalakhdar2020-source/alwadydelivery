@@ -5909,6 +5909,28 @@ document.addEventListener('change',e=>{const t=e.target;if(!FORM||t.dataset.row!
 document.addEventListener('change',e=>{const t=e.target;if(!t||t.name!=='clientId'||!t.closest('#theform'))return;const c=byId('clients',t.value);if(!c||!c.repId)return;
   const r=t.closest('#theform').querySelector('select[name="repId"]');if(!r||r.value===c.repId||![...r.options].some(o=>o.value===c.repId))return;
   r.value=c.repId;r.dispatchEvent(new Event('input',{bubbles:true}));r.dispatchEvent(new Event('change',{bubbles:true}))});
+/* in-app quotations: each line takes the customer's own price from SAP (an active special price first, then the customer's price list),
+   the same price SAP would put on the document. A price the user types is kept. Without a SAP customer code, or if SAP can't be reached,
+   the line keeps the item-list price and says so. */
+const QP={seq:0,m:new WeakMap()};const qs=r=>{let o=QP.m.get(r);if(!o){o={};QP.m.set(r,o)}return o}; /* per-line helper state kept outside the saved line */
+const qpCard=()=>{const s=document.querySelector('#theform [name="clientId"]');const c=s&&s.value?byId('clients',s.value):null;return c&&c.code?String(c.code).trim():''};
+const qpNote=(t,cls)=>{const f=document.getElementById('theform');if(!f)return;let n=document.getElementById('qp_note');if(!n){const box=document.getElementById('rows_lines');if(!box)return;n=document.createElement('div');n.id='qp_note';n.className='small';n.style.margin='6px 0';box.parentNode.insertBefore(n,box)}n.className='small '+(cls||'muted');n.textContent=t};
+async function qpPrice(i){if(!FORM||!FORM._quote)return;const r=(FORM.rows.lines||[])[i];if(!r||!r.product||qs(r).user)return;const card=qpCard();
+  if(!card){qs(r).src='list';{const it=(S.items||[]).find(x=>x.code===r.product);if(it&&it.price!=null&&it.price!==''){r.price=it.price;renderRows('lines')}}qpNote(L('العميل ما له كود ساب — السعر من قائمة الأصناف العامة، راجعه.','Customer has no SAP code — price is from the general item list; check it.'),'warn');return}
+  if(!(S.items||[]).some(x=>x.code===r.product))return;const my=++QP.seq;qs(r).src='busy';
+  try{const x=await sdRead('price',{card,item:r.product,qty:+r.qty||1});if(!FORM||!FORM._quote||FORM.rows.lines[i]!==r||qs(r).user||qpCard()!==card)return;
+    if(x.price!=null&&x.err==null){r.price=Math.round(+x.price*10000)/10000;qs(r).src='sap';if(my===QP.seq)qpNote(L('الأسعار من ساب حسب العميل: السعر الخاص لو نشط، وإلا قائمة أسعار العميل.','Prices from SAP for this customer: active special price, else the customer\'s price list.'))}
+    else{qs(r).src='list';qpNote(L('ساب ما رجّع سعر لصنف ','SAP returned no price for ')+r.product+L(' — اكتب السعر.',' — enter the price.'),'warn')}}
+  catch(e){qs(r).src='list';qpNote(L('تعذّر جلب سعر العميل من ساب — السعر الظاهر من قائمة الأصناف العامة، راجعه.','Could not get the customer price from SAP — the price shown is from the general item list; check it.'),'warn')}
+  if(FORM&&FORM._quote){const a=document.activeElement;const k=a&&a.dataset&&a.dataset.row==='lines'?[a.dataset.i,a.dataset.sk]:null;renderRows('lines');if(k){const n=document.querySelector(`[data-row="lines"][data-i="${k[0]}"][data-sk="${k[1]}"]`);if(n)n.focus()}}}
+const qpAll=()=>{if(FORM&&FORM._quote)(FORM.rows.lines||[]).forEach((r,i)=>qpPrice(i))};
+{const _q2=editQuote;editQuote=function(id,preset){_q2(id,preset);if(FORM)FORM._quote=true;if(!id)setTimeout(qpAll,0)}}
+document.addEventListener('change',e=>{const t=e.target;if(!FORM||!FORM._quote)return;
+  if(t.dataset.row==='lines'&&t.dataset.sk==='product'){setTimeout(()=>qpPrice(+t.dataset.i),0);return}
+  if(t.name==='clientId'&&t.closest('#theform'))setTimeout(qpAll,0)});
+document.addEventListener('input',e=>{const t=e.target;if(!FORM||!FORM._quote||t.dataset.row!=='lines')return;const r=FORM.rows.lines[+t.dataset.i];if(!r)return;
+  if(t.dataset.sk==='price')qs(r).user=t.value!=='';
+  if(t.dataset.sk==='qty'&&!qs(r).user){clearTimeout(qs(r).qt);qs(r).qt=setTimeout(()=>qpPrice(+t.dataset.i),700)}});
 
 /* ===== SAP Business One–style document window (نفس شاشات ساب) for: Sales Quotation, Sales Order, Delivery,
    A/R Invoice, A/R Credit Memo and Return Request. Same layout and data-entry flow as SAP B1:
