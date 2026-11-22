@@ -1385,13 +1385,14 @@ async function ppRefs(force){
   const [l,p,st]=await Promise.all([sb.from('prod_lines').select('*').order('sort').order('name'),fetchAll(()=>sb.from('prod_products').select('code,name').order('code')),sb.rpc('prod_stock')]);
   if(l.error)throw l.error;PP.lineDefs=l.data;
   // product list = the products of the fleet app (with their balances) + codes used before in plans
-  const stock=new Map();let at='';(st.data||[]).forEach(x=>{stock.set(normCode(x.code),x);if(x.at&&x.at>at)at=x.at});PP.stock=stock;PP.stockAt=at;
+  const stock=new Map(),stockX=new Map();let at='';(st.data||[]).forEach(x=>{const k=normCode(x.code);if(!stock.has(k))stock.set(k,x);stockX.set(String(x.code??'').trim().toUpperCase(),x);if(x.at&&x.at>at)at=x.at});PP.stock=stock;PP.stockX=stockX;PP.stockAt=at; // SAP has codes that differ only by a space ("VOL- 01" block vs "VOL-01" concrete): exact code first
   const seen=new Set(stock.keys());PP.products=[...(st.data||[]).map(x=>({code:x.code,name:x.name})),...p.filter(x=>!seen.has(normCode(x.code)))];
 }
 const WHS_NAME={'005':'مكة','1005':'عسفان'};
 const lineWhs=id=>(PP.lineDefs||[]).find(l=>l.id===id)?.whs||'';
 /* balance of a product in the warehouse of the line; null when unknown */
-function stockFor(code,lineId){const x=PP.stock&&PP.stock.get(normCode(code));const w=lineWhs(lineId);if(!x||!w)return null;const q=x.s&&x.s[w];return q==null?null:+q}
+const stockRec=code=>(PP.stockX&&PP.stockX.get(String(code??'').trim().toUpperCase()))||(PP.stock&&PP.stock.get(normCode(code)))||null;
+function stockFor(code,lineId){const x=stockRec(code);const w=lineWhs(lineId);if(!x||!w)return null;const q=x.s&&x.s[w];return q==null?null:+q}
 const fmtQ=n=>n==null?'':String(Math.round(n*100)/100);
 /* DB rows -> editable blocks (one per production line) */
 function ppBuild(ws,lineRows,items){
@@ -1941,14 +1942,14 @@ const PK2={key:'',busy:false,min:{},dem:[],plan:{},whs:'',flt:'',q:''};
 async function pkLoad(){PK2.busy=true;
   try{PP.products=null;await ppRefs();const ws=satOf(TODAY());
     const [mn,dm,pl]=await Promise.all([fetchAll(()=>sb.from('prod_min_stock').select('*')),sb.rpc('prod_demand'),fetchAll(()=>sb.from('prod_items_current').select('line_id,day,code,qty').gte('day',ws).lte('day',addDays(ws,13)))]);
-    PK2.min={};mn.forEach(r=>{PK2.min[normCode(r.code)+'|'+r.whs]=+r.min_qty});PK2.dem=dm.data||[];
-    PK2.plan={};pl.forEach(r=>{if(!sv(r.code)||r.qty==null)return;const w=lineWhs(r.line_id);if(!w)return;const k=normCode(r.code)+'|'+w;PK2.plan[k]=(PK2.plan[k]||0)+(+r.qty)});
+    PK2.min={};mn.forEach(r=>{PK2.min[String(r.code??'').trim().toUpperCase()+'|'+r.whs]=+r.min_qty});PK2.dem=dm.data||[];
+    PK2.plan={};pl.forEach(r=>{if(!sv(r.code)||r.qty==null)return;const w=lineWhs(r.line_id);if(!w)return;const k=String(r.code??'').trim().toUpperCase()+'|'+w;PK2.plan[k]=(PK2.plan[k]||0)+(+r.qty)});
     PK2.key='ok'}catch(e){toast(errText(e))}finally{PK2.busy=false;render()}}
-function pkRows(){const M=new Map();const add=(code,w,name)=>{const k=normCode(code)+'|'+w;if(!M.has(k))M.set(k,{code,name:name||'',whs:w,stock:null,min:null,dem:0,orders:0,due:null,plan:0});return M.get(k)};
-  (PP.stock?[...PP.stock.values()]:[]).forEach(p=>Object.entries(p.s||{}).forEach(([w,q])=>{const r=add(p.code,w,p.name);r.stock=+q}));
-  Object.entries(PK2.min).forEach(([k,v])=>{const [c,w]=k.split('|');const p=PP.stock&&PP.stock.get(c);add(p?p.code:c,w,p?p.name:'').min=v});
-  PK2.dem.forEach(d=>{if(!d.whs)return;const p=PP.stock&&PP.stock.get(normCode(d.code));const r=add(p?p.code:d.code,d.whs,p?p.name:d.name);r.dem+=+d.qty||0;r.orders+=d.orders;if(d.due&&(!r.due||d.due<r.due))r.due=d.due});
-  Object.entries(PK2.plan).forEach(([k,v])=>{const [c,w]=k.split('|');const p=PP.stock&&PP.stock.get(c);add(p?p.code:c,w,p?p.name:'').plan+=v});
+function pkRows(){const M=new Map();const add=(code,w,name)=>{const k=String(code??'').trim().toUpperCase()+'|'+w;if(!M.has(k))M.set(k,{code,name:name||'',whs:w,stock:null,min:null,dem:0,orders:0,due:null,plan:0});return M.get(k)};
+  (PP.stockX?[...PP.stockX.values()]:PP.stock?[...PP.stock.values()]:[]).forEach(p=>Object.entries(p.s||{}).forEach(([w,q])=>{const r=add(p.code,w,p.name);r.stock=+q}));
+  Object.entries(PK2.min).forEach(([k,v])=>{const [c,w]=k.split('|');const p=stockRec(c);add(p?p.code:c,w,p?p.name:'').min=v});
+  PK2.dem.forEach(d=>{if(!d.whs)return;const p=stockRec(d.code);const r=add(p?p.code:d.code,d.whs,p?p.name:d.name);r.dem+=+d.qty||0;r.orders+=d.orders;if(d.due&&(!r.due||d.due<r.due))r.due=d.due});
+  Object.entries(PK2.plan).forEach(([k,v])=>{const [c,w]=k.split('|');const p=stockRec(c);add(p?p.code:c,w,p?p.name:'').plan+=v});
   return [...M.values()].map(r=>{r.net=(r.stock||0)+r.plan-r.dem;r.low=r.min!=null&&(r.stock||0)<r.min;r.short=r.dem>0&&r.net<0;return r})}
 function pkLowCount(){if(PK2.key!=='ok')return null;return pkRows().filter(r=>r.low).length}
 function ppStockView(){
