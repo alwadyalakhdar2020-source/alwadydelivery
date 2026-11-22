@@ -60,7 +60,7 @@ function kpiRowHtml(it = {}) {
 }
 const kpiEditor = items => `<div class="kpi-ed"><div id="kpi-rows">${(items?.length ? items : [{}]).map(kpiRowHtml).join('')}</div><div class="row" style="justify-content:space-between;margin-top:8px"><button type="button" class="btn sm" data-act="kpi-row-add">${ic('plus')} ${LX('إضافة مؤشر', 'Add KPI')}</button><span id="kpi-wsum" class="badge">${kpiWsumTxt(items || [])}</span></div></div>`;
 function kpiWsumTxt(items) { const w = items.reduce((s, i) => s + (Number(i.weight) || 0), 0); return LX(`مجموع الأوزان ${fmtN(w, w % 1 ? 1 : 0)}% من 100%`, `Weights total ${fmtN(w)}% of 100%`); }
-function kpiRead() {
+function kpiRead(tpl) { // tpl: library template — a target may be left empty and set per employee in his plan
   const items = [], errs = [];
   document.querySelectorAll('#kpi-rows .kpi-row').forEach((r, i) => {
     const q = c => r.querySelector(c); const name = q('.k-name').value.trim(); const dir = q('.k-dir').value; const t = kpiNum(q('.k-target').value); const w = kpiNum(q('.k-weight').value);
@@ -68,7 +68,7 @@ function kpiRead() {
     const n = i + 1;
     if (!name) errs.push(LX(`المؤشر ${n}: الاسم مطلوب`, `KPI ${n}: name required`));
     if (w == null || isNaN(w) || w <= 0) errs.push(LX(`«${name || n}»: الوزن رقم أكبر من صفر`, `${name || n}: weight must be > 0`));
-    if (dir !== 'yesno' && (t == null || isNaN(t))) errs.push(LX(`«${name || n}»: المستهدف رقم مطلوب`, `${name || n}: numeric target required`));
+    if (dir !== 'yesno' && (tpl ? (t != null && isNaN(t)) : (t == null || isNaN(t)))) errs.push(LX(`«${name || n}»: المستهدف رقم مطلوب`, `${name || n}: numeric target required`));
     items.push({ id: r.dataset.id, name, unit: q('.k-unit').value.trim(), dir, target: dir === 'yesno' ? null : t, weight: w, desc: q('.k-desc').value.trim() });
   });
   return { items, errs };
@@ -113,7 +113,7 @@ ACT['kpi-tpl'] = el => {
     `<button class="btn pri" form="kptf">${LX('حفظ القالب', 'Save template')}</button><button class="btn" data-act="close-modal">${LX('إلغاء', 'Cancel')}</button>`, true);
 };
 FORM['kpi-tpl'] = async f => {
-  const v = readForm(f); const { items, errs } = kpiRead(); if (!items.length) errs.unshift(LX('أضف مؤشرًا واحدًا على الأقل', 'Add at least one KPI'));
+  const v = readForm(f); const { items, errs } = kpiRead(true); if (!items.length) errs.unshift(LX('أضف مؤشرًا واحدًا على الأقل', 'Add at least one KPI'));
   if (errs.length) return toast(errs.slice(0, 3).join(' — '), true);
   const id = f.dataset.id || newId(); const cur = RAW.kpiTemplates.map[id];
   await put('kpiTemplates', id, { ...(cur ? strip(cur) : { createdAt: nowISO(), createdById: S.meId }), name: v.name, deptId: v.deptId || null, jobTitle: v.jobTitle || '', description: v.description || '', items, updatedAt: nowISO(), updatedById: S.meId });
@@ -168,14 +168,14 @@ ACT['kpi-bulk'] = () => {
 };
 FORM['kpi-bulk'] = async f => {
   const v = readForm(f); const t = RAW.kpiTemplates.map[v.tpl]; if (!t) return;
-  const okW = Math.abs(kpiScore(t).wsum - 100) < .01; const lock = v.lock && okW;
+  const okW = Math.abs(kpiScore(t).wsum - 100) < .01; const okT = (t.items || []).every(i => i.dir === 'yesno' || (i.target != null && i.target !== '')); const lock = v.lock && okW && okT;
   const list = kpiScopeEmps().filter(e => (!v.dept || e.deptId === v.dept) && (!v.title || (e.title || '').includes(v.title)) && !kpiPlan(e.id + '_' + v.period));
   if (!list.length) return toast(LX('لا يوجد موظفون مطابقون بدون خطة لهذه الفترة', 'No matching employees without a plan'), true);
   let n = 0;
   for (const e of list) { const d = kpiNewDoc(e, v.period, t); if (lock) Object.assign(d, { status: 'locked', lockedAt: nowISO(), lockedById: S.meId, history: kpiLog(d, 'تثبيت المؤشرات') }); await kpiPut(e.id + '_' + v.period, d); n++; }
   if (lock) await notify(list.map(e => e.id), LX('ثُبّتت مؤشرات أدائك', 'Your KPIs were locked'), kpiPerLabel(v.period), { view: 'talent' });
   await audit('تطبيق قالب مؤشرات على موظفين', 'kpi', t.id, `${t.name} — ${v.period} — ${n} موظف${lock ? ' (مثبتة)' : ''}`);
-  closeModal(); toast(LX(`أُنشئت ${n} خطة${lock ? ' مثبتة' : ' كمسودات'}`, `${n} plans created`) + (v.lock && !okW ? LX(' — لم تُثبت لأن مجموع أوزان القالب ليس 100%', ' — not locked: weights ≠ 100%') : ''), v.lock && !okW);
+  closeModal(); toast(LX(`أُنشئت ${n} خطة${lock ? ' مثبتة' : ' كمسودات'}`, `${n} plans created`) + (v.lock && !okW ? LX(' — لم تُثبت لأن مجموع أوزان القالب ليس 100%', ' — not locked: weights ≠ 100%') : v.lock && !okT ? LX(' — لم تُثبت لأن بعض مؤشرات القالب بدون مستهدف؛ حدّده في خطة كل موظف ثم ثبّتها', ' — not locked: some KPIs have no target') : ''), v.lock && (!okW || !okT));
 };
 ACT['kpi-export'] = () => {
   const per = S.f.kpiPer || String(new Date().getFullYear()); const emps = kpiScopeEmps(); const plans = emps.map(e => [e, kpiPlan(e.id + '_' + per)]);
