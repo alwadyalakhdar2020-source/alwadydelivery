@@ -4450,7 +4450,7 @@ const CM={d:null,busy:false,err:null,ph:null,phq:'',phs:'open',pho:0};
 const CM_KIND={voice:['اتصال صوتي','Voice'],whatsapp:['WhatsApp','WhatsApp'],sms:['SMS','SMS']};
 const CM_ADAPTER={test:['اختبار آلي (لا يظهر في التقارير)','Automated test (never in reports)']};
 const CM_DOW=[['الأحد','Sun'],['الإثنين','Mon'],['الثلاثاء','Tue'],['الأربعاء','Wed'],['الخميس','Thu'],['الجمعة','Fri'],['السبت','Sat']];
-const CM_HOOK=t=>`https://kpdvgmioltltshzersyc.supabase.co/functions/v1/comm-webhook?t=${t}`;
+const CM_HOOK=t=>`https://wbdrrizyzezbzcqloxzx.supabase.co/functions/v1/comm-webhook?t=${t}`;
 const cmRpc=async(fn,args)=>{const {data,error}=await window.__sb.rpc(fn,args||{});if(error)throw new Error(error.message);return data};
 async function cmLoad(){if(CM.busy)return;CM.busy=true;try{CM.d=await cmRpc('comm_admin_get');CM.err=null}catch(e){CM.err=e.message}CM.busy=false;if(route==='commset')render()}
 async function cmPhLoad(){try{CM.ph=await cmRpc('comm_phone_dups',{p_q:CM.phq,p_state:CM.phs,p_limit:30,p_offset:CM.pho});CM.pherr=null}catch(e){CM.pherr=e.message;CM.ph={total:0,rows:[]}}if(route==='commphones')render()}
@@ -6371,4 +6371,4 @@ html[dir=ltr] #side nav .ng:not(.open) .chev{transform:rotate(-90deg)}
 #side nav .nvm.on{background:rgba(255,255,255,.18)}`;document.head.appendChild(st);
 }
 </script>
-<script src="wady-back.js"></script></body></html>
+<script src="wady-back.js"></script><script src="/stg-banner.js"></script></body></html>

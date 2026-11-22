@@ -27,10 +27,10 @@
 /* ===== Phone notifications (web push): one button in every app; the server sends, even when the app is closed ===== */
 (function(){
   var ME=document.currentScript&&document.currentScript.src; if(!ME) return;
-  var ROOT=new URL('../',ME).href, SB='https://kpdvgmioltltshzersyc.supabase.co', ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU';
+  var ROOT=new URL('../',ME).href, SB='https://wbdrrizyzezbzcqloxzx.supabase.co', ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndiZHJyaXp5emV6YnpjcWxveHp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyNzE5MjgsImV4cCI6MjExMDg0NzkyOH0.DXwGwes88tiUyCC7v-kWANSbx_yLERpaL7yqRbWaPw4';
   var VAPID='BAhRrMwKXa656l1JLXN96wao0FYeQplzaNFNA9_JZjzu9bjvqogJG4w1nCVeSTL9OsangdFwt-vZSmZ1ou5E06I';
   var ok=('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window)&&window.isSecureContext;
-  function tok(){ try{ var s=JSON.parse(localStorage.getItem('sb-kpdvgmioltltshzersyc-auth-token')||'null'); return s&&(s.access_token||(s.currentSession&&s.currentSession.access_token)); }catch(e){ return null; } }
+  function tok(){ try{ var s=JSON.parse(localStorage.getItem('sb-wbdrrizyzezbzcqloxzx-auth-token')||'null'); return s&&(s.access_token||(s.currentSession&&s.currentSession.access_token)); }catch(e){ return null; } }
   function rpc(fn,args){ var t=tok(); if(!t) return Promise.reject(new Error('سجّل دخول أولاً'));
     return fetch(SB+'/rest/v1/rpc/'+fn,{method:'POST',headers:{'Content-Type':'application/json',apikey:ANON,Authorization:'Bearer '+t},body:JSON.stringify(args||{})}).then(function(r){ if(!r.ok) return r.text().then(function(x){ throw new Error(x||r.status); }); return r.text(); }); }
   function key(b){ var p='='.repeat((4-b.length%4)%4), s=atob((b+p).replace(/-/g,'+').replace(/_/g,'/')), a=new Uint8Array(s.length); for(var i=0;i<s.length;i++) a[i]=s.charCodeAt(i); return a; }

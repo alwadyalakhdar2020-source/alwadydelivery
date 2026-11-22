@@ -5,8 +5,8 @@
    and identity comes from the platform sign-in. Access rules are enforced on the server (RLS). */
 (function () {
   'use strict';
-  const SUPABASE_URL = 'https://kpdvgmioltltshzersyc.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU';
+  const SUPABASE_URL = 'https://wbdrrizyzezbzcqloxzx.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndiZHJyaXp5emV6YnpjcWxveHp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyNzE5MjgsImV4cCI6MjExMDg0NzkyOH0.DXwGwes88tiUyCC7v-kWANSbx_yLERpaL7yqRbWaPw4';
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
   window.__sb = sb;
   window.__wadySession = () => session;

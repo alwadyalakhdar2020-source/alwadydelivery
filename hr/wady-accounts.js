@@ -3,7 +3,7 @@
   const SB = () => window.__sb;
   async function call(body) {
     const { data: { session } } = await SB().auth.getSession();
-    const r = await fetch('https://kpdvgmioltltshzersyc.supabase.co/functions/v1/hr-account', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (session?.access_token || '') }, body: JSON.stringify(body) });
+    const r = await fetch('https://wbdrrizyzezbzcqloxzx.supabase.co/functions/v1/hr-account', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (session?.access_token || '') }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status)); return j;
   }
   // HR's own password screen is not used: the platform already signed the user in. Only the first-time password change remains.

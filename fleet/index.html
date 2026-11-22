@@ -884,7 +884,7 @@ async function printReport(btn){
   .r-ممتاز{color:#2E8B4A;font-weight:800}.r-ضعيف{color:#C0392B;font-weight:800}.r-جيد{color:#1B87B3;font-weight:800}.r-مقبول{color:#A87800;font-weight:800}.foot{margin-top:8px;color:#5A6A82;font-size:9px}`;
   const k=(l,v)=>`<div><span>${l}</span><b>${v}</b></div>`;
   const scope=S.f.vehicle!=="الكل"?"سيارة "+vehLabel(S.vehicles.find(x=>x.id===S.f.vehicle)):S.f.branch==="الكل"?"المصنع ككل":"فرع "+S.f.branch;
-  const html=`<!doctype html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://kpdvgmioltltshzersyc.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
+  const html=`<!doctype html><html lang="ar" dir="rtl"><head><link rel="preconnect" href="https://wbdrrizyzezbzcqloxzx.supabase.co" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><title>تقرير أداء الأسطول ${R.from} - ${R.to}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap"><style>${css}</style></head><body>
   <div class="hdr"><div><h1>تقرير أداء أسطول التوريد</h1><div class="sub">${esc(scope)} · الفترة من ${fd(R.from)} إلى ${fd(R.to)} (${R.L} يوم)</div></div><div class="sub">أُعد في ${fmtAt(now.toISOString())}</div></div>
   <div class="k">${k("المستهدف",fmt(T.t))}${k("المحقق",fmt(T.a,1))}${k("نسبة التحقيق",pct(ratio(T.a,T.t)))}${k("التحقيق المعدّل",pct(ratio(T.a,T.t-T.ext)))}${k("عجز غير مبرر",fmt(T.gap,1))}${k("أيام بدون تسجيل",T.missing)}</div>
   <h2>مقارنة الفرعين</h2><table><thead><tr><th>الفرع</th><th>مسؤول الحركة</th><th>المستهدف</th><th>المحقق</th><th>التحقيق</th><th>المعدّل</th><th>التقييم</th><th>غير مبرر</th><th>ناقل خارجي</th><th>حققوا المستهدف</th></tr></thead><tbody>
@@ -1172,8 +1172,8 @@ document.addEventListener("click",async e=>{
 <script>
 "use strict";
 /* ================= Supabase connection, login, data adapter ================= */
-const SB_URL="https://kpdvgmioltltshzersyc.supabase.co";
-const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU";
+const SB_URL="https://wbdrrizyzezbzcqloxzx.supabase.co";
+const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndiZHJyaXp5emV6YnpjcWxveHp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyNzE5MjgsImV4cCI6MjExMDg0NzkyOH0.DXwGwes88tiUyCC7v-kWANSbx_yLERpaL7yqRbWaPw4";
 const USER_DOMAIN="users.alwady-fleet.app";
 let SB=null, ME=null, BOOT=null;
 const S2={dirty:true,last:null,people:[],products:[],ord:null,plan:null,res:{tab:"reserve"},aud:null,rep:null,ops:null,extLanes:{},sel:null,cache:{}};
@@ -1357,7 +1357,7 @@ async function adminFn(body,anon){ let token=SB_KEY; if(!anon){ const {data}=awa
 async function start(){
   try{
     if(window.__SB_MOCK__) SB=window.__SB_MOCK__;
-    else if(window.supabase&&window.supabase.createClient) SB=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"sb-kpdvgmioltltshzersyc-auth-token"}});
+    else if(window.supabase&&window.supabase.createClient) SB=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"sb-wbdrrizyzezbzcqloxzx-auth-token"}});
     else { showLogin("login","تعذّر تحميل مكتبة الاتصال — تأكد من الإنترنت وحدّث الصفحة"); return; }
     const {data}=await SB.auth.getSession(); if(!data||!data.session){ showLogin(); return; }
     await afterLogin();
@@ -2196,7 +2196,7 @@ const PRINT_CSS=`*{box-sizing:border-box}body{font-family:"Tajawal",Tahoma,sans-
   .note{border:1px solid #F3C2BD;background:#FEF3F2;border-radius:4px;padding:5px 8px;margin-top:6px}.sig{display:flex;justify-content:space-between;margin-top:18px;font-size:10px}.sig div{width:30%;border-top:1px solid #8A99AE;padding-top:4px;text-align:center}`;
 async function printHtml(btn,filename,title,body,landscape){
   const html=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:A4 ${landscape?"landscape":"portrait"};margin:8mm}${PRINT_CSS}</style></head><body>${body}
-  <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},600)});<\/script></body></html>`;
+  <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},600)});<\/script><script src="/stg-banner.js"></script></body></html>`;
   const old=btn?btn.textContent:"";
   try{ const dl=await window.claude?.use?.("downloads"); if(!dl){ if(btn) btn.textContent="الطباعة غير متاحة هنا"; return; }
     await dl.save({filename,data:new Blob([html],{type:"text/html"})}); if(btn) btn.textContent="✓ افتح الملف للطباعة"; }
