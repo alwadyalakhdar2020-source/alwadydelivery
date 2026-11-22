@@ -542,7 +542,7 @@ function renderDashboard(){
     ${k("الناقل الخارجي (رد)",R.extScope===null?"—":fmt(R.extScope),"var(--blue)",`<span class="d">${R.extScope===null?"غير متاح لسيارة واحدة":"الاعتماد عليه "+pct(ratio(R.extScope,T.a+R.extScope))}</span>`)}
   </div>
   <div class="panel"><h2>أهم الملاحظات</h2><ul class="insights">${ins.join("")}</ul>
-    <p class="small muted" style="margin:10px 0 0">★ التحقيق المعدّل = المحقق ÷ (المستهدف − المفقود لأسباب خارجية). التقييم: ممتاز ≥ ${pct(c.thresholds[0],0)} · جيد ≥ ${pct(c.thresholds[1],0)} · مقبول ≥ ${pct(c.thresholds[2],0)}</p></div>
+    <p class="small muted" style="margin:10px 0 0">★ التحقيق المعدّل = المحقق ÷ (المستهدف − المفقود لأسباب خارجية). التقييم: ممتاز ≥ ${pct(c.thresholds[0],0)} · جيد ≥ ${pct(c.thresholds[1],0)} · مقبول ≥ ${pct(c.thresholds[2],0)}<br>عجز غير مبرر = النقص اليومي لكل سيارة (المستهدف − المحقق) اللي ما انسجل له سبب، ويشمل مستهدف أيام العمل اللي ما انسجل فيها شي.</p></div>
   <div class="grid2">
     <div class="panel"><h2><span class="step">1</span>وين راح الفرق؟ <span class="q">من المستهدف إلى المحقق</span></h2><div class="chart"><canvas id="ch-wf"></canvas></div></div>
     <div class="panel"><h2><span class="step">2</span>ليش؟ <span class="q">الأسباب مرتبة + النسبة التراكمية</span></h2>${recTot>0?`<div class="chart"><canvas id="ch-par"></canvas></div>`:`<div class="empty">لا توجد أسباب مسجلة في الفترة</div>`}</div>
@@ -1075,7 +1075,9 @@ function renderSetup(){
      ${[...c.reasons,{name:"",cls:"خارجي"}].slice(0,8).map((r,i)=>`<div class="row"><input type="text" data-rs="${i}" data-f="name" value="${esc(r.name)}" placeholder="سبب إضافي (اختياري)" style="flex:1" ${dis}><select data-rs="${i}" data-f="cls" ${dis}><option ${r.cls==="خارجي"?"selected":""}>خارجي</option><option ${r.cls==="داخلي"?"selected":""}>داخلي</option></select></div>`).join("")}</div>
      <p class="small muted">خارجي = خارج إرادة مسؤول الحركة ويُخصم من المستهدف. داخلي = يُحسب عليه. لا تغيّر ترتيب الأسباب بعد بدء التسجيل.</p></div>
    <div class="panel"><h2>الإجازات الرسمية</h2><p class="small muted">تواريخ بدون مستهدف، مفصولة بفاصلة.</p><input type="text" id="s-hol" value="${esc((c.holidays||[]).join(", "))}" placeholder="2026-12-01, 2026-12-02" ${dis}>
-     <h2 style="margin-top:16px">أسباب الاستعانة بالناقل الخارجي</h2><input type="text" id="s-xr" value="${esc(c.extReasons.join("، "))}" ${dis}><p class="small muted">مفصولة بفاصلة.</p></div>
+     <h2 style="margin-top:16px">أسباب الاستعانة بالناقل الخارجي</h2><input type="text" id="s-xr" value="${esc(c.extReasons.join("، "))}" ${dis}><p class="small muted">مفصولة بفاصلة.</p>
+     <h2 style="margin-top:16px">الناقلين الخارجيين</h2><textarea id="s-car" rows="5" ${dis} placeholder="العتيبي | مكة | 350">${esc((c.carriers||[]).map(x=>[x.n,x.b||"",x.rate??""].join(" | ").replace(/( \| )+$/,"")).join("\n"))}</textarea>
+     <p class="small muted">ناقل في كل سطر: الاسم | الفرع (اختياري) | سعر الرد بالريال (اختياري، للتكلفة التقديرية). لا تغيّر اسم ناقل بعد ما انسجلت له ردود — الاسم هو اللي يربط التسجيلات.</p></div>
   </div>
   <div class="row" style="position:sticky;bottom:0;background:var(--bg);padding-block:10px;z-index:2"><button class="btn primary" id="s-save">حفظ الإعدادات</button><span class="save" id="s-st"></span></div>
   <div class="panel" id="backup"><h2>النسخة الاحتياطية</h2>
@@ -1158,6 +1160,7 @@ document.addEventListener("click",async e=>{
     const rs=[]; document.querySelectorAll("[data-rs][data-f=name]").forEach(x=>{ const i=x.dataset.rs, n=x.value.trim(); if(n) rs.push({name:n,cls:document.querySelector(`[data-rs="${i}"][data-f=cls]`).value}); }); c.reasons=rs;
     c.holidays=$("#s-hol").value.split(/[,،\s]+/).map(s=>s.trim()).filter(s=>/^\d{4}-\d{2}-\d{2}$/.test(s));
     c.extReasons=$("#s-xr").value.split(/[,،]/).map(s=>s.trim()).filter(Boolean);
+    if($("#s-car")) c.carriers=$("#s-car").value.split(/\n+/).map(l=>l.split("|").map(x=>x.trim())).filter(x=>x[0]).map(([n,b,r])=>({n:n.replace(/\s+/g," "),b:BRANCHES.includes(b)?b:"",rate:r&&!isNaN(Number(normDigits(r)))?Number(normDigits(r)):null,active:true}));
     st.textContent="…جاري الحفظ"; try{ await S.db.doc("config/main").set(c); st.className="save ok"; st.textContent="✓ تم الحفظ"; logAction({t:"الإعدادات",x:"حفظ الإعدادات وقواعد الاحتساب"}); }catch(err){ st.className="save err"; st.textContent=err&&err.code==="invalid_argument"?"ما عندك صلاحية تعديل الإعدادات — تحتاج صلاحية Editor":"تعذّر الحفظ — حاول مرة ثانية"; } }
   const b=e.target.closest("[data-vsave]"); if(b){ const id=b.dataset.vsave, st=document.querySelector(`[data-vst="${CSS.escape(id)}"]`), get=f=>document.querySelector(`[data-vh="${CSS.escape(id)}"][data-f="${f}"]`);
     const plate=get("plate").value.trim(); if(!plate){ st.className="save err"; st.textContent="أدخل رقم اللوحة"; return; }
@@ -2696,6 +2699,8 @@ function faCompute(){
     return {v,n:ms.length,dd,rate:L?Math.min(1,dd/L):0,per30:L?ms.length/L*30:0,mtbf:gaps.length?gaps.reduce((s,x)=>s+x,0)/gaps.length:null,top:top?top[0]:"",open:ms.some(m=>m.status!=="closed")}}).sort((a,b)=>b.rate-a.rate||b.n-a.n);
   const tot={n:R.length,d:R.reduce((s,m)=>s+down(m),0),veh:new Set(R.map(m=>m.vehicle_id)).size,fleet:vs.length,L};
   tot.avail=vs.length&&L?1-tot.d/(vs.length*L):null;
+  const isAcc=m=>/حادث/.test(m.category||"");const acc=R.filter(isAcc);tot.acc={n:acc.length,d:acc.reduce((s,m)=>s+down(m),0),veh:new Set(acc.map(m=>m.vehicle_id)).size};
+  veh.forEach(r=>{r.acc=R.filter(m=>m.vehicle_id===r.v.id&&isAcc(m)).length});
   return {types:Object.values(types).sort((a,b)=>b.n-a.n),other:Object.entries(other).sort((a,b)=>b[1]-a[1]),veh,tot,from,to}
 }
 function faHtml(){
@@ -2704,15 +2709,15 @@ function faHtml(){
   return `<div class="panel"><div class="filters"><label class="f">من<input type="date" id="fa-from" value="${FA.from}"></label><label class="f">إلى<input type="date" id="fa-to" value="${FA.to}"></label>
      <div class="row">${[[30,"30 يوم"],[90,"90 يوم"],[180,"6 أشهر"],[365,"سنة"]].map(([n,l])=>`<button class="btn sm ${diffDays(FA.from,FA.to)+1===n&&FA.to===today()?"primary":""}" data-fa-days="${n}">${l}</button>`).join("")}<button class="btn sm" id="fa-xls">تصدير Excel</button></div></div>
      <p class="small muted" style="margin:6px 0 0">الفرع والسيارة من الفلتر فوق. أيام التعطل = الأيام اللي كانت فيها السيارة في الصيانة داخل الفترة. نسبة التعطل = أيام التعطل ÷ أيام الفترة.</p></div>
-   <div class="kpis">${k("عدد الأعطال",fmt(t.n),"var(--red)",`${t.veh} سيارة من ${t.fleet}`)}${k("أيام التعطل",fmt(t.d),"var(--orange)",`خلال ${t.L} يوم`)}${k("جاهزية الأسطول",t.avail==null?"—":pct(t.avail,1),"var(--green)","نسبة الأيام اللي كانت فيها السيارات جاهزة")}${k("متوسط مدة الإصلاح",t.n?fmt(t.d/t.n,1)+" يوم":"—","var(--navy-ink)")}</div>
+   <div class="kpis">${k("عدد الأعطال (بدون الحوادث)",fmt(t.n-t.acc.n),"var(--red)",`${t.veh} سيارة من ${t.fleet}`)}${k("الحوادث",fmt(t.acc.n),"#7A1F1F",t.acc.n?`${fmt(t.acc.d)} يوم توقف — ${t.acc.veh} سيارة`:"ما فيه حوادث في الفترة")}${k("أيام التعطل",fmt(t.d),"var(--orange)",`خلال ${t.L} يوم`)}${k("جاهزية الأسطول",t.avail==null?"—":pct(t.avail,1),"var(--green)","نسبة الأيام اللي كانت فيها السيارات جاهزة")}${k("متوسط مدة الإصلاح",t.n?fmt(t.d/t.n,1)+" يوم":"—","var(--navy-ink)")}</div>
    ${!t.n?`<div class="panel empty">ما فيه أعطال في الفترة.</div>`:`<div class="grid2">
     <div class="panel"><h2>أنواع الأعطال <span class="q">العدد وأيام التعطل</span></h2><div class="chart"><canvas id="fa-types"></canvas></div></div>
     <div class="panel"><h2>نسبة التعطل لكل سيارة <span class="q">الأعلى 15</span></h2><div class="chart tall"><canvas id="fa-veh"></canvas></div></div></div>
    <div class="panel"><h2>تفصيل أنواع الأعطال</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">النوع</th><th>العدد</th><th>النسبة من الأعطال</th><th>أيام التعطل</th><th>متوسط مدة الإصلاح</th><th>سيارات تأثرت</th><th>مفتوحة الآن</th></tr></thead><tbody>
     ${X.types.map(o=>`<tr><td class="txt"><b>${esc(o.k)}</b></td><td>${o.n}</td><td>${pct(o.n/t.n,0)}</td><td>${fmt(o.d)}</td><td>${fmt(o.d/o.n,1)} يوم</td><td>${o.veh.size}</td><td>${o.open||"—"}</td></tr>`).join("")}</tbody></table></div>
     ${X.other.length?`<p class="small" style="margin:8px 0 0"><b>«أخرى» من وصف العطل (تقديري):</b> ${X.other.map(([l,n])=>`${esc(l)} (${n})`).join("، ")}. اختيار النوع الصحيح عند فتح الطلب يخلي التحليل أدق.</p>`:""}</div>
-   <div class="panel"><h2>الأعطال لكل سيارة</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th><th>عدد الأعطال</th><th>أيام التعطل</th><th>نسبة التعطل</th><th>أعطال لكل 30 يوم</th><th>متوسط الأيام بين عطلين</th><th class="txt">أكثر نوع</th></tr></thead><tbody>
-    ${X.veh.filter(r=>r.n).map(r=>`<tr${r.rate>=.2?' class="neg"':""}><td class="txt"><b>${esc(vehLabel(r.v))}</b>${r.open?' <span class="tag">في الصيانة</span>':""}</td><td>${esc(r.v.branch||"")}</td><td>${r.n}</td><td>${fmt(r.dd)}</td><td><b>${pct(r.rate,1)}</b></td><td>${fmt(r.per30,1)}</td><td>${r.mtbf==null?"—":fmt(r.mtbf,0)+" يوم"}</td><td class="txt">${esc(r.top)}</td></tr>`).join("")}</tbody></table></div>
+   <div class="panel"><h2>الأعطال لكل سيارة</h2><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th><th>عدد الأعطال</th><th>منها حوادث</th><th>أيام التعطل</th><th>نسبة التعطل</th><th>أعطال لكل 30 يوم</th><th>متوسط الأيام بين عطلين</th><th class="txt">أكثر نوع</th></tr></thead><tbody>
+    ${X.veh.filter(r=>r.n).map(r=>`<tr${r.rate>=.2?' class="neg"':""}><td class="txt"><b>${esc(vehLabel(r.v))}</b>${r.open?' <span class="tag">في الصيانة</span>':""}</td><td>${esc(r.v.branch||"")}</td><td>${r.n}</td><td>${r.acc||"—"}</td><td>${fmt(r.dd)}</td><td><b>${pct(r.rate,1)}</b></td><td>${fmt(r.per30,1)}</td><td>${r.mtbf==null?"—":fmt(r.mtbf,0)+" يوم"}</td><td class="txt">${esc(r.top)}</td></tr>`).join("")}</tbody></table></div>
     <p class="small muted" style="margin:6px 0 0">${X.veh.filter(r=>!r.n).length} سيارة بدون أعطال في الفترة. الصفوف الحمراء: متعطلة 20% من الفترة أو أكثر.</p></div>`}`;
 }
 function faCharts(){for(const k in FA.charts){try{FA.charts[k].destroy()}catch(e){}}FA.charts={};if(!FA.rows||!window.Chart)return;const X=faCompute();if(!X.tot.n)return;
@@ -3075,6 +3080,117 @@ importPanelHtml=function(){ const s=S2.imp||{};
   return `<div class="panel" id="imp-panel"><h2>مصدر البيانات: ساب (SAP Business One)</h2>
    <div class="locs">${box("الأصناف",s.products,"تنسحب من ساب مرة في اليوم")}${box("العملاء",s.customers,"تنسحب من ساب كل يوم، والتعديلات كل 10 دقائق")}${box("أوامر البيع المفتوحة",s.open_orders,"تنسحب من ساب كل دقيقتين")}</div>
    <p class="small muted" style="margin:8px 0 0">الاستيراد من ملفات Excel متوقف. أي تعديل في ساب (عميل جديد، أمر بيع، صنف) يظهر هنا تلقائي خلال دقائق.</p></div>`; };
+
+/* ===== External carrier by name + analysis, and accidents apart from breakdowns =====
+   Carrier day record (fleet.carrier.data): m / a = rides for Makkah / Asfan (kept as the totals every KPI reads),
+   mc / ac = rides per carrier name for each branch ({"العتيبي":5,"نايف":2}); "" = rides with no carrier named (older days).
+   Names come from Settings (carriers: [{n, b, rate, active}]) plus any name already used in the data. */
+const CR={branch:"مكة",span:1,charts:{},extra:{}};
+const CR_NONE="";                                   // rides with no carrier named
+const crKey=b=>b==="عسفان"?"a":"m", crMapKey=b=>b==="عسفان"?"ac":"mc", crRsnKey=b=>b==="عسفان"?"ar":"mr";
+const crName=s=>String(s??"").replace(/\s+/g," ").trim();
+function crList(){return (cfg().carriers||[]).filter(x=>x&&crName(x.n))}
+function crMonths(m,span){const out=[];let [y,mo]=m.split("-").map(Number);for(let i=0;i<span;i++){out.unshift(`${y}-${pad(mo)}`);mo--;if(mo<1){mo=12;y--}}return out}
+/* per-carrier rides of one branch-day; legacy days (total only) count as «بدون اسم» */
+function crSplit(d,b){if(!d)return {};const mp=d[crMapKey(b)];const tot=num(d[crKey(b)]);
+  if(mp&&typeof mp==="object"){const o={};let s=0;for(const [k,v] of Object.entries(mp)){const n=num(v);if(n>0){o[k]=n;s+=n}}if(tot>s+1e-9)o[CR_NONE]=(o[CR_NONE]||0)+tot-s;return o}
+  return tot>0?{[CR_NONE]:tot}:{}}
+function crNamesFor(b,docs){const set=new Set();crList().filter(x=>x.active!==false&&(!x.b||x.b===b)).forEach(x=>set.add(crName(x.n)));
+  docs.forEach(doc=>Object.values(doc||{}).forEach(d=>Object.keys((d&&d[crMapKey(b)])||{}).forEach(k=>{if(k&&num(d[crMapKey(b)][k])>0)set.add(k)})));
+  Object.keys(CR.extra[b]||{}).forEach(k=>set.add(k));return [...set]}
+const crRate=n=>{const x=crList().find(c=>crName(c.n)===n);return x&&num(x.rate)>0?num(x.rate):null};
+
+renderCarrier=function(){
+  const el=$("#v-carrier"),c=cfg(),m=S.cmonth,[y,mo]=m.split("-").map(Number),nd=new Date(Date.UTC(y,mo,0)).getUTCDate(),doc=S.carrier[m]||{},ro=S.readOnly,b=CR.branch;
+  const names=crNamesFor(b,[doc]);const opts=sel=>`<option value=""></option>`+c.extReasons.map(r=>`<option ${sel===r?"selected":""}>${esc(r)}</option>`).join("");
+  let rows="",colTot=names.map(()=>0),noneTot=0,tot=0;
+  for(let i=1;i<=nd;i++){const dd=pad(i),d=doc[dd]||{},sp=crSplit(d,b);const t=num(d[crKey(b)]);tot+=t;noneTot+=num(sp[CR_NONE]);
+    rows+=`<tr class="${isFri(`${m}-${dd}`)?"fri":""}"><td>${dd}</td>${names.map((n,j)=>{const v=sp[n];colTot[j]+=num(v);return `<td><input type="text" inputmode="decimal" data-cr="${dd}" data-f="c" data-n="${esc(n)}" value="${v??""}" style="width:64px" ${ro?"disabled":""}></td>`}).join("")}
+      <td><input type="text" inputmode="decimal" data-cr="${dd}" data-f="c" data-n="" value="${sp[CR_NONE]??""}" style="width:64px" title="ردود بدون اسم ناقل" ${ro?"disabled":""}></td>
+      <td><b data-ct="${dd}">${t?fmt(t):""}</b></td><td><select data-cr="${dd}" data-f="${crRsnKey(b)}" ${ro?"disabled":""}>${opts(d[crRsnKey(b)])}</select></td>
+      <td><input class="note" type="text" data-cr="${dd}" data-f="note" value="${esc(d.note||"")}" ${ro?"disabled":""}></td><td><span class="save" data-cs="${dd}"></span></td></tr>`}
+  const tm=Object.values(doc).reduce((s,d)=>s+num(d&&d.m),0),ta=Object.values(doc).reduce((s,d)=>s+num(d&&d.a),0);
+  el.innerHTML=`<div class="panel"><div class="filters"><label class="f">الشهر<input type="month" id="c-m" value="${m}"></label>
+      <label class="f">الفرع<select id="c-b">${BRANCHES.map(x=>`<option ${x===b?"selected":""}>${x}</option>`).join("")}</select></label>
+      ${ro?"":`<label class="f">ناقل جديد<span class="row" style="gap:6px;flex-wrap:nowrap"><input type="text" id="c-new" placeholder="اسم الناقل"><button class="btn sm" id="c-add">إضافة عمود</button></span></label>`}</div>
+    <div class="sum-strip" style="margin-top:12px"><span>إجمالي الشهر — مكة <b>${fmt(tm)}</b> رد</span><span>عسفان <b>${fmt(ta)}</b> رد</span></div>
+    <p class="small muted" style="margin:6px 0 0">اكتب عدد ردود كل ناقل تحت اسمه، والإجمالي يتحسب لحاله. عمود «بدون اسم» للأيام القديمة اللي انسجل فيها الإجمالي بس. أسماء الناقلين الثابتة وسعر الرد تنضاف من «الإعدادات».</p></div>
+    <div class="panel" id="cr-an"></div>
+    <div class="panel"><h2>التسجيل اليومي — ${esc(b)}</h2><div class="tbl-wrap"><table class="log"><thead><tr><th>اليوم</th>${names.map(n=>`<th>${esc(n)}</th>`).join("")}<th>بدون اسم</th><th>الإجمالي</th><th>سبب الاستعانة</th><th class="txt">ملاحظات</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td><b>المجموع</b></td>${colTot.map(x=>`<td><b>${x?fmt(x):""}</b></td>`).join("")}<td><b>${noneTot?fmt(noneTot):""}</b></td><td><b>${fmt(tot)}</b></td><td colspan="3"></td></tr></tfoot></table></div></div>`;
+  crAnalysis();
+};
+
+/* analysis: rides per carrier over the chosen months, chart + table */
+function crAnalysis(){
+  const box=$("#cr-an");if(!box)return;for(const k in CR.charts){try{CR.charts[k].destroy()}catch(e){}}CR.charts={};
+  const months=crMonths(S.cmonth,CR.span),bs=CR.anB&&CR.anB!=="الكل"?[CR.anB]:BRANCHES;const per={},byDay=new Map();let tot=0,days=0;
+  months.forEach(mm=>{const doc=S.carrier[mm]||{};Object.keys(doc).sort().forEach(dd=>{const d=doc[dd];let any=0;
+    bs.forEach(b=>{const sp=crSplit(d,b);for(const [n,v] of Object.entries(sp)){const k=n||"بدون اسم";const o=per[k]=per[k]||{n:k,b:{},t:0,days:new Set(),rs:{}};o.t+=v;o.b[b]=(o.b[b]||0)+v;o.days.add(mm+dd);
+      const r=d[crRsnKey(b)];if(r)o.rs[r]=(o.rs[r]||0)+v;tot+=v;any+=v;const key=CR.span===1?dd:mm+"-"+dd;const row=byDay.get(key)||{};row[k]=(row[k]||0)+v;byDay.set(key,row)}});
+    if(any>0)days++})});
+  const P=Object.values(per).sort((a,b)=>b.t-a.t);
+  const spanBtns=[[1,"الشهر"],[3,"3 أشهر"],[6,"6 أشهر"]].map(([n,l])=>`<button class="btn sm ${CR.span===n?"primary":""}" data-cr-span="${n}">${l}</button>`).join("");
+  const anB=CR.anB||"الكل";
+  box.innerHTML=`<h2>تحليل الناقلين <span class="q">${months.length>1?`${months[0]} ← ${months[months.length-1]}`:months[0]}</span></h2>
+    <div class="row" style="margin-bottom:10px">${spanBtns}<select id="cr-anb" style="width:auto">${["الكل",...BRANCHES].map(x=>`<option ${x===anB?"selected":""}>${x}</option>`).join("")}</select></div>
+    ${!tot?`<div class="empty">ما فيه ردود ناقل خارجي مسجلة في الفترة.</div>`:`
+    <div class="kpis k4" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      <div class="kpi" style="--c:var(--blue)"><span class="l">ردود الناقل الخارجي</span><span class="v">${fmt(tot)}</span><span class="d">في ${days} يوم</span></div>
+      <div class="kpi" style="--c:var(--navy)"><span class="l">عدد الناقلين</span><span class="v">${P.filter(x=>x.n!=="بدون اسم").length}</span></div>
+      <div class="kpi" style="--c:var(--orange)"><span class="l">أكبر ناقل</span><span class="v" style="font-size:20px">${esc(P[0].n)}</span><span class="d">${pct(P[0].t/tot,0)} من الردود</span></div>
+      ${P.some(x=>crRate(x.n))?`<div class="kpi" style="--c:var(--red)"><span class="l">التكلفة التقديرية</span><span class="v">${fmt(P.reduce((s,x)=>s+(crRate(x.n)||0)*x.t,0))}</span><span class="d">ر.س — للناقلين اللي لهم سعر رد</span></div>`:""}
+    </div>
+    <div class="grid2" style="margin-top:12px"><div><div class="chart tall"><canvas id="cr-ch-day"></canvas></div></div><div><div class="chart tall"><canvas id="cr-ch-share"></canvas></div></div></div>
+    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="txt">الناقل</th>${bs.length>1?BRANCHES.map(b=>`<th>${b}</th>`).join(""):""}<th>الإجمالي</th><th>الحصة</th><th>أيام الاستعانة</th><th>متوسط ردود/يوم</th><th class="txt">أكثر سبب</th><th>التكلفة التقديرية</th></tr></thead><tbody>
+      ${P.map(x=>{const rs=Object.entries(x.rs).sort((a,b)=>b[1]-a[1])[0];const rt=crRate(x.n);return `<tr><td class="txt"><b>${esc(x.n)}</b></td>${bs.length>1?BRANCHES.map(b=>`<td>${x.b[b]?fmt(x.b[b]):"—"}</td>`).join(""):""}<td><b>${fmt(x.t)}</b></td><td>${pct(x.t/tot,0)}</td><td>${x.days.size}</td><td>${fmt(x.t/x.days.size,1)}</td><td class="txt">${rs?esc(rs[0]):"—"}</td><td>${rt?fmt(rt*x.t):"—"}</td></tr>`}).join("")}
+    </tbody></table></div>
+    ${per["بدون اسم"]?`<p class="small muted" style="margin:6px 0 0">«بدون اسم» = ${fmt(per["بدون اسم"].t)} رد انسجل لها الإجمالي بدون اسم الناقل.</p>`:""}`}`;
+  if(!tot||!window.Chart)return;const {line}=chartBase();const pal=["#051D48","#38AC57","#F39235","#34BEF0","#8FC153","#E0533D","#9B6BD6","#B0B7C3"];
+  const keys=[...byDay.keys()].sort(),names=P.map(x=>x.n);
+  CR.charts.d=new Chart($("#cr-ch-day"),{type:"bar",data:{labels:keys.map(k=>CR.span===1?k:k.slice(5).replace("-","/")),datasets:names.map((n,i)=>({label:n,data:keys.map(k=>byDay.get(k)[n]||0),backgroundColor:n==="بدون اسم"?"#C9CED6":pal[i%pal.length],stack:"s"}))},
+    options:{maintainAspectRatio:false,locale:"en-US",plugins:{legend:{position:"bottom",rtl:true},tooltip:{rtl:true},title:{display:true,text:"ردود الناقل الخارجي يومياً"}},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,grid:{color:line}}}}});
+  CR.charts.s=new Chart($("#cr-ch-share"),{type:"bar",data:{labels:names,datasets:[{label:"الردود",data:P.map(x=>x.t),backgroundColor:names.map((n,i)=>n==="بدون اسم"?"#C9CED6":pal[i%pal.length])}]},
+    options:{indexAxis:"y",maintainAspectRatio:false,locale:"en-US",plugins:{legend:{display:false},tooltip:{rtl:true,callbacks:{label:c=>`${fmt(c.raw)} رد (${pct(c.raw/tot,0)})`}},title:{display:true,text:"الردود لكل ناقل"}},scales:{x:{beginAtZero:true,grid:{color:line}},y:{grid:{display:false}}}}});
+}
+
+saveCarrier=function(dd){
+  const m=S.cmonth,b=CR.branch,old=Object.assign({},(S.carrier[m]||{})[dd]||{}),d=Object.assign({},old);
+  const mp={};document.querySelectorAll(`[data-cr="${dd}"][data-f="c"]`).forEach(x=>{const v=x.value.trim();const n=v===""||isNaN(Number(normDigits(v)))?0:Number(normDigits(v));if(n>0)mp[x.dataset.n]=n});
+  document.querySelectorAll(`[data-cr="${dd}"]:not([data-f="c"])`).forEach(x=>{const v=x.value.trim();d[x.dataset.f]=v||null});
+  const named=Object.fromEntries(Object.entries(mp).filter(([k])=>k!==CR_NONE));const sum=Object.values(mp).reduce((s,x)=>s+x,0);
+  d[crMapKey(b)]=Object.keys(named).length?named:null;d[crKey(b)]=sum||(Object.keys(mp).length?0:null);
+  const tc=document.querySelector(`[data-ct="${dd}"]`);if(tc)tc.textContent=sum?fmt(sum):"";
+  const st=document.querySelector(`[data-cs="${dd}"]`);if(!S.db){if(st){st.className="save err";st.textContent="وضع المعاينة"}return}
+  if(st){st.className="save";st.textContent="…جاري الحفظ"}
+  S.carrier[m]=Object.assign({},S.carrier[m]||{},{[dd]:d});
+  crQueue=crQueue.then(async()=>{const ref=S.db.collection("carrier").doc(m);
+    try{await ref.update({days:{[dd]:d}})}catch(e){if(e&&e.code==="invalid_argument"){const s=await ref.get();if(!s.exists)await ref.set({month:m,days:{[dd]:d}});else throw e}else throw e}
+    if(st){st.className="save ok";st.textContent="✓ محفوظ"}
+    logAction({t:"ناقل خارجي",d:`${m}-${dd}`,x:`${b}: ${Object.entries(mp).map(([k,v])=>`${k||"بدون اسم"} ${v}`).join(" + ")||"0"}${d[crRsnKey(b)]?" ("+d[crRsnKey(b)]+")":""}${d.note?" · "+d.note:""}`});
+    crAnalysis()}).catch(e=>{if(st){st.className="save err";st.textContent="تعذّر الحفظ"}});
+};
+document.addEventListener("change",e=>{
+  if(e.target.id==="c-b"){CR.branch=e.target.value;render(true)}
+  else if(e.target.id==="cr-anb"){CR.anB=e.target.value;crAnalysis()}});
+document.addEventListener("click",e=>{
+  const s=e.target.closest("[data-cr-span]");if(s){CR.span=Number(s.dataset.crSpan);crAnalysis();return}
+  if(e.target.id==="c-add"){const n=crName($("#c-new").value);if(!n)return;(CR.extra[CR.branch]=CR.extra[CR.branch]||{})[n]=1;render(true)}});
+
+/* ---- accidents: their own reason («حادث», external), set automatically while an accident maintenance request is open ---- */
+const accidentIdx=()=>(cfg().reasons||[]).findIndex(r=>/حادث|حوادث/.test(r.name||""));
+{const _mr=mkReasonIdx;mkReasonIdx=function(c,cat){if(/حادث/.test(cat||"")){const i=(c.reasons||[]).findIndex(r=>/حادث|حوادث/.test(r.name||""));if(i>=0)return i}return _mr(c,cat)}}
+/* typing an accident count in the daily entry needs an open maintenance request of type «حادث» (same rule in the database) */
+{const _ss=scheduleSave;const asking={};scheduleSave=function(vid,iso){const ai=accidentIdx();if(ai<0)return _ss(vid,iso);
+  const day=readEditor(vid,iso),old=realDay(vid,iso);const nv=day&&day.r?num(day.r[ai]):0,ov=old&&old.r?num(old.r[ai]):0;const mt=maintFor(vid,iso);
+  if(nv>0&&ov===0&&!(mt&&/حادث/.test(mt.category||""))){const key=vid+"|"+iso;if(asking[key])return;asking[key]=true;
+    if(mt){delete asking[key];const inp=document.querySelector(`[data-ed="${CSS.escape(key)}"][data-f="r${ai}"]`);if(inp){inp.value=ov||"";updateDerived(vid,iso,true)}
+      toast(`السيارة عليها طلب صيانة مفتوح #${mt.id} نوعه «${mt.category}». لو كان حادث عدّل نوع الطلب إلى «حادث» أول.`,"err");return}
+    maintForm({category:"حادث"},{vid,iso,title:`حادث ${esc(laneName(vid))} — يوم ${fd(iso)}`}).then(r=>{delete asking[key];
+      if(r&&/حادث/.test(r.category||"")){_ss(vid,iso);markMaintCards()}
+      else{const inp=document.querySelector(`[data-ed="${CSS.escape(key)}"][data-f="r${ai}"]`);if(inp){inp.value=ov||"";updateDerived(vid,iso,true)}toast("ما انحفظ «حادث» — لازم طلب صيانة نوعه «حادث»","err")}});
+    return}
+  _ss(vid,iso)}}
 
 start();
 
