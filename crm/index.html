@@ -2797,7 +2797,7 @@ V.orders=()=>{
   const m=fv('soMonth','');const st=fv('soSt','');const rp=fv('soRep','');const q=normTxt(fv('soQ',''));
   const reps=visibleReps();
   const all=vis(S.orders);
-  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&(!st||o.status===st)&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||cName(o.clientId)).includes(q)||normCode(o.clientCode)===normCode(q))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&(!st||o.status===st)&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||cName(o.clientId)).includes(q)||normCode(o.clientCode)===normCode(q))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||(parseInt(b.no,10)||0)-(parseInt(a.no,10)||0)||String(b.no||'').localeCompare(String(a.no||'')));
   const val=a=>a.reduce((s,o)=>s+(+o.value||0),0);const live=rows.filter(o=>o.status!=='cancelled');
   return `<div class="fbar"><label class="fl" for="soMonth">${L('الشهر','Month')}<input type="month" id="soMonth" data-act="filtSel" data-k="soMonth" value="${m}"></label>
    <label class="fl" for="soSt">${L('الحالة','Status')}<select id="soSt" data-act="filtSel" data-k="soSt">${opt(Object.entries(ORDER_ST).map(([k,v])=>[k,L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
