@@ -3192,6 +3192,51 @@ const accidentIdx=()=>(cfg().reasons||[]).findIndex(r=>/حادث|حوادث/.tes
     return}
   _ss(vid,iso)}}
 
+/* ===== Vehicle status KPI from GPS: each working day every tracked vehicle is «عاملة» (moved), «متوقفة» (signal but no movement),
+   «صيانة» (open maintenance request) or «بدون إشارة» (no GPS points). Utilisation = working days ÷ (working days − maintenance − no signal).
+   Fridays and the holidays in Settings are not working days; a Friday the vehicle moved is shown apart. ===== */
+const GST={charts:{}};
+const GST_C={w:"#1F9D55",s:"#E0533D",m:"#F39235",n:"#C9CED6"};
+const gstRate=u=>u==null?"":u>=.9?"ممتاز":u>=.75?"جيد":u>=.6?"مقبول":"ضعيف";
+function gstCompute(){
+  if(!GK.d||!GK.d.rows)return null;const {from,to:to0}=gkRange();const t=localToday();const to=to0>t?t:to0;const hol=new Set(cfg().holidays||[]);
+  const days=[];for(let d=from;d<=to;d=addDays(d,1))days.push(d);const work=days.filter(d=>!isFri(d)&&!hol.has(d));
+  const byV={};(GK.d.rows||[]).forEach(r=>{(byV[r.vehicle_id]=byV[r.vehicle_id]||{})[r.day]=r});
+  const vs=(S.vehicles||[]).filter(v=>v.active!==false&&(S.f.branch==="الكل"||v.branch===S.f.branch)&&byV[v.id]&&Object.values(byV[v.id]).some(r=>+r.pts>0));
+  const perDay={};work.forEach(d=>perDay[d]={w:0,s:0,m:0,n:0});
+  const moved=r=>r&&+r.pts>0&&(+r.km>1||+r.move_s>600);
+  const V=vs.map(v=>{const o={v,w:0,s:0,m:0,n:0,fri:0,move:0,last:""};
+    days.forEach(d=>{const r=byV[v.id][d];if(moved(r)&&d>o.last)o.last=d;if(!work.includes(d)){if(moved(r))o.fri++;return}
+      const k=(typeof mkOn==="function"&&mkOn(v.id,d))?"m":moved(r)?"w":r&&+r.pts>0?"s":"n";o[k]++;perDay[d][k]++;if(k==="w")o.move+=+r.move_s||0});
+    const base=o.w+o.s;o.util=base?o.w/base:null;o.mvh=o.w?o.move/o.w/3600:null;return o}).sort((a,b)=>(a.util??2)-(b.util??2));
+  const T=V.reduce((s,o)=>{["w","s","m","n","fri"].forEach(k=>s[k]+=o[k]);return s},{w:0,s:0,m:0,n:0,fri:0});T.util=T.w+T.s?T.w/(T.w+T.s):null;
+  return {from,to,work,perDay,V,T}}
+function gstHtml(X){
+  if(!X)return "";const {T,V,work}=X;const k=(l,v,c,s="")=>`<div class="kpi" style="--c:${c}"><span class="l">${l}</span><span class="v">${v}</span>${s?`<span class="d">${s}</span>`:""}</div>`;
+  const avgW=work.length?T.w/work.length:0;
+  return `<div class="panel" id="gst"><h2>مؤشر حالة السيارات — تشغيل وتوقف <span class="q">${work.length} يوم عمل · ${V.length} سيارة عليها جهاز تتبع</span></h2>
+   ${!V.length||!work.length?`<div class="empty">ما فيه بيانات تتبع لأيام عمل في الفترة.</div>`:`
+   <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+    ${k("نسبة تشغيل الأسطول",pct(T.util,0),"var(--green)",T.util==null?"":`<span class="pill ${gstRate(T.util)}">${gstRate(T.util)}</span>`)}
+    ${k("متوسط السيارات العاملة يومياً",fmt(avgW,1),"var(--navy-ink)",`من ${V.length} سيارة`)}
+    ${k("أيام توقف بدون صيانة",fmt(T.s),"var(--red)","السيارة عليها إشارة وما تحركت")}
+    ${k("أيام صيانة",fmt(T.m),"var(--orange)")}
+    ${k("أيام بدون إشارة",fmt(T.n),"var(--muted)",T.n?"راجع جهاز التتبع":"")}
+    ${T.fri?k("أيام جمعة/إجازة اشتغلت فيها",fmt(T.fri),"var(--blue)"):""}</div>
+   <div class="chart" style="margin-top:12px"><canvas id="gst-ch"></canvas></div>
+   <div class="tablewrap" style="margin-top:12px"><table class="tbl"><thead><tr><th>السيارة</th><th>الفرع</th><th>عاملة</th><th>متوقفة</th><th>صيانة</th><th>بدون إشارة</th><th>نسبة التشغيل</th><th>التقييم</th><th>ساعات حركة / يوم عمل</th><th>جمعة/إجازة</th><th>آخر يوم اشتغلت</th></tr></thead><tbody>
+    ${V.map(o=>`<tr data-gv="${esc(o.v.id)}"><td><b>${esc(vehLabel(o.v))}</b>${o.v.driver?`<div class="small muted">${esc(o.v.driver)}</div>`:""}</td><td>${esc(o.v.branch)}</td>
+      <td>${o.w}</td><td class="${o.s>=3?"gk-hi":""}">${o.s}</td><td>${o.m||"—"}</td><td>${o.n||"—"}</td><td><b>${pct(o.util,0)}</b></td><td>${o.util==null?"—":`<span class="pill ${gstRate(o.util)}">${gstRate(o.util)}</span>`}</td>
+      <td>${o.mvh==null?"—":fmt(o.mvh,1)}</td><td>${o.fri||"—"}</td><td>${o.last?fd(o.last):"—"}</td></tr>`).join("")}</tbody></table></div>`}
+   <p class="small muted" style="margin:8px 0 0">كل يوم عمل لكل سيارة: <b>عاملة</b> = تحركت أكثر من 1 كم أو 10 دقائق · <b>متوقفة</b> = الجهاز شغال وما تحركت · <b>صيانة</b> = عليها طلب صيانة مفتوح · <b>بدون إشارة</b> = ما وصلت نقاط من الجهاز.
+   نسبة التشغيل = أيام عاملة ÷ (أيام عاملة + متوقفة)، فالصيانة وأيام بدون إشارة ما تدخل. التقييم: ممتاز ≥ 90% · جيد ≥ 75% · مقبول ≥ 60%. الجمعة والإجازات الرسمية مو أيام عمل.</p></div>`}
+function gstChart(X){for(const k in GST.charts){try{GST.charts[k].destroy()}catch(e){}}GST.charts={};const el=document.getElementById("gst-ch");if(!el||!window.Chart||!X)return;
+  const L=X.work,lab={w:"عاملة",s:"متوقفة",m:"صيانة",n:"بدون إشارة"};
+  GST.charts.c=new Chart(el,{type:"bar",data:{labels:L.map(d=>d.slice(8)+"/"+d.slice(5,7)),datasets:["w","s","m","n"].map(k=>({label:lab[k],data:L.map(d=>X.perDay[d][k]),backgroundColor:GST_C[k],stack:"s"}))},
+    options:{maintainAspectRatio:false,locale:"en-US",plugins:{legend:{position:"bottom",rtl:true},tooltip:{rtl:true},title:{display:true,text:"حالة السيارات يومياً (عدد السيارات)"}},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{precision:0}}}}})}
+{const _r=renderGpsKpi;renderGpsKpi=function(){_r.apply(this,arguments);const el=document.getElementById("v-gpskpi");if(!el||!GK.d)return;const X=gstCompute();
+  const first=el.querySelector(".panel");if(first&&!el.querySelector("#gst")){first.insertAdjacentHTML("afterend",gstHtml(X));gstChart(X)}}}
+
 start();
 
 </script>
