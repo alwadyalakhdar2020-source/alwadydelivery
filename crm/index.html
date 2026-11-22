@@ -261,6 +261,7 @@ const daysBetween=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:
 const monthStart=()=>TODAY().slice(0,8)+'01';
 const loc=()=>lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en-GB';
 const num=n=>Math.round(n||0).toLocaleString('en-US');
+const price2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); // unit prices keep their halalas (1.35, not 1)
 const money=n=>num(n)+' '+L('ر.س','SAR');
 const smoney=n=>{n=n||0;const a=Math.abs(n);if(a>=1e6)return (n/1e6).toFixed(2)+' '+L('مليون','M');if(a>=1e3)return Math.round(n/1e3)+' '+L('ألف','K');return num(n)};
 const fdate=s=>s?new Date(s.length<=10?s+'T12:00:00':s).toLocaleDateString(loc(),{day:'numeric',month:'short',year:(s.slice(0,4)===TODAY().slice(0,4)?undefined:'numeric')}):'—';
@@ -2357,7 +2358,7 @@ OPEN.quote=(id,refresh)=>{
   if(q.status==='accepted')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="ordered">${L('تحويل إلى طلب بيع','Convert to sales order')}</button>`;
   const h=`<div class="toolbar">${pillOf(QUOTE_ST,q.status)}<span class="grow"></span>${acts}</div>
   <dl class="kv card"><dt>${L('العميل','Client')}</dt><dd><a href="#" data-open="client" data-id="${q.clientId}">${esc(cName(q.clientId))}</a></dd><dt>${L('الفرصة','Deal')}</dt><dd>${q.oppId?esc(byId('opps',q.oppId)?.title||'—'):'—'}</dd><dt>${L('أعدّه','Prepared by')}</dt><dd>${esc(tName(q.createdBy))}</dd><dt>${L('اعتمده','Approved by')}</dt><dd>${esc(tName(q.approvedBy))}</dd><dt>${L('صالح حتى','Valid until')}</dt><dd>${fdate(q.validUntil)}</dd>${q.sapRef?`<dt>${L('مرجع SAP','SAP ref')}</dt><dd>${esc(q.sapRef)}</dd>`:''}<dt>${L('الشروط','Terms')}</dt><dd>${esc(q.terms||'—')}</dd></dl>
-  ${table([{l:L('الصنف','Item'),f:l=>esc(prodName(l.product))+(l.size||l.color?`<div class="small muted">${esc([l.size,l.color].filter(Boolean).join(' · '))}</div>`:'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(l.qty)+' '+esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>num(l.price)},{l:L('الإجمالي','Total'),c:'n',f:l=>num(l.qty*l.price)}],(q.lines||[]).map(l=>({...l,id:null})))}
+  ${table([{l:L('الصنف','Item'),f:l=>esc(prodName(l.product))+(l.size||l.color?`<div class="small muted">${esc([l.size,l.color].filter(Boolean).join(' · '))}</div>`:'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(l.qty)+' '+esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>price2(l.price)},{l:L('الإجمالي','Total'),c:'n',f:l=>num(l.qty*l.price)}],(q.lines||[]).map(l=>({...l,id:null})))}
   <dl class="kv card"><dt>${L('الخصم','Discount')}</dt><dd>${q.discount||0}%</dd><dt>${L('الإجمالي بعد الخصم','Net total')}</dt><dd><b>${money(qTotal(q))}</b> <span class="small muted">${L('غير شامل الضريبة','excl. VAT')}</span></dd></dl>
   ${isLead()?sec(L('سجل التعديلات','Change history'),'',auditTable(S.audit.filter(a=>a.docId===id).sort((a,b)=>b.at.localeCompare(a.at)))):''}`;
   setDrawer('quote',id,q.no,h,refresh);
@@ -2777,7 +2778,7 @@ V.items=()=>{
    <span class="per">${rows.length} ${L('صنف','items')}</span>
    ${isMgr()?`<button class="btn" data-act="goImport" data-t="items">${L('استيراد الأصناف من Excel','Import items from Excel')}</button><button class="btn p" data-act="itemNew">+ ${L('صنف','Item')}</button>`:''}</div>`+
   `<div class="card">${table([{l:L('الكود','Code'),c:'nw',f:x=>`<b>${esc(x.code)}</b>`},{l:L('اسم الصنف','Item'),f:x=>esc(x.name)},{l:L('الفئة','Family'),f:x=>esc(FAMILIES[x.family]?L(FAMILIES[x.family][0],FAMILIES[x.family][1]):(x.familyTxt||x.family||'—'))},
-    {l:L('الوحدة','Unit'),f:x=>esc(x.unit||'—')},{l:L('المقاس','Size'),f:x=>esc(x.size||'—')},{l:L('سعر البيع','Price'),c:'n',f:x=>x.price!=null&&x.price!==''?num(x.price):'—'},
+    {l:L('الوحدة','Unit'),f:x=>esc(x.unit||'—')},{l:L('المقاس','Size'),f:x=>esc(x.size||'—')},{l:L('سعر البيع','Price'),c:'n',f:x=>x.price!=null&&x.price!==''?price2(x.price):'—'},
     {l:L('في أوامر البيع','In orders'),c:'n',f:x=>{const s=sold[normCode(x.code)];return s?`${num(s.qty)} · ${smoney(s.val)}`:'—'}},{l:L('الحالة','Status'),f:x=>x.active===false?pill(L('موقوف','Inactive'),'bad'):pill(L('نشط','Active'),'ok')}],rows,isMgr()?'item':'',{empty:L('لا توجد أصناف بعد. استوردها من Excel أو أضفها يدوياً.','No items yet. Import them from Excel or add them manually.')})}</div>`;
 };
 function editItem(id){
@@ -2816,7 +2817,7 @@ OPEN.order=(id,refresh)=>{const o=byId('orders',id);if(!o)return;
   setDrawer('order',id,L('أمر البيع ','Sales order ')+o.no,`<dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · ${esc(o.clientCode||'')}</dd>
    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('المنطقة','Region')}</dt><dd>${esc(regName(o.region))}</dd><dt>${L('الحالة','Status')}</dt><dd>${pillOf(ORDER_ST,o.status)}</dd>
    <dt>${L('تاريخ التسليم','Delivery')}</dt><dd>${o.delivery?fdate(o.delivery):'—'}</dd><dt>${L('عرض السعر','Quotation')}</dt><dd>${esc(o.quoteNo||'—')}</dd><dt>${L('المشروع','Project')}</dt><dd>${esc(o.project||'—')}</dd></dl>
-   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?num(l.qty):'—'},{l:L('السعر','Price'),c:'n',f:l=>l.price!==''&&l.price!=null?num(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>num(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
+   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?num(l.qty):'—'},...((o.lines||[]).some(l=>l.open!=null&&l.open!=='')?[{l:L('المسلَّم','Delivered'),c:'n',f:l=>l.open!=null&&l.open!==''?num(Math.max(0,(+l.qty||0)-(+l.open||0))):'—'},{l:L('المتبقي','Open'),c:'n',f:l=>l.open!=null&&l.open!==''?num(l.open):'—'}]:[]),{l:L('سعر الوحدة','Unit price'),c:'n',f:l=>l.price!==''&&l.price!=null?price2(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>num(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
    <div class="small muted">${L('الإجمالي','Total')}: <b>${money(o.value)}</b></div></div>`,refresh)};
 
 /* ---- pipeline: fill the rep's sheet from his customers, open quotations and open orders ---- */
