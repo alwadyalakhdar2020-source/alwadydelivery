@@ -5931,6 +5931,9 @@ const qStock=code=>{const it=(S.items||[]).find(x=>x.code===code);return it&&it.
 {const _rr0=renderRows;renderRows=function(k){const r=_rr0.apply(this,arguments);if(k!=='lines'||!FORM||!FORM._quoteUI)return r;
   (FORM.rows.lines||[]).forEach((row,i)=>{const st=document.querySelector(`[data-row="lines"][data-i="${i}"][data-sk="_stock"]`);
     if(st){st.readOnly=true;st.tabIndex=-1;st.classList.add('q-ro');st.value=row.product?qStock(row.product):'';st.placeholder='—'}
+    // the unit comes from the item (SAP) and can't be changed by anyone
+    const un=document.querySelector(`[data-row="lines"][data-i="${i}"][data-sk="unit"]`);
+    if(un){const it=(S.items||[]).find(x=>x.code===row.product);if(it&&it.unit&&row.unit!==it.unit)row.unit=it.unit;const v=row.unit||'';if(v&&![...un.options].some(o=>o.value===v))un.add(new Option(v,v));un.value=v;un.disabled=true;un.tabIndex=-1;un.classList.add('q-ro');un.title=L('الوحدة من بيانات الصنف في ساب','Unit from the SAP item')}
     const pr=document.querySelector(`[data-row="lines"][data-i="${i}"][data-sk="price"]`);
     if(pr&&!isMgr()){pr.readOnly=true;pr.tabIndex=-1;pr.classList.add('q-ro');pr.title=L('السعر من ساب حسب العميل — التعديل للمدير فقط','Price from SAP — managers only')}});
   return r}}
