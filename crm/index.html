@@ -8133,36 +8133,38 @@ return M['index'];})();
 /* ============ Sales invoices & credit notes (from SAP, once e-invoice QR exists) + one branded print for every sales document (23/11) ============ */
 {
 IC.receipt='<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/>';
-{const oi=NAV.findIndex(n=>n[0]==='orders');NAV.splice(oi+1,0,['sinv','receipt',()=>L('الفواتير والإشعارات الدائنة','Invoices & credit notes'),()=>typeof wadyLvl!=='function'||wadyLvl('crm','sinv')>=1])}
+IC.creditn='<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 10h6"/><path d="M12 7v0"/><path d="M9 14h6"/>';
+{const oi=NAV.findIndex(n=>n[0]==='orders');NAV.splice(oi+1,0,['sinv','receipt',()=>L('فواتير المبيعات','Sales invoices'),()=>typeof wadyLvl!=='function'||wadyLvl('crm','sinv')>=1],['scn','creditn',()=>L('الإشعارات الدائنة','Credit notes'),()=>typeof wadyLvl!=='function'||wadyLvl('crm','scn')>=1])}
 // put it in the «Sales» menu group right after the orders
 {const gi=NAV.findIndex(n=>n[0]==='sinv');const oi=NAV.findIndex(n=>n[0]==='orders');if(gi>oi+1){const [x]=NAV.splice(gi,1);NAV.splice(oi+1,0,x)}}
 if(!S.sinv)S.sinv=[];
 const SINV_ST={open:['غير مسددة','Unpaid','warn'],closed:['مسددة / مقفلة','Paid / closed','ok'],cancelled:['ملغاة','Cancelled','bad']};
 const sKind=x=>x.kind==='credit'?L('إشعار دائن','Credit note'):L('فاتورة','Invoice');
 
-V.sinv=()=>{
-  const m=fv('siMonth',TODAY().slice(0,7));const kd=fv('siKind','');const st=fv('siSt','');const rp=fv('siRep','');const q=normTxt(fv('siQ',''));
+const sinvView=kd=>()=>{const P=kd==='credit'?'cn':'si';
+  const m=fv(P+'Month',TODAY().slice(0,7));const st=fv(P+'St','');const rp=fv(P+'Rep','');const q=normTxt(fv(P+'Q',''));
   const reps=visibleReps();const all=vis(S.sinv||[]);
-  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&(!kd||o.kind===kd)&&(!st||o.status===st)&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||'').includes(q)||normCode(o.clientCode)===normCode(q)))
+  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&((o.kind==='credit')===(kd==='credit'))&&(!st||o.status===st)&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||'').includes(q)||normCode(o.clientCode)===normCode(q)))
     .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||(+b.sapEntry||0)-(+a.sapEntry||0));
   const live=rows.filter(o=>o.status!=='cancelled');const inv=live.filter(o=>o.kind!=='credit'),cn=live.filter(o=>o.kind==='credit');
   const sv=a=>a.reduce((s,o)=>s+(+o.value||0),0),st2=a=>a.reduce((s,o)=>s+(+o.total||0),0);
   const unpaid=inv.filter(o=>o.status==='open').reduce((s,o)=>s+Math.max(0,(+o.total||0)-(+o.paid||0)),0);
-  return `<div class="fbar"><label class="fl" for="siMonth">${L('الشهر','Month')}<input type="month" id="siMonth" data-act="filtSel" data-k="siMonth" value="${m}"></label>
-   <label class="fl" for="siKind">${L('النوع','Type')}<select id="siKind" data-act="filtSel" data-k="siKind">${opt([['invoice',L('فواتير','Invoices')],['credit',L('إشعارات دائنة','Credit notes')]],kd,L('— الكل —','— all —'))}</select></label>
-   <label class="fl" for="siSt">${L('الحالة','Status')}<select id="siSt" data-act="filtSel" data-k="siSt">${opt(Object.entries(SINV_ST).map(([k,v])=>[k,L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
-   ${isLead()?`<label class="fl" for="siRep">${L('المندوب','Rep')}<select id="siRep" data-act="filtSel" data-k="siRep">${opt(reps.map(r=>[r.id,r.name]),rp,L('— الكل —','— all —'))}</select></label>`:''}
-   <label class="fl" for="siQ">${L('بحث','Search')}<input id="siQ" type="search" data-act="filtIn" data-k="siQ" value="${esc(fv('siQ',''))}" placeholder="${L('رقم الفاتورة أو العميل','Invoice no. or customer')}"></label></div>
-  <div class="kpis k4">${kpiTile(L('المبيعات (فواتير)','Sales (invoices)'),smoney(sv(inv)),`${num(inv.length)} ${L('فاتورة · بدون ضريبة','invoices · ex-VAT')}`)}
-   ${kpiTile(L('الإشعارات الدائنة','Credit notes'),smoney(sv(cn)),`${num(cn.length)} ${L('إشعار','notes')}`)}
-   ${kpiTile(L('صافي المبيعات','Net sales'),smoney(sv(inv)-sv(cn)),L('الفواتير ناقص الإشعارات','invoices minus credit notes'))}
-   ${kpiTile(L('غير المسدد من فواتير الشهر','Unpaid of these invoices'),smoney(unpaid),L('شامل الضريبة','incl. VAT'))}</div>
-  <div class="card">${table([{l:L('النوع','Type'),c:'nw',f:o=>o.kind==='credit'?pill(L('إشعار دائن','Credit note'),'info'):pill(L('فاتورة','Invoice'),'ok')},{l:L('الرقم','No.'),c:'nw',f:o=>`<b><bdi>${esc(o.no)}</bdi></b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
+  const cnp=kd==='credit';const tot=sv(live);
+  return `<div class="fbar"><label class="fl" for="${P}Month">${L('الشهر','Month')}<input type="month" id="${P}Month" data-act="filtSel" data-k="${P}Month" value="${m}"></label>
+   <label class="fl" for="${P}St">${L('الحالة','Status')}<select id="${P}St" data-act="filtSel" data-k="${P}St">${opt(Object.entries(SINV_ST).filter(([k])=>!cnp||k!=='open').map(([k,v])=>[k,cnp&&k==='closed'?L('مقفل','Closed'):L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
+   ${isLead()?`<label class="fl" for="${P}Rep">${L('المندوب','Rep')}<select id="${P}Rep" data-act="filtSel" data-k="${P}Rep">${opt(reps.map(r=>[r.id,r.name]),rp,L('— الكل —','— all —'))}</select></label>`:''}
+   <label class="fl" for="${P}Q">${L('بحث','Search')}<input id="${P}Q" type="search" data-act="filtIn" data-k="${P}Q" value="${esc(fv(P+'Q',''))}" placeholder="${cnp?L('رقم الإشعار أو العميل','Note no. or customer'):L('رقم الفاتورة أو العميل','Invoice no. or customer')}"></label></div>
+  <div class="kpis k4">${cnp?`${kpiTile(L('عدد الإشعارات','Credit notes'),num(live.length),L('بدون الملغاة','excl. cancelled'))}
+   ${kpiTile(L('القيمة بدون ضريبة','Value ex-VAT'),smoney(tot),'')}${kpiTile(L('الضريبة','VAT'),smoney(live.reduce((s,o)=>s+(+o.vat||0),0)),'')}${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}`
+   :`${kpiTile(L('عدد الفواتير','Invoices'),num(live.length),L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('المبيعات بدون ضريبة','Sales ex-VAT'),smoney(tot),'')}
+   ${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}${kpiTile(L('غير المسدد','Unpaid'),smoney(unpaid),L('من فواتير الشهر','of these invoices'))}`}</div>
+  <div class="card">${table([{l:L('الرقم','No.'),c:'nw',f:o=>`<b><bdi>${esc(o.no)}</bdi></b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
     {l:L('العميل','Customer'),f:o=>`${esc(o.cname||cName(o.clientId))}<div class="small muted"><bdi>${esc(o.clientCode||'')}</bdi></div>`},
     {l:L('المندوب','Rep'),f:o=>esc(tName(o.repId))},{l:L('القيمة','Value'),c:'n',f:o=>num(o.value)},{l:L('الإجمالي شامل الضريبة','Total incl. VAT'),c:'n',f:o=>num(o.total)},
-    {l:L('الحالة','Status'),f:o=>pillOf(SINV_ST,o.status)}],rows,'sinv',{empty:L('ما فيه فواتير لهذا الشهر. الفواتير تظهر هنا بعد ما يطلع لها الباركود (الفاتورة الإلكترونية) من ساب.','No invoices for this month. Invoices appear after SAP issues their e-invoice QR.')})}
-   <div class="small muted">${L('من ساب: الفواتير والإشعارات الدائنة اللي طلع لها الباركود (الفاتورة الإلكترونية) فقط، ويتحدّث كل 5 دقائق.','From SAP: only invoices and credit notes that have their e-invoice QR; refreshed every 5 minutes.')}</div></div>`;
+    {l:L('الحالة','Status'),f:o=>cnp&&o.status!=='cancelled'?pill(L('مقفل','Closed'),'ok'):pillOf(SINV_ST,o.status)}],rows,'sinv',{empty:cnp?L('ما فيه إشعارات دائنة لهذا الشهر. تظهر هنا بعد ما يطلع لها الباركود من ساب.','No credit notes this month. They appear after SAP issues the e-invoice QR.'):L('ما فيه فواتير لهذا الشهر. الفواتير تظهر هنا بعد ما يطلع لها الباركود (الفاتورة الإلكترونية) من ساب.','No invoices for this month. Invoices appear after SAP issues their e-invoice QR.')})}
+   <div class="small muted">${cnp?L('من ساب: الإشعارات الدائنة اللي طلع لها الباركود (الفاتورة الإلكترونية) فقط، ويتحدّث كل 5 دقائق.','From SAP: only credit notes with their e-invoice QR; refreshed every 5 minutes.'):L('من ساب: الفواتير اللي طلع لها الباركود (الفاتورة الإلكترونية) فقط، ويتحدّث كل 5 دقائق.','From SAP: only invoices with their e-invoice QR; refreshed every 5 minutes.')}</div></div>`;
 };
+V.sinv=sinvView('invoice');V.scn=sinvView('credit');
 OPEN.sinv=(id,refresh)=>{const o=byId('sinv',id);if(!o)return;
   setDrawer('sinv',id,sKind(o)+' '+o.no,`<div class="toolbar"><button class="btn p" data-act="siPrint" data-id="${id}">🖨 ${L('طباعة / PDF','Print / PDF')}</button></div>
    <dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · <bdi>${esc(o.clientCode||'')}</bdi></dd>
