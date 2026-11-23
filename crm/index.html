@@ -5,7 +5,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices']};</script>
+<script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices','orders','quotes']};</script>
 <script src="claude-shim.js"></script>
 <style>
 /* Layout: operations console — fixed nav rail (desktop) / bottom tab bar (phone), one working column of filter bar, KPI tiles, charts and lists */
@@ -1328,7 +1328,7 @@ const navItems=()=>NAV.filter(n=>n[0]!=='g'&&n[3]());
 let route=(location.hash||'#dash').slice(1);
 if(!NAV.some(n=>n[0]===route))route='dash';
 window.addEventListener('hashchange',()=>{const r=location.hash.slice(1);if(NAV.some(n=>n[0]===r)&&r!==route){route=r;render();scrollTo(0,0)}});
-function go(r){route=r;try{history.replaceState(null,'','#'+r)}catch(e){}render();scrollTo(0,0)}
+function go(r){route=r;TBLN={};try{history.replaceState(null,'','#'+r)}catch(e){}render();scrollTo(0,0)}
 
 /* ============ UI helpers ============ */
 const pill=(t,tone)=>`<span class="pill ${tone||''}">${esc(t)}</span>`;
@@ -1341,9 +1341,14 @@ const repOpts=()=>visibleReps().map(r=>[r.id,r.name]);
 const clientOpts=(type)=>vis(S.clients).filter(c=>!type||c.type===type).sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(c=>[c.id,c.name]);
 const allClientOpts=(type)=>S.clients.filter(c=>!type||c.type===type).map(c=>[c.id,c.name]);
 const projOpts=()=>vis(S.projects).map(p=>[p.id,p.name]);
+/* long lists show their first rows and a «show more» button, so a page with thousands of documents opens and refreshes quickly;
+   totals in the footer still count every row */
+let TBLN={};const TBL_STEP=150;
 function table(cols,rows,open,opts={}){
+  const tk=route+'|'+cols.map(c=>String(c.l).replace(/<[^>]*>/g,'')).join('|').slice(0,120);const lim=opts.all?Infinity:(TBLN[tk]||TBL_STEP);const shown=rows.length>lim?rows.slice(0,lim):rows;
+  const more=rows.length>lim?`<div class="row" style="justify-content:center;padding:10px"><button class="btn" data-act="tblMore" data-k="${esc(tk)}">${L(`عرض المزيد — المعروض ${num(lim)} من ${num(rows.length)}`,`Show more — ${num(lim)} of ${num(rows.length)}`)}</button></div>`:'';
   const foot=opts.foot?`<tfoot><tr>${cols.map(c=>`<td class="${c.c||''}">${c.t?c.t(rows):''}</td>`).join('')}</tr></tfoot>`:'';
-  return `<div class="tw"><table><thead><tr>${cols.map(c=>`<th class="${c.c||''}">${c.l}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr ${open&&r.id!=null?`data-open="${open}" data-id="${esc(r.id)}"`:''}>${cols.map(c=>`<td class="${c.c||''}">${c.f(r)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="empty">${opts.empty||L('لا توجد سجلات','No records')}</td></tr>`}</tbody>${rows.length?foot:''}</table></div>`}
+  return `<div class="tw"><table><thead><tr>${cols.map(c=>`<th class="${c.c||''}">${c.l}</th>`).join('')}</tr></thead><tbody>${rows.length?shown.map(r=>`<tr ${open&&r.id!=null?`data-open="${open}" data-id="${esc(r.id)}"`:''}>${cols.map(c=>`<td class="${c.c||''}">${c.f(r)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="empty">${opts.empty||L('لا توجد سجلات','No records')}</td></tr>`}</tbody>${rows.length?foot:''}</table></div>${more}`}
 function bars(items,fmt){const max=Math.max(1,...items.map(i=>i.v));return `<div class="bars">${items.length?items.map(i=>`<div class="bar"><span class="lab" title="${esc(i.l)}">${esc(i.l)}</span><span class="tr"><i style="width:${Math.max(2,i.v/max*100)}%"></i></span><b>${fmt?fmt(i.v):num(i.v)}</b></div>`).join(''):`<div class="muted small">${L('لا توجد بيانات بعد','No data yet')}</div>`}</div>`}
 const meter=(p,cls)=>`<div class="meter ${cls||''}"><i style="width:${Math.min(100,Math.max(0,p||0))}%"></i></div>`;
 const achCls=a=>a==null?'':a>=1?'':a>=0.8?'w':'b';
@@ -1418,6 +1423,7 @@ function banners(){
   if(mode==='db'&&!S.team.length&&loaded.has('team'))h+=`<div class="banner info"><span class="sp">${L('قاعدة البيانات فارغة. ابدأ بإضافة المستخدمين من «المستخدمون والفريق» ثم استورد ملفات العملاء، أو حمّل بيانات تجريبية.','The database is empty. Add users, then import customer files — or load demo data.')}</span><button class="btn s p" data-act="loadDemo">${L('تحميل بيانات تجريبية','Load demo data')}</button></div>`;
   return h;
 }
+
 
 
 /* ============ Al-Wady platform integration (identity, navigation) ============ */
@@ -5933,6 +5939,8 @@ document.addEventListener('change',e=>{const t=e.target;if(!FORM||!FORM._quote)r
 document.addEventListener('input',e=>{const t=e.target;if(!FORM||!FORM._quote||t.dataset.row!=='lines')return;const r=FORM.rows.lines[+t.dataset.i];if(!r)return;
   if(t.dataset.sk==='price')qs(r).user=t.value!=='';
   if(t.dataset.sk==='qty'&&!qs(r).user){clearTimeout(qs(r).qt);qs(r).qt=setTimeout(()=>qpPrice(+t.dataset.i),700)}});
+
+ACT.tblMore=d=>{TBLN[d.k]=(TBLN[d.k]||TBL_STEP)+300;render()}; // «show more» under long tables
 
 /* ===== SAP Business One–style document window (نفس شاشات ساب) for: Sales Quotation, Sales Order, Delivery,
    A/R Invoice, A/R Credit Memo and Return Request. Same layout and data-entry flow as SAP B1:
