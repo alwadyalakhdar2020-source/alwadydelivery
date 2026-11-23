@@ -436,7 +436,7 @@ function renderBanner(){
 }
 document.addEventListener("click",e=>{
   const t=e.target.closest("[data-act]"); if(!t) return; const a=t.dataset.act;
-  if(a==="demo-off"){S.demo=false;S.ver++;render(true)} else if(a==="demo-on"){S.demo=true;buildDemo();S.ver++;render(true)} else if(a==="reload-view"){render(true)} else if(a==="retry-sync"){flushOutbox(true)}
+  if(a==="demo-off"){S.demo=false;S.ver++;render(true)} else if(a==="demo-on"){S.demo=true;buildDemo();S.ver++;render(true)} else if(a==="reload-view"){render(true)} else if(a==="retry-sync"){flushOutbox(true)} else if(a==="show-blocked"){showBlocked()}
 });
 
 /* ---------- demo data (in memory only) ---------- */
@@ -656,7 +656,7 @@ async function writeDay(vid,iso,body){
   const month=monthOf(iso), dd=iso.slice(8), ref=S.db.collection("entries").doc(vid+"_"+month);
   let lastErr=null;
   for(let attempt=0; attempt<3; attempt++){
-    try{ await ref.update({days:{[dd]:body}}); return; }catch(e1){ lastErr=e1; }
+    try{ await ref.update({days:{[dd]:body}}); return; }catch(e1){ lastErr=e1; if(e1&&e1.code==="rejected") throw e1; }
     try{ const snap=await ref.get();
       if(!snap.exists){ await ref.set({vid,month,days:{[dd]:body}}); return; }
       const data=JSON.parse(JSON.stringify(snap.data()||{})); data.days=data.days||{}; data.days[dd]=body; data.vid=vid; data.month=month;
@@ -666,20 +666,37 @@ async function writeDay(vid,iso,body){
   }
   throw lastErr;
 }
-function errText(e){ const c=e&&e.code; return c==="invalid_argument"?"رفض الحفظ (صلاحية أو بيانات غير صالحة)":c==="resource_exhausted"?"ضغط على الخادم":c==="quota_exceeded"?"امتلأت قاعدة البيانات":c==="revoked"?"انتهت الجلسة — حدّث الصفحة":"تعذّر الاتصال"; }
+const REJECT_CODES=["late_customer_required","maintenance_required","accident_maintenance_required"];
+function errText(e){ const c=e&&e.code; if(c==="rejected") return "ما انحفظ: "+(e.message||"البيانات ناقصة"); return c==="invalid_argument"?"رفض الحفظ (صلاحية أو بيانات غير صالحة)":c==="resource_exhausted"?"ضغط على الخادم":c==="quota_exceeded"?"امتلأت قاعدة البيانات":c==="revoked"?"انتهت الجلسة — حدّث الصفحة":"تعذّر الاتصال"; }
 function diag(op,e,extra){ try{ if(!S.db||!S.uid) return; S.db.doc("diag/"+S.uid).set({uid:S.uid,at:new Date().toISOString(),op,code:(e&&e.code)||"",msg:String(e&&e.message||e||"").slice(0,300),extra:extra||null,ua:navigator.userAgent.slice(0,160)}).catch(()=>{}); }catch(x){} }
 function updateSyncBadge(){ const el=$("#sync"); if(!el) return; const n=Object.keys(outboxLoad()).length, p=Object.keys(S.pending).length;
   if(!S.db){ el.textContent=""; el.className="sync"; return; }
+  const nb=Object.keys(S.blocked||{}).filter(k=>outboxLoad()[k]).length;
+  if(nb){ el.innerHTML=`⚠ ${nb} إدخال ناقص — ما انحفظ <button class="btn sm" data-act="show-blocked">عرض وإكمال</button>`; el.className="sync bad"; return; }
   if(S.syncErr&&n){ el.innerHTML=`⚠ ${n} غير محفوظ <button class="btn sm" data-act="retry-sync">إعادة</button>`; el.className="sync bad"; }
   else if(n||p){ el.textContent=`…جاري الحفظ (${Math.max(n,p)})`; el.className="sync"; }
   else { el.textContent="✓ كل شي محفوظ"; el.className="sync ok"; } }
+/* entries the server refused (missing customer / maintenance request): keep on device, stop looping, tell the user exactly what to fix */
+function blockMark(key,e,live){ S.blocked=S.blocked||{}; S.blocked[key]={reason:e.reason,msg:e.message}; setSaveState(key,"err",errText(e)); updateSyncBadge();
+  if(live&&e.reason==="late_customer_required"&&!S.readOnly&&typeof lcEdit==="function"&&document.querySelector(`[data-lc="${CSS.escape(key)}"]`)) setTimeout(()=>lcEdit(key),80); }
+function blockClear(key){ if(S.blocked&&S.blocked[key]){ delete S.blocked[key]; updateSyncBadge(); } }
+async function showBlocked(){ const ob=outboxLoad(); const ks=Object.keys(S.blocked||{}).filter(k=>ob[k]);
+  const rows=ks.map(k=>{ const [vid,iso]=k.split("|"); const b=S.blocked[k]; return `<div class="filters" style="align-items:center;border-bottom:1px solid var(--line,#ddd);padding:6px 0"><div class="f" style="flex:3"><b><bdi>${esc(vehLabel(vehById(vid))||vid)}</bdi></b> — <bdi>${esc(iso)}</bdi><div class="small" style="color:var(--red)">${esc(b.msg||"")}</div></div><button type="button" class="btn sm primary" data-blk-go="${esc(k)}" style="min-height:40px">افتح اليوم وأكمل</button><button type="button" class="btn sm" data-blk-del="${esc(k)}" style="min-height:40px">إلغاء التعديل</button></div>`; }).join("")||`<p class="small muted">ما فيه إدخالات ناقصة.</p>`;
+  await modal("إدخالات ما انحفظت",`<p class="small">الخادم رفض هذي الإدخالات لأن فيها بيانات ناقصة. هي محفوظة على جهازك لين تكملها.</p>${rows}`,{ok:"تم",cancel:"",onOpen:f=>{
+    f.addEventListener("click",async e=>{ const g=e.target.closest("[data-blk-go]"), d=e.target.closest("[data-blk-del]"); if(!g&&!d) return; e.preventDefault();
+      const k=(g||d).dataset[g?"blkGo":"blkDel"]; const [vid,iso]=k.split("|");
+      if(d){ if(!confirm("بيتم حذف التعديل غير المحفوظ لهذا اليوم من جهازك. متأكد؟")) return; outboxPut(k,undefined); blockClear(k); d.closest(".filters").remove(); render(true); return; }
+      f.closest(".modal-bg").remove(); S.entryDate=iso; go("entry"); render(true);
+      setTimeout(()=>{ const card=document.querySelector(`[data-ed="${CSS.escape(k)}"]`); if(card) card.scrollIntoView({block:"center"});
+        if(S.blocked[k]&&S.blocked[k].reason==="late_customer_required"&&typeof lcEdit==="function") lcEdit(k); },400); }); }});
+}
 let flushing=false;
 async function flushOutbox(manual){
   if(!S.db||flushing) return; flushing=true; const ob=outboxLoad(); let fails=0;
   for(const [k,o] of Object.entries(ob)){ if(S.pending[k]) continue; const docId=o.vid+"_"+monthOf(o.iso);
     try{ const q=(docQueues[docId]||Promise.resolve()).catch(()=>{}).then(()=>writeDay(o.vid,o.iso,o.day)); docQueues[docId]=q; await q;
-      const cur=outboxLoad()[k]; if(cur&&cur.t===o.t) outboxPut(k,undefined); setSaveState(k,"ok"); }
-    catch(e){ fails++; setSaveState(k,"err",errText(e)+" — محفوظ على جهازك"); diag("flush",e,{k}); } }
+      const cur=outboxLoad()[k]; if(cur&&cur.t===o.t) outboxPut(k,undefined); blockClear(k); setSaveState(k,"ok"); }
+    catch(e){ if(e&&e.code==="rejected"){ blockMark(k,e); continue; } fails++; setSaveState(k,"err",errText(e)+" — محفوظ على جهازك"); diag("flush",e,{k}); } }
   S.syncErr=fails>0; flushing=false; updateSyncBadge();
   if(fails&&!manual) setTimeout(()=>flushOutbox(),20000);
 }
@@ -693,9 +710,9 @@ function doSave(vid,iso){
   const veh=S.vehicles.find(x=>x.id===vid)||{id:vid,type:"",branch:""};
   const q=(docQueues[docId]||Promise.resolve()).catch(()=>{}).then(()=>writeDay(vid,iso,body)).then(()=>{
       const cur=outboxLoad()[key]; if(cur&&cur.t===t) outboxPut(key,undefined);
-      if(!S.pending[key]) setSaveState(key,"ok"); S.syncErr=false; updateSyncBadge(); updateDerived(vid,iso); paintNames();
+      blockClear(key); if(!S.pending[key]) setSaveState(key,"ok"); S.syncErr=false; updateSyncBadge(); updateDerived(vid,iso); paintNames();
       logAction({t:day?"توريد":"مسح توريد",vid,d:iso,x:summarize(veh,day)}); },
-    e=>{ setSaveState(key,"err",errText(e)+" — محفوظ على جهازك وبيرسله تلقائياً"); S.syncErr=true; updateSyncBadge(); diag("save",e,{docId,dd}); setTimeout(()=>flushOutbox(),15000); });
+    e=>{ if(e&&e.code==="rejected"){ blockMark(key,e,true); return; } setSaveState(key,"err",errText(e)+" — محفوظ على جهازك وبيرسله تلقائياً"); S.syncErr=true; updateSyncBadge(); diag("save",e,{docId,dd}); setTimeout(()=>flushOutbox(),15000); });
   docQueues[docId]=q;
 }
 function setSaveState(key,st,msg){ S.saveState[key]=st; document.querySelectorAll(`[data-ss="${CSS.escape(key)}"]`).forEach(el=>{
@@ -1235,7 +1252,7 @@ const FDB=(()=>{
   const L={cfg:[],veh:[],car:[],ent:[],backup:[]};
   const C={settings:null,vehicles:[],ent:{},car:{},carLoaded:false};
   const kpi=()=>ME&&KPI_ROLES.includes(ME.role);
-  const wrapErr=e=>{ const x=new Error(errMsg(e)); x.code=(e&&(e.message==="forbidden"||e.message==="not_authorized"||e.code==="42501"))?"invalid_argument":"unavailable"; return x; };
+  const wrapErr=e=>{ const x=new Error(errMsg(e)); if(e&&REJECT_CODES.includes(e.message)){ x.code="rejected"; x.reason=e.message; return x; } x.code=(e&&(e.message==="forbidden"||e.message==="not_authorized"||e.code==="42501"))?"invalid_argument":"unavailable"; return x; };
   async function rpc(fn,a){ try{ return await api(fn,a); }catch(e){ throw wrapErr(e); } }
   const snapDoc=(id,data)=>({id,exists:data!=null,data:()=>data});
   const snapCol=docs=>({docs,size:docs.length,empty:!docs.length});
