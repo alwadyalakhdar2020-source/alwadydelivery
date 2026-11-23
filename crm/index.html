@@ -3173,15 +3173,15 @@ V.malerts=()=>{const A=myAlerts();
    (A.length?A.slice(0,80).map(a=>`<div class="mcard" data-open="${a.open[0]}" data-id="${esc(a.open[1])}"><h3 style="font-size:15px">${esc(a.title)}</h3><div class="small muted">${esc(a.desc)}</div></div>`).join(''):`<div class="mcard muted">${L('ما عندك تنبيهات — ممتاز.','No alerts.')}</div>`)};
 V.mmore=()=>{
   // every page the user is allowed to open, grouped like the computer menu
-  let grp='',out='';NAV.forEach(n=>{if(n[0]==='g'){grp=typeof n[1]==='function'?n[1]():n[1];return}if(/^m(today|clients|alerts|more)$/.test(n[0])||!n[3]||!n[3]())return;
+  let grp='',out='';NAV.forEach(n=>{if(n[0]==='g'){grp=typeof n[1]==='function'?n[1]():n[1];return}if(/^m(today|clients|alerts|more|home|grp)$/.test(n[0])||!n[3]||!n[3]())return;
     if(grp){out+=`<div class="small muted" style="margin:12px 4px 6px;font-weight:700">${esc(grp)}</div>`;grp=''}
     out+=`<button class="btn" style="width:100%;justify-content:flex-start;gap:10px;min-height:48px;margin-bottom:6px" data-go="${n[0]}">${typeof IC!=='undefined'&&IC[n[1]]?`<svg viewBox="0 0 24 24" width="20" height="20" style="fill:none;stroke:currentColor;stroke-width:1.8">${IC[n[1]]}</svg>`:''}${esc(n[2]())}</button>`});
   return `<div class="mhead"><h2>${esc(me().name||'')}</h2></div>`+out+
    `<button class="btn" style="width:100%;min-height:48px;margin-bottom:8px" data-act="mFull">${L('الواجهة الكاملة (كمبيوتر)','Full desktop view')}</button><a class="btn" style="width:100%;min-height:48px;justify-content:center" href="../index.html#apps">${L('كل التطبيقات','All apps')}</a>${window.wadyPush&&wadyPush.supported?`<button class="btn" style="width:100%;min-height:48px;margin-top:8px" data-wady-bell>${L('تفعيل الإشعارات على الجوال','Turn on phone notifications')}</button>`:''}<button class="btn" style="width:100%;min-height:48px;margin-top:8px;color:#9b1c1c" data-wady-logout>${L('تسجيل الخروج','Sign out')}</button>`};
-['mtoday','mclients','malerts','mmore'].forEach((r,i)=>NAV.push([r,'pin',()=>[L('زياراتي','My visits'),L('عملائي','My clients'),L('التنبيهات','Alerts'),L('المزيد','More')][i],()=>MOB.on]));
+['mtoday','mclients','malerts','mmore'].forEach((r,i)=>NAV.push([r,'pin',()=>[L('زياراتي','My visits'),L('عملائي','My clients'),L('التنبيهات','Alerts'),L('حسابي','Account')][i],()=>MOB.on]));
 {const _r=render;render=function(){const out=_r.apply(this,arguments);try{mPaintNav()}catch(e){}return out}}
-if(MOB.on){try{if(!['mtoday','mclients','malerts','mmore'].includes((location.hash||'').slice(1)))route='mtoday'}catch(e){}
-  (window.__wadyReady||Promise.resolve()).then(()=>setTimeout(()=>{if(!['mtoday','mclients','malerts','mmore'].includes(route)){route='mtoday';render()}},80))}
+if(MOB.on){const MR=['mhome','mgrp','mtoday','mclients','malerts','mmore'];try{if(!MR.includes((location.hash||'').slice(1)))route='mhome'}catch(e){}
+  (window.__wadyReady||Promise.resolve()).then(()=>setTimeout(()=>{if(!MR.includes(route)){route='mhome';render()}},80))}
 
 Object.assign(ACT,{
   mIn:d=>checkinForm(byId('visits',d.id)),
@@ -6402,6 +6402,133 @@ html[dir=ltr] #side nav .ng:not(.open) .chev{transform:rotate(-90deg)}
 #side nav .ngb .nv.on{font-weight:700}
 #side nav .nvm{margin-top:4px}
 #side nav .nvm.on{background:rgba(255,255,255,.18)}`;document.head.appendChild(st);
+}
+
+/* ============ Phone home: big section tiles → section page → screen (management request 23/11) ============ */
+{
+const MH_COL=[['#051D48','rgba(5,29,72,.08)'],['#2e8f47','rgba(56,172,87,.12)'],['#c96d12','rgba(243,146,53,.14)'],['#1489b8','rgba(52,190,240,.14)'],['#5f8f2a','rgba(143,193,83,.16)']];
+const MH_SKIP=/^m(today|clients|alerts|more|home|grp)$/;
+const MH_QUICK=['mydash','dash','alerts','recs','prodplan'];
+// sections the user can open, in menu order: [{t,ic,pages:[nav rows]}]
+function mhSections(){const out=[];let cur=null;
+  NAV.forEach(n=>{if(n[0]==='g'){cur={t:typeof n[1]==='function'?n[1]():n[1],ic:n[2]||'more',pages:[]};out.push(cur);return}
+    if(MH_SKIP.test(n[0])||MH_QUICK.includes(n[0])||!cur)return;if(n[3]&&!n[3]())return;cur.pages.push(n)});
+  return out.map((g,i)=>({...g,i})).filter(g=>g.pages.length)}
+const mhPage=k=>NAV.find(n=>n[0]===k);
+const mhOk=n=>n&&(!n[3]||n[3]());
+const mhLbl=n=>typeof n[2]==='function'?n[2]():n[2];
+const mhIco=(k,c)=>`<svg viewBox="0 0 24 24" fill="none" stroke="${c||'currentColor'}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(typeof IC!=='undefined'&&IC[k])||IC.more}</svg>`;
+const mhRecent=()=>{try{return JSON.parse(localStorage.getItem('wady.m.recent')||'[]')}catch(e){return []}};
+function mhRemember(r){if(MH_SKIP.test(r))return;const n=mhPage(r);if(!n)return;let a=mhRecent().filter(x=>x!==r);a.unshift(r);try{localStorage.setItem('wady.m.recent',JSON.stringify(a.slice(0,6)))}catch(e){}}
+function mhSecOf(r){return mhSections().find(g=>g.pages.some(n=>n[0]===r))||null}
+function mhGreet(){const h=new Date().getHours();return h<12?L('صباح الخير','Good morning'):L('مساء الخير','Good evening')}
+
+const st=document.createElement('style');st.textContent=`
+.mh-hero{background:linear-gradient(135deg,#051D48 0%,#0b3474 100%);color:#fff;border-radius:18px;padding:16px 16px 14px;margin-bottom:14px;box-shadow:0 6px 18px rgba(5,29,72,.18)}
+.mh-hero h2{margin:0;font-size:20px;font-weight:800;line-height:1.4}
+.mh-hero .sub{opacity:.85;font-size:13px;margin-top:2px}
+.mh-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.mh-stat{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:8px 6px;text-align:center;color:#fff;font:inherit;min-height:60px;cursor:pointer}
+.mh-stat b{display:block;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.2}
+.mh-stat span{font-size:12px;opacity:.9}
+.mh-stat.warn b{color:#F39235}
+html.m-mode #top{flex-wrap:nowrap!important;gap:8px;padding-block:8px}
+html.m-mode #top h1{flex-basis:auto!important;flex:1;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mh-q{width:100%;font:inherit;font-size:16px;padding:12px 14px;border-radius:14px;border:1px solid var(--line,#d5dbe5);background:var(--card,#fff);margin-bottom:14px}
+.mh-h{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px}
+.mh-h h3{margin:0;font-size:15px;font-weight:800;color:#051D48}
+.mh-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+@media(min-width:520px){.mh-grid{grid-template-columns:repeat(3,1fr)}}
+.mh-tile{display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:16px;padding:14px;min-height:112px;text-align:start;font:inherit;color:#051D48;cursor:pointer;box-shadow:0 1px 3px rgba(5,29,72,.05);transition:transform .15s ease-out,box-shadow .15s ease-out}
+.mh-tile:active{transform:scale(.97);box-shadow:none}
+.mh-tile .ic{width:48px;height:48px;border-radius:14px;display:grid;place-items:center}
+.mh-tile .ic svg{width:26px;height:26px}
+.mh-tile b{font-size:15px;font-weight:800;line-height:1.35}
+.mh-tile small{color:var(--muted,#667);font-size:12px;margin-top:-6px}
+.mh-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;scrollbar-width:none}
+.mh-row::-webkit-scrollbar{display:none}
+.mh-chip{flex:none;display:flex;align-items:center;gap:8px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:999px;padding:8px 14px 8px 12px;font:inherit;font-size:14px;font-weight:700;color:#051D48;min-height:44px;cursor:pointer}
+.mh-chip svg{width:18px;height:18px}
+.mh-back{display:inline-flex;align-items:center;gap:6px;background:none;border:0;font:inherit;font-weight:700;color:#1489b8;padding:8px 2px;min-height:44px;cursor:pointer}
+.mh-back svg{width:18px;height:18px}
+html[dir=ltr] .mh-back svg{transform:scaleX(-1)}
+.mh-list .mh-tile{flex-direction:row;align-items:center;min-height:64px;padding:10px 12px}
+.mh-list .mh-tile .ic{width:42px;height:42px;border-radius:12px;flex:none}
+.mh-list .mh-tile .chev{margin-inline-start:auto;width:18px;height:18px;opacity:.45}
+html[dir=rtl] .mh-list .mh-tile .chev{transform:scaleX(-1)}
+.mh-list{display:flex;flex-direction:column;gap:8px}
+html.m-mode #top .mh-topback{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line,#d5dbe5);background:var(--card,#fff);border-radius:12px;min-height:44px;padding:0 12px;font:inherit;font-weight:700;color:#051D48;cursor:pointer;flex:none}
+html.m-mode #top .mh-topback svg{width:18px;height:18px}
+html[dir=ltr] .mh-topback svg{transform:scaleX(-1)}
+@media(prefers-reduced-motion:reduce){.mh-tile{transition:none}}
+`;document.head.appendChild(st);
+
+const CHEV='<path d="M9 6l6 6-6 6"/>';const BACK='<path d="M9 6l6 6-6 6"/>';
+const svg=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+function tile(k,label,sub,ci,attr){const [fg,bg]=MH_COL[ci%MH_COL.length];
+  return `<button type="button" class="mh-tile" ${attr}><span class="ic" style="background:${bg}">${mhIco(k,fg)}</span><b>${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</button>`}
+
+V.mhome=()=>{
+  const u=me();const first=(String(u.name||'').trim().split(/\s+/)[0]||'').replace(/^[—-]$/,'');const t=TODAY();
+  let stats='';
+  try{const mine=(S.visits||[]).filter(v=>v.repId===u.id&&v.date===t&&v.status!=='cancelled');const done=mine.filter(v=>v.status==='done').length;
+    const al=typeof myAlerts==='function'?myAlerts().length:0;const cl=(S.clients||[]).filter(c=>c.repId===u.id).length;
+    stats=`<div class="mh-stats"><button type="button" class="mh-stat" data-go="mtoday"><b><bdi>${done}/${mine.length}</bdi></b><span>${L('زيارات اليوم','Today visits')}</span></button>
+      <button type="button" class="mh-stat ${al?'warn':''}" data-go="malerts"><b>${num(al)}</b><span>${L('تنبيهات','Alerts')}</span></button>
+      <button type="button" class="mh-stat" data-go="mclients"><b>${num(cl)}</b><span>${L('عملائي','My clients')}</span></button></div>`}catch(e){}
+  const quick=MH_QUICK.map(mhPage).filter(mhOk);
+  const rec=mhRecent().map(mhPage).filter(n=>mhOk(n)&&!MH_QUICK.includes(n[0])).slice(0,5);
+  const secs=mhSections();
+  const chips=a=>a.map(n=>`<button type="button" class="mh-chip" data-go="${n[0]}">${mhIco(n[1])}${esc(mhLbl(n))}</button>`).join('');
+  return mStatus()+mInstallBox()+`<div class="mh-hero"><h2>${mhGreet()}${first?'، '+esc(first):''}</h2><div class="sub">${fdate(t)}</div>${stats}</div>
+   <input class="mh-q" id="mhq" type="search" placeholder="${L('ابحث عن شاشة… (مثلاً: أوامر البيع)','Find a screen…')}" autocomplete="off" aria-label="${L('بحث عن شاشة','Find a screen')}">
+   <div id="mhres" class="mh-list" hidden style="margin-bottom:14px"></div>
+   <div id="mhmain">
+   ${quick.length?`<div class="mh-h"><h3>${L('وصول سريع','Quick access')}</h3></div><div class="mh-row">${chips(quick)}</div>`:''}
+   ${rec.length?`<div class="mh-h"><h3>${L('آخر ما فتحت','Recent')}</h3></div><div class="mh-row">${chips(rec)}</div>`:''}
+   <div class="mh-h"><h3>${L('الأقسام','Sections')}</h3></div>
+   <div class="mh-grid">${secs.map((g,j)=>tile(g.ic,g.t,L(`${g.pages.length} ${g.pages.length>2&&g.pages.length<11?'شاشات':'شاشة'}`,`${g.pages.length} screens`),j,`data-act="mhSec" data-i="${g.i}"`)).join('')}</div></div>`};
+
+V.mgrp=()=>{const g=mhSections().find(x=>x.i===+F.mG);if(!g){F.mG=null;return V.mhome()}
+  const ci=Math.max(0,mhSections().findIndex(x=>x.i===g.i));
+  return `<div class="mh-list" style="margin-top:4px">${g.pages.map(n=>`<button type="button" class="mh-tile" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[ci%MH_COL.length][1]}">${mhIco(n[1],MH_COL[ci%MH_COL.length][0])}</span><b>${esc(mhLbl(n))}</b><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${CHEV}</svg></button>`).join('')}</div>`};
+
+// account page: the screens now live on the home page, so keep only account actions here
+V.mmore=()=>{const u=me();const rl={mgr:L('مدير','Manager'),sup:L('مشرف','Supervisor'),rep:L('مندوب','Rep')}[u.role]||'';
+  const row=(attr,ic,l,danger)=>`<button type="button" class="mh-tile" ${attr} style="${danger?'color:#9b1c1c':''}"><span class="ic" style="background:${danger?'rgba(214,69,69,.1)':'rgba(5,29,72,.06)'}">${ic}</span><b>${l}</b></button>`;
+  const I=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px">${p}</svg>`;
+  return `<div class="mh-hero" style="padding:14px 16px"><h2 style="font-size:18px">${esc(String(u.name||'').replace(/^[—-]+$/,''))||L('حسابي','My account')}</h2>${rl?`<div class="sub">${rl}</div>`:''}</div>
+   <div class="mh-list">${row('data-go="mhome"',I(MIC2.home),L('كل الأقسام والشاشات','All sections & screens'))}
+   <a class="mh-tile" href="../index.html#apps" style="text-decoration:none"><span class="ic" style="background:rgba(5,29,72,.06)">${I('<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>')}</span><b>${L('كل التطبيقات','All apps')}</b></a>
+   ${window.wadyPush&&wadyPush.supported?row('data-wady-bell',I('<path d="M6 10a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/>'),L('تفعيل الإشعارات على الجوال','Turn on phone notifications')):''}
+   ${row('data-act="mFull"',I('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),L('الواجهة الكاملة (كمبيوتر)','Full desktop view'))}
+   ${row('data-wady-logout',I('<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/>'),L('تسجيل الخروج','Sign out'),true)}</div>`};
+NAV.push(['mhome','dash',()=>L('الرئيسية','Home'),()=>MOB.on],['mgrp','more',()=>{const g=mhSections().find(x=>x.i===+F.mG);return g?g.t:L('القسم','Section')},()=>MOB.on]);
+Object.assign(ACT,{mhSec:d=>{F.mG=+d.i;go('mgrp')}});
+
+// bottom bar: home first, account page last (max 5)
+const MIC2={home:'<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',user:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-3.8 3.7-5.5 7-5.5s6 1.7 7 5.5"/>'};
+Object.assign(MIC,MIC2);
+mNav=function(){const al=typeof myAlerts==='function'?myAlerts():[];const n=al.filter(a=>a.sev==='high'||a.sev==='bad'||a.sev==='hi').length||al.length;
+  const inSec=route==='mgrp'||(!MH_SKIP.test(route));
+  const b=(r,ic,l,badge,on)=>`<button type="button" class="${on?'on':''}" data-go="${r}" aria-label="${esc(l)}"><svg viewBox="0 0 24 24">${MIC[ic]}</svg>${l}${badge?`<span class="bdg">${badge>99?'99+':badge}</span>`:''}</button>`;
+  return b('mhome','home',L('الرئيسية','Home'),0,route==='mhome'||inSec)+b('mtoday','today',L('زياراتي','Visits'),0,route==='mtoday')+b('mclients','clients',L('عملائي','Clients'),0,route==='mclients')+b('malerts','alerts',L('التنبيهات','Alerts'),n,route==='malerts')+b('mmore','user',L('حسابي','Account'),0,route==='mmore')};
+
+// inside a screen on the phone: a back button to its section, and remember it for "Recent"
+{const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);if(!MOB.on)return;mhRemember(route);
+  const top=document.getElementById('top');if(!top||MH_SKIP.test(route)&&route!=='mgrp')return;
+  if(top.querySelector('.mh-topback'))return;const g=route==='mgrp'?null:mhSecOf(route);
+  const bt=document.createElement('button');bt.type='button';bt.className='mh-topback';
+  if(g){bt.dataset.act='mhSec';bt.dataset.i=g.i}else bt.dataset.go='mhome';
+  bt.innerHTML=svg(BACK)+esc(g?g.t:L('الرئيسية','Home'));top.prepend(bt)}}
+
+// screen search on the home page (no re-render while typing)
+document.addEventListener('input',e=>{if(e.target.id!=='mhq')return;const q=e.target.value.trim().toLowerCase();const res=document.getElementById('mhres'),main=document.getElementById('mhmain');if(!res)return;
+  if(!q){res.hidden=true;res.innerHTML='';main.hidden=false;return}
+  const hits=[];mhSections().forEach((g,j)=>g.pages.forEach(n=>{const l=mhLbl(n);if(l.toLowerCase().includes(q)||g.t.toLowerCase().includes(q))hits.push([n,g,j])}));
+  MH_QUICK.map(mhPage).filter(mhOk).forEach(n=>{if(mhLbl(n).toLowerCase().includes(q))hits.unshift([n,{t:L('وصول سريع','Quick')},0])});
+  res.innerHTML=hits.slice(0,20).map(([n,g,j])=>`<button type="button" class="mh-tile" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[j%MH_COL.length][1]}">${mhIco(n[1],MH_COL[j%MH_COL.length][0])}</span><span style="display:flex;flex-direction:column;gap:2px"><b>${esc(mhLbl(n))}</b><small style="margin:0">${esc(g.t)}</small></span></button>`).join('')||`<div class="mcard muted">${L('ما لقينا شاشة بهالاسم','No screen found')}</div>`;
+  res.hidden=false;main.hidden=true});
 }
 </script>
 <script src="wady-back.js"></script></body></html>
