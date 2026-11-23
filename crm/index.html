@@ -8329,7 +8329,7 @@ async function printSinv(id){const o=byId('sinv',id);if(!o)return;
     sideTitle:'بيانات البيع',side:[['مندوب المبيعات',r.name||tName(o.repId)],['الجوال',r.phone],['الفاتورة الإلكترونية',d.einv==='Valid'?'معتمدة':d.einv||'صدر الباركود']],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الضريبة',n:1},{l:'الإجمالي',n:1,b:1}],
     rows:(d.lines||[]).map(l=>[l.code,l.name,num(+l.qty||0),l.unit,pm(l.net),l.vatPct!=null?`${+l.vatPct}%`:'',pm(l.total)]),
-    totals:[['الإجمالي قبل الضريبة',pm(sub)],...(+d.disc?[['الخصم','- '+pm(d.disc)]]:[]),['ضريبة القيمة المضافة',pm(d.vat)],[`الإجمالي شامل الضريبة (ر.س)`,pm(d.total),1],...(!cn&&invDue(o)>0.01?[['المتبقي',pm(invDue(o))]]:[])],
+    totals:[['الإجمالي قبل الضريبة',pm(sub)],...(+d.disc?[['الخصم','- '+pm(d.disc)]]:[]),['ضريبة القيمة المضافة',pm(d.vat)],[`الإجمالي شامل الضريبة (ر.س)`,pm(d.total),1]],
     notes:[['ملاحظات',d.comments]],qr:d.qr,sigs:cn?0:2},w)}
 ACT.siPrint=d=>printSinv(d.id);
 
