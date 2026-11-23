@@ -5921,7 +5921,7 @@ const wpItemOpts=cur=>{const items=(S.items||[]).filter(x=>x.active!==false).sor
   const pr=f.sub.find(s=>s.k==='price');if(pr)pr.l=L('السعر (ر.س)','Price (SAR)');renderRows('lines')}}
 document.addEventListener('change',e=>{const t=e.target;if(!FORM||t.dataset.row!=='lines'||t.dataset.sk!=='product')return;const it=(S.items||[]).find(x=>x.code===t.value);if(!it)return;
   const r=FORM.rows.lines[+t.dataset.i];if(!r)return;r.product=it.code;if(it.unit)r.unit=it.unit;if((r.price===''||r.price==null||+r.price===0)&&it.price!=null&&it.price!=='')r.price=it.price;if(!r.size&&it.size)r.size=it.size;
-  renderRows('lines');const q=document.querySelector(`[data-row="lines"][data-i="${t.dataset.i}"][data-sk="qty"]`);if(q){q.focus();q.select()}});
+  qlSet(+t.dataset.i,r);const q=document.querySelector(`[data-row="lines"][data-i="${t.dataset.i}"][data-sk="qty"]`);if(q&&!q.value){q.focus()}});
 /* choosing the client fills its rep automatically (quotations, orders, visits — any form that has both fields) */
 document.addEventListener('change',e=>{const t=e.target;if(!t||t.name!=='clientId'||!t.closest('#theform'))return;const c=byId('clients',t.value);if(!c||!c.repId)return;
   const r=t.closest('#theform').querySelector('select[name="repId"]');if(!r||r.value===c.repId||![...r.options].some(o=>o.value===c.repId))return;
@@ -5929,17 +5929,20 @@ document.addEventListener('change',e=>{const t=e.target;if(!t||t.name!=='clientI
 /* in-app quotations: each line takes the customer's own price from SAP (an active special price first, then the customer's price list),
    the same price SAP would put on the document. A price the user types is kept. Without a SAP customer code, or if SAP can't be reached,
    the line keeps the item-list price and says so. */
+/* update one quotation line's cells in place — rebuilding the rows while the user types made the phone drop the field and the keyboard */
+function qlSet(i,r,keys){(keys||['price','unit','size']).forEach(sk=>{const el=document.querySelector(`[data-row="lines"][data-i="${i}"][data-sk="${sk}"]`);if(!el||el===document.activeElement)return;
+  const v=r[sk]==null?'':String(r[sk]);if(el.tagName==='SELECT'){if(v&&![...el.options].some(o=>o.value===v))el.add(new Option(v,v));el.value=v;if(el._wpi)el._wpi.value=wpSelLabel(el);if(el._chipSync)el._chipSync()}else if(el.value!==v)el.value=v})}
 const QP={seq:0,m:new WeakMap()};const qs=r=>{let o=QP.m.get(r);if(!o){o={};QP.m.set(r,o)}return o}; /* per-line helper state kept outside the saved line */
 const qpCard=()=>{const s=document.querySelector('#theform [name="clientId"]');const c=s&&s.value?byId('clients',s.value):null;return c&&c.code?String(c.code).trim():''};
 const qpNote=(t,cls)=>{const f=document.getElementById('theform');if(!f)return;let n=document.getElementById('qp_note');if(!n){const box=document.getElementById('rows_lines');if(!box)return;n=document.createElement('div');n.id='qp_note';n.className='small';n.style.margin='6px 0';box.parentNode.insertBefore(n,box)}n.className='small '+(cls||'muted');n.textContent=t};
 async function qpPrice(i){if(!FORM||!FORM._quote)return;const r=(FORM.rows.lines||[])[i];if(!r||!r.product||qs(r).user)return;const card=qpCard();
-  if(!card){qs(r).src='list';{const it=(S.items||[]).find(x=>x.code===r.product);if(it&&it.price!=null&&it.price!==''){r.price=it.price;renderRows('lines')}}qpNote(L('العميل ما له كود ساب — السعر من قائمة الأصناف العامة، راجعه.','Customer has no SAP code — price is from the general item list; check it.'),'warn');return}
+  if(!card){qs(r).src='list';{const it=(S.items||[]).find(x=>x.code===r.product);if(it&&it.price!=null&&it.price!==''){r.price=it.price;qlSet(i,r,['price'])}}qpNote(L('العميل ما له كود ساب — السعر من قائمة الأصناف العامة، راجعه.','Customer has no SAP code — price is from the general item list; check it.'),'warn');return}
   if(!(S.items||[]).some(x=>x.code===r.product))return;const my=++QP.seq;qs(r).src='busy';
   try{const x=await sdRead('price',{card,item:r.product,qty:+r.qty||1});if(!FORM||!FORM._quote||FORM.rows.lines[i]!==r||qs(r).user||qpCard()!==card)return;
     if(x.price!=null&&x.err==null){r.price=Math.round(+x.price*10000)/10000;qs(r).src='sap';if(my===QP.seq)qpNote(L('الأسعار من ساب حسب العميل: السعر الخاص لو نشط، وإلا قائمة أسعار العميل.','Prices from SAP for this customer: active special price, else the customer\'s price list.'))}
     else{qs(r).src='list';qpNote(L('ساب ما رجّع سعر لصنف ','SAP returned no price for ')+r.product+L(' — اكتب السعر.',' — enter the price.'),'warn')}}
   catch(e){qs(r).src='list';qpNote(L('تعذّر جلب سعر العميل من ساب — السعر الظاهر من قائمة الأصناف العامة، راجعه.','Could not get the customer price from SAP — the price shown is from the general item list; check it.'),'warn')}
-  if(FORM&&FORM._quote){const a=document.activeElement;const k=a&&a.dataset&&a.dataset.row==='lines'?[a.dataset.i,a.dataset.sk]:null;renderRows('lines');if(k){const n=document.querySelector(`[data-row="lines"][data-i="${k[0]}"][data-sk="${k[1]}"]`);if(n)n.focus()}}}
+  if(FORM&&FORM._quote)qlSet(i,r,['price'])}
 const qpAll=()=>{if(FORM&&FORM._quote)(FORM.rows.lines||[]).forEach((r,i)=>qpPrice(i))};
 {const _q2=editQuote;editQuote=function(id,preset){_q2(id,preset);if(FORM)FORM._quote=true;if(!id)setTimeout(qpAll,0)}}
 document.addEventListener('change',e=>{const t=e.target;if(!FORM||!FORM._quote)return;
@@ -6654,13 +6657,11 @@ openForm=function(o){
     if(f.k==='region'&&!data.region&&me().region)data.region=me().region;
     if(f.t==='date'&&(f.k==='date'||f.k==='visitDate')&&!data[f.k])data[f.k]=TODAY()})}
   // a rep creating his own record never needs to see the «rep» picker
-  if(isNew&&role()==='rep'&&me().id)fields.forEach(f=>{if(f.k==='repId'&&data.repId===me().id){f.ro=1;f._fold=1}});
   const r=_openForm({...o,data,fields});
   const title=o.title;const key=feKey(title);
   if(FORM&&isNew&&typeof FORM.onSave==='function'){const os=FORM.onSave;FORM.onSave=async v=>{const x=await os(v);try{localStorage.removeItem(key)}catch(e){}return x}}
   const form=document.getElementById('theform');
   if(form){
-    if(feMob())feFold(form,fields);
     if(isNew)feDraft(form,key);
   }
   return r};
@@ -6696,6 +6697,22 @@ function feRestore(form,v){
     if(f.t==='check')el.checked=!!x;else el.value=x==null?'':x;
     el.dispatchEvent(new Event('change',{bubbles:true}))});
   try{wpSweep()}catch(e){}feChipsSync(form);toast(L('رجّعنا الإدخال','Restored'))}
+
+/* ---------- never pull the field from under the user's thumb ----------
+   Data arriving from the server (other users, SAP every 2 minutes) re-paints the page and open drawers.
+   While someone is typing in a field, that re-paint waits until they pause or leave the field. */
+let feLastKey=0,feUser=false;
+const feEditable=el=>!!el&&((el.tagName==='INPUT'&&!['checkbox','radio','button','submit','file','range'].includes(el.type))||el.tagName==='TEXTAREA'||el.tagName==='SELECT');
+['input','keydown','compositionupdate'].forEach(ev=>document.addEventListener(ev,()=>{feLastKey=Date.now()},true));
+['input','change','click','pointerup','keyup','submit'].forEach(ev=>document.addEventListener(ev,()=>{feUser=true;setTimeout(()=>{feUser=false},0)},true));
+const feBusyIn=sel=>{const a=document.activeElement;return !feUser&&feEditable(a)&&!!a.closest(sel)&&Date.now()-feLastKey<2500};
+let feViewWait=false,feDrawerWait=false,feT=null;
+function feFlush(){feT=null;if(feViewWait&&!feBusyIn('#view, #top')){feViewWait=false;render()}
+  if(feDrawerWait&&!(document.activeElement&&feEditable(document.activeElement)&&document.activeElement.closest('#mbody'))){feDrawerWait=false;if(drawer)refreshDrawer()}
+  if((feViewWait||feDrawerWait)&&!feT)feT=setTimeout(feFlush,700)}
+const _rnd=render;render=function(){if(feBusyIn('#view, #top')){feViewWait=true;if(!feT)feT=setTimeout(feFlush,700);return}return _rnd.apply(this,arguments)};
+const _rd=refreshDrawer;refreshDrawer=function(){const a=document.activeElement;if(!feUser&&feEditable(a)&&a.closest('#mbody')){feDrawerWait=true;if(!feT)feT=setTimeout(feFlush,700);return}return _rd.apply(this,arguments)};
+document.addEventListener('focusout',()=>{if(feViewWait||feDrawerWait)setTimeout(feFlush,250)},true);
 
 /* ---------- validation: show exactly which fields, jump to the first ---------- */
 const _submit=submitForm;
@@ -6822,10 +6839,15 @@ const st=document.createElement('style');st.textContent=`
  #mbody textarea{min-height:88px}
  #mbody .fld>label{font-size:14px;font-weight:700}
  #mbody .fgrid{gap:12px}
- #mbody .formbar{position:sticky;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);margin:12px -16px calc(-24px - env(safe-area-inset-bottom,0px));padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;flex-wrap:nowrap}
+ #mbody .formbar{position:sticky;bottom:calc(-24px - env(safe-area-inset-bottom,0px));z-index:5;background:var(--surface);border-top:1px solid var(--line);margin:12px -16px calc(-24px - env(safe-area-inset-bottom,0px));padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;flex-wrap:nowrap}
  #mbody .formbar .grow{display:none}
  #mbody .formbar .btn{min-height:50px;font-size:16px;border-radius:14px}
  #mbody .formbar .btn.p{flex:1;order:-1}
+ #mbody .rowi{grid-template-columns:1fr 1fr;gap:10px;padding:12px;border-radius:14px}
+ #mbody .rowi>.fld:first-child{grid-column:1/-1}
+ #mbody .rowi>.btn{grid-column:1/-1;min-height:44px}
+ #mbody .rowi label.small{font-size:13px;font-weight:700}
+ #mbody [data-act=addRow]{width:100%;min-height:50px;font-size:16px;border:2px dashed var(--accent);color:var(--accent);background:transparent;border-radius:14px}
  #mbody .chk label{min-height:44px;display:flex;align-items:center;gap:8px}
  #mbody .chk input[type=checkbox]{width:22px;height:22px}
 }
