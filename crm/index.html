@@ -8190,50 +8190,71 @@ const pm=v=>(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFract
 let CO_SAP=(()=>{try{const x=JSON.parse(localStorage.getItem('wady.co')||'null');return x&&Date.now()-x.at<864e5?x.v:null}catch(e){return null}})();
 async function coLoad(){if(CO_SAP)return CO_SAP;try{const {data}=await window.__sb.functions.invoke('sap-doc',{body:{kind:'company'}});if(data&&data.company){CO_SAP=data.company;try{localStorage.setItem('wady.co',JSON.stringify({at:Date.now(),v:CO_SAP}))}catch(e){}}}catch(e){}return CO_SAP}
 setTimeout(()=>{if(window.__sb&&(typeof wadyLvl!=='function'||wadyLvl('crm','quotes')>=1||wadyLvl('crm','sinv')>=1))coLoad()},5000);
-const coInfo=()=>{const q=qCfg();const o={...(CO_SAP||{})};Object.entries(q).forEach(([a,v])=>{if(v!==''&&v!=null)o[a]=v});return o};
+const coInfo=()=>{const q=qCfg();const o={...(CO_SAP||{})};
+  if(o.tagline){const t=String(o.tagline);const cr=/CR\s*[:.#-]?\s*(\d{6,})/i.exec(t);if(cr&&!o.crNo)o.crNo=cr[1];
+    o.tagline=t.replace(/CR\s*[:.#-]?\s*\d{6,}/ig,'').replace(/VAT\s*NO\.?\s*[:.#-]?\s*\d{10,}/ig,'').replace(/\bSA\b/g,'').replace(/\s{2,}/g,' ').replace(/[\s\-–·,]+$/,'').trim()}Object.entries(q).forEach(([a,v])=>{if(v!==''&&v!=null)o[a]=v});return o};
+const BI_EN={'الرقم':'No.','التاريخ':'Date','الاستحقاق':'Due date','صالح حتى':'Valid until','التسليم':'Delivery','عرض السعر':'Quotation','مرجع العميل':'Customer ref.',
+  'العميل':'Customer','بيانات المستند':'Document','بيانات البيع':'Sales details','مقدم العرض':'Issued by','المندوب':'Sales rep',
+  'الاسم':'Name','الكود':'Code','المسؤول':'Contact','الجوال':'Mobile','الرقم الضريبي':'VAT No.','المدينة':'City','العنوان':'Address','البريد':'E-mail','الفرصة':'Opportunity','المنطقة':'Region',
+  'مندوب المبيعات':'Sales rep','الفاتورة الإلكترونية':'E-invoice','السجل التجاري':'CR No.',
+  'الصنف':'Item','الكمية':'Qty','الوحدة':'Unit','سعر الوحدة':'Unit price','الضريبة':'VAT','الإجمالي':'Total','المسلَّم':'Delivered','المتبقي':'Remaining',
+  'الإجمالي قبل الخصم':'Subtotal','الإجمالي قبل الضريبة':'Total before VAT','الإجمالي بدون ضريبة':'Total excl. VAT','الخصم':'Discount','الصافي':'Net','ضريبة القيمة المضافة':'VAT',
+  'الإجمالي شامل الضريبة (ر.س)':'Total incl. VAT (SAR)','الإجمالي شامل الضريبة':'Total incl. VAT','المسدد':'Paid',
+  'الشروط والأحكام':'Terms & conditions','ملاحظات':'Notes','بيانات التحويل البنكي':'Bank details','تنبيه':'Note',
+  'توقيع وختم الشركة':'Company signature & stamp','استلام العميل (الاسم والتوقيع)':'Received by (name & signature)','موافقة العميل (الاسم والتوقيع والختم)':'Customer acceptance (name, signature & stamp)'};
+// «Arabic» with its English under it; labels with a number in them (e.g. «الخصم 3%») translate their first part
+const bi=(ar,inline)=>{const a=String(ar||'');let en=BI_EN[a];if(!en){const m=/^(.*?)\s*(\d+(?:\.\d+)?%)\s*$/.exec(a);if(m&&BI_EN[m[1]])en=BI_EN[m[1]]+' '+m[2];else{const k=Object.keys(BI_EN).find(x=>a.startsWith(x+' '));if(k)en=BI_EN[k]+a.slice(k.length)}}
+  return en?(inline?`${esc(a)} <i class="en">${esc(en)}</i>`:`${esc(a)}<i class="en b">${esc(en)}</i>`):esc(a)};
+const pdate=d=>{const x=String(d||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(x)?`${x.slice(8,10)}/${x.slice(5,7)}/${x.slice(0,4)}`:String(d||'')};
 function brandDoc(o,win){
   const k=coInfo();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';
-  const kv=rows=>rows.filter(r=>r&&r[1]!=null&&r[1]!=='').map(([a,b])=>`<div class="kv"><span>${a}</span><b>${esc(String(b))}</b></div>`).join('');
+  const kv=rows=>rows.filter(r=>r&&r[1]!=null&&r[1]!=='').map(([a,b])=>`<div class="kv"><span>${bi(a)}</span><b>${esc(String(b))}</b></div>`).join('');
   const w=win||window.open('','_blank');if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
   if(win)w.document.open();w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(o.titleAr+' '+o.no)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 <style>
 @page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}
 body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:12px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.top{display:flex;align-items:center;gap:16px;background:linear-gradient(120deg,#051D48 0%,#0B2A5E 70%,#123d6e 100%);color:#fff;border-radius:14px;padding:14px 18px;position:relative;overflow:hidden}
-.top:after{content:"";position:absolute;inset-inline-end:-40px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(#38AC57,transparent 70%);opacity:.35}
-.top .lg{background:#fff;border-radius:10px;padding:6px 10px;display:grid;place-items:center}.top .lg img{height:46px;display:block}
-.top .co{flex:1;position:relative;z-index:1}.top .co b{font-size:16px;display:block}.top .co small{display:block;opacity:.85;line-height:1.6;font-size:10.5px}
-.top .dt{text-align:left;position:relative;z-index:1}.top .dt h1{margin:0;font-size:22px;font-weight:800}.top .dt span{display:block;font-size:10px;letter-spacing:3px;color:#8FC153;font-weight:700}
-.meta{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.chip{background:#EEF3FA;border:1px solid #D7E0EE;border-radius:999px;padding:5px 12px;font-size:11px}.chip b{color:#051D48;margin-inline-start:4px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(120deg,#051D48 0%,#0B2A5E 70%,#123d6e 100%);color:#fff;border-radius:14px 14px 0 0;padding:10px 16px;position:relative;overflow:hidden;min-height:64px}
+.top:after{content:"";position:absolute;left:-30px;top:-50px;width:140px;height:140px;border-radius:50%;background:radial-gradient(#38AC57,transparent 70%);opacity:.3}
+.top .lg{background:#fff;border-radius:10px;padding:5px 10px;flex:none;position:relative;z-index:1}.top .lg img{height:34px;width:auto;max-width:200px;display:block}
+.top .dt{text-align:left;position:relative;z-index:1;flex:none}.top .dt h1{margin:0;font-size:20px;font-weight:800;line-height:1.2;white-space:nowrap}.top .dt span{display:block;font-size:9.5px;letter-spacing:3px;color:#8FC153;font-weight:700}
+.co{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;background:#F3F6FA;border:1px solid #DDE4EE;border-top:0;border-radius:0 0 14px 14px;padding:7px 14px;font-size:10.5px;color:#4A5568}
+.co b{font-size:13px;color:#051D48}.co .en{direction:ltr;color:#66738A;font-size:9.5px;letter-spacing:.3px}.co .tg{color:#2e8f47;font-weight:700}
+.co .ids{margin-inline-start:auto;display:flex;gap:10px;flex-wrap:wrap}.co .ids span b{font-size:10.5px;color:#0B1B33;margin-inline-start:3px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.chip{background:#EEF3FA;border:1px solid #D7E0EE;border-radius:999px;padding:5px 12px;font-size:11px}.chip b{color:#051D48;margin-inline-start:4px}
+.chip .ce,.co .ce{color:#8A96A8;font-size:9px}.chip b{margin-inline-start:6px}
 .chip.st{background:#E7F5EB;border-color:#BFE3C9;color:#1E7A3A;font-weight:700}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .cardp{border:1px solid #DDE4EE;border-radius:12px;padding:10px 12px;border-top:3px solid #38AC57}.cardp.b{border-top-color:#34BEF0}
 .cardp h3{margin:0 0 6px;font-size:11px;color:#38AC57;letter-spacing:.3px}.cardp.b h3{color:#1489b8}
-.kv{display:flex;gap:8px;padding:2px 0}.kv span{color:#66738A;min-width:84px}.kv b{font-weight:700}
+.kv{display:flex;gap:8px;padding:2px 0;align-items:flex-start}.kv span{color:#66738A;min-width:92px;line-height:1.25}.kv b{font-weight:700}
+i.en{font-style:normal;direction:ltr;unicode-bidi:isolate;color:#8A96A8;font-size:8.5px;font-weight:500;letter-spacing:.2px}i.en.b{display:block}
+.ln th i.en{color:#A9BBDB}.tot .g i.en{color:#BFD3F7}.cardp h3 i.en{color:inherit;opacity:.7}.chip i.en{display:none}
 table.ln{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #DDE4EE;border-radius:12px;overflow:hidden}
 .ln th{background:#051D48;color:#fff;padding:8px 6px;font-weight:700;font-size:11px;text-align:right}.ln td{padding:7px 6px;border-top:1px solid #EDF1F6}
 .ln tr:nth-child(even) td{background:#F7F9FC}.n{text-align:left!important;direction:ltr;white-space:nowrap;font-variant-numeric:tabular-nums}
 .bot{display:grid;grid-template-columns:1fr 290px;gap:12px;margin-top:12px;align-items:start}
 .tot{border:1px solid #DDE4EE;border-radius:12px;overflow:hidden}.tot div{display:flex;justify-content:space-between;padding:7px 12px;border-top:1px solid #EDF1F6}.tot div:first-child{border-top:0}
 .tot .g{background:linear-gradient(120deg,#051D48,#0B2A5E);color:#fff;font-weight:800;font-size:14px}
-.qr{display:flex;gap:12px;align-items:center;border:1px dashed #BFE3C9;background:#F4FBF6;border-radius:12px;padding:10px}.qr svg{width:118px;height:118px}.qr small{color:#3b6b48;line-height:1.6}
-.nt{margin-top:10px;border:1px solid #DDE4EE;border-radius:12px;padding:8px 12px;white-space:pre-wrap;line-height:1.7}.nt h3{margin:0 0 4px;font-size:11px;color:#38AC57}
-.sg{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:30px;text-align:center}.sg div{border-top:1px solid #9AA6B8;padding-top:6px;color:#4A5568}
+.qr{display:flex;gap:12px;align-items:center;border:1px dashed #BFE3C9;background:#F4FBF6;border-radius:12px;padding:10px}.qr svg{width:104px;height:104px}.qr small{color:#3b6b48;line-height:1.6}
+.nt{margin-top:10px;border:1px solid #DDE4EE;border-radius:12px;padding:6px 12px;white-space:pre-wrap;line-height:1.6;font-size:11px;break-inside:avoid}.nt h3{margin:0 0 4px;font-size:11px;color:#38AC57}
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:22px;break-inside:avoid;text-align:center}.sg div{border-top:1px solid #9AA6B8;padding-top:6px;color:#4A5568}
 .ft{margin-top:16px;display:flex;justify-content:space-between;gap:10px;border-top:3px solid #38AC57;padding-top:6px;color:#66738A;font-size:10px}
 .wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:90px;color:rgba(210,0,0,.07);transform:rotate(-25deg);font-weight:900;pointer-events:none}
 </style></head><body>
 ${o.watermark?`<div class="wm">${esc(o.watermark)}</div>`:''}
-<div class="top"><div class="lg"><img src="${logo}" alt=""></div><div class="co"><b>${esc(k.coName||'مصنع الوادي الأخضر المميز')}</b>${k.coNameEn?`<small dir="ltr" style="text-align:right">${esc(k.coNameEn)}</small>`:''}${k.tagline?`<small>${esc(k.tagline)}</small>`:''}<small>${[k.vatNo&&'الرقم الضريبي: '+k.vatNo,k.crNo&&'س.ت: '+k.crNo].filter(Boolean).map(esc).join(' · ')}</small></div>
- <div class="dt"><h1>${esc(o.titleAr)}</h1><span>${esc(o.titleEn)}</span></div></div>
-<div class="meta"><div class="chip">الرقم<b dir="ltr">${esc(o.no)}</b></div><div class="chip">التاريخ<b>${esc(o.date)}</b></div>${(o.meta||[]).filter(x=>x&&x[1]).map(([a,b])=>`<div class="chip">${a}<b>${esc(String(b))}</b></div>`).join('')}${o.status?`<div class="chip st">${esc(o.status)}</div>`:''}</div>
-<div class="cards"><div class="cardp"><h3>${o.partyTitle||'العميل'}</h3>${kv(o.party||[])}</div><div class="cardp b"><h3>${o.sideTitle||'بيانات المستند'}</h3>${kv(o.side||[])}</div></div>
-<table class="ln"><tr><th style="width:28px">#</th>${o.cols.map(c=>`<th class="${c.n?'n':''}">${c.l}</th>`).join('')}</tr>
+<div class="top"><div class="lg"><img src="${logo}" alt=""></div><div class="dt"><h1>${esc(o.titleAr)}</h1><span>${esc(o.titleEn)}</span></div></div>
+<div class="co"><b>${esc(k.coName||'شركة الوادي الأخضر المميز')}</b>${k.coNameEn?`<span class="en">${esc(k.coNameEn)}</span>`:''}${k.tagline?`<span class="tg">${esc(k.tagline)}</span>`:''}
+ <span class="ids">${k.vatNo?`<span>الرقم الضريبي <bdi class="ce">VAT No.</bdi><b><bdi dir="ltr">${esc(k.vatNo)}</bdi></b></span>`:''}${k.crNo?`<span>السجل التجاري <bdi class="ce">CR No.</bdi><b><bdi dir="ltr">${esc(k.crNo)}</bdi></b></span>`:''}</span></div>
+<div class="meta">${[['الرقم',o.no],['التاريخ',o.date],...(o.meta||[])].filter(x=>x&&x[1]).map(([a,b])=>`<div class="chip"><span>${esc(a)}</span>${BI_EN[a]?` <bdi class="ce">${esc(BI_EN[a])}</bdi>`:''}<b><bdi dir="ltr">${esc(String(b))}</bdi></b></div>`).join('')}${o.status?`<div class="chip st">${esc(o.status)}</div>`:''}</div>
+<div class="cards"><div class="cardp"><h3>${bi(o.partyTitle||'العميل',1)}</h3>${kv(o.party||[])}</div><div class="cardp b"><h3>${bi(o.sideTitle||'بيانات المستند',1)}</h3>${kv(o.side||[])}</div></div>
+<table class="ln"><tr><th style="width:28px">#</th>${o.cols.map(c=>`<th class="${c.n?'n':''}">${bi(c.l)}</th>`).join('')}</tr>
 ${o.rows.map((r,i)=>`<tr><td>${i+1}</td>${r.map((v,j)=>`<td class="${o.cols[j].n?'n':''}">${o.cols[j].b?`<b>${esc(String(v??''))}</b>`:esc(String(v??''))}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${o.cols.length+1}" style="text-align:center;color:#888">—</td></tr>`}</table>
-<div class="bot"><div>${o.qr?`<div class="qr"><div id="qr">${qrSvg(o.qr)}</div><small><b>فاتورة إلكترونية</b><br>امسح الرمز للتحقق من الفاتورة (هيئة الزكاة والضريبة والجمارك).</small></div>`:''}
- ${(o.notes||[]).filter(x=>x&&x[1]).map(([a,b])=>`<div class="nt"><h3>${a}</h3>${esc(b)}</div>`).join('')}</div>
- <div class="tot">${o.totals.map(([a,b,g])=>`<div class="${g?'g':''}"><span>${a}</span><span class="n">${b}</span></div>`).join('')}</div></div>
-${o.sigs?`<div class="sg"><div>توقيع وختم الشركة</div><div>${o.sigs===2?'استلام العميل (الاسم والتوقيع)':'موافقة العميل (الاسم والتوقيع والختم)'}</div></div>`:''}
+<div class="bot"><div>${o.qr?`<div class="qr"><div id="qr">${qrSvg(o.qr)}</div><small><b>فاتورة إلكترونية · E-invoice</b><br>امسح الرمز للتحقق من الفاتورة (هيئة الزكاة والضريبة والجمارك).<br><i class="en">Scan to verify with ZATCA.</i></small></div>`:''}
+ ${(o.notes||[]).filter(x=>x&&x[1]).map(([a,b])=>`<div class="nt"><h3>${bi(a,1)}</h3>${esc(b)}</div>`).join('')}</div>
+ <div class="tot">${o.totals.map(([a,b,g])=>`<div class="${g?'g':''}"><span>${bi(a)}</span><span class="n">${b}</span></div>`).join('')}</div></div>
+${o.sigs?`<div class="sg"><div>${bi('توقيع وختم الشركة')}</div><div>${bi(o.sigs===2?'استلام العميل (الاسم والتوقيع)':'موافقة العميل (الاسم والتوقيع والختم)')}</div></div>`:''}
 <div class="ft"><span>${[k.addr,k.phone,k.email].filter(Boolean).map(esc).join(' · ')}</span><span>${esc(k.foot||'')}</span><span dir="ltr">${new Date().toLocaleString('en-GB')}</span></div>
 <script>window.onload=()=>setTimeout(()=>print(),450)<\/script></body></html>`);w.document.close()}
 window.brandDoc=brandDoc;
@@ -8246,7 +8267,7 @@ printQuote=function(id){const q=byId('quotes',id);if(!q)return;const c=byId('cli
   const lines=(q.lines||[]).filter(l=>l.product);const sub=lines.reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0);const dsc=sub*(+q.discount||0)/100;const net=sub-dsc;const vat=k.vatOn?net*(+k.vat||0)/100:0;
   const draft=q.source!=='sap'&&!['approved','sent','accepted','ordered'].includes(q.status);
   const part=q.source==='sap'&&(q.nl||0)>lines.length;
-  brandDoc({titleAr:'عرض سعر',titleEn:'QUOTATION',no:q.no,date:fdate((q.date||q.sentAt||q.approvedAt||q.createdAt||'').slice(0,10)||TODAY()),meta:[['صالح حتى',q.validUntil?fdate(q.validUntil):'']],watermark:draft?'مسودة':'',
+  brandDoc({titleAr:'عرض سعر',titleEn:'QUOTATION',no:q.no,date:pdate((q.date||q.sentAt||q.approvedAt||q.createdAt||'').slice(0,10)||TODAY()),meta:[['صالح حتى',q.validUntil?pdate(q.validUntil):'']],watermark:draft?'مسودة':'',
     party:clientRows(c,q),sideTitle:'مقدم العرض',side:[['مندوب المبيعات',r.name],['الجوال',r.phone],['البريد',r.email],['الفرصة',q.oppId?byId('opps',q.oppId)?.title:'']],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الإجمالي',n:1,b:1}],
     rows:lines.map(l=>[l.product,l.name||itemName(l.product),num(+l.qty||0),l.unit||'',pm(l.price),pm((+l.qty||0)*(+l.price||0))]),
@@ -8257,7 +8278,7 @@ ACT.qPrint=d=>printQuote(d.id);
 function printOrder(id){const o=byId('orders',id);if(!o)return;const c=byId('clients',o.clientId)||{};const r=byId('team',o.repId)||{};const k=qCfg();
   const lines=o.lines||[];const sub=lines.reduce((s,l)=>s+(+l.value||((+l.qty||0)*(+l.price||0))),0);const vat=o.total!=null&&o.value!=null?(+o.total-+o.value):(k.vatOn?sub*(+k.vat||0)/100:0);
   const st=(typeof ORDER_ST!=='undefined'&&ORDER_ST[o.status])?ORDER_ST[o.status][0]:'';
-  brandDoc({titleAr:'أمر بيع',titleEn:'SALES ORDER',no:o.no,date:fdate(o.date),meta:[['التسليم',o.delivery?fdate(o.delivery):''],['عرض السعر',o.quoteNo],['مرجع العميل',o.ref]],status:st,
+  brandDoc({titleAr:'أمر بيع',titleEn:'SALES ORDER',no:o.no,date:pdate(o.date),meta:[['التسليم',o.delivery?pdate(o.delivery):''],['عرض السعر',o.quoteNo],['مرجع العميل',o.ref]],status:st,
     party:clientRows(c,o),sideTitle:'المندوب',side:[['مندوب المبيعات',r.name||tName(o.repId)],['الجوال',r.phone],['المنطقة',regName(o.region)]],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'المسلَّم',n:1},{l:'المتبقي',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الإجمالي',n:1,b:1}],
     rows:lines.map(l=>[l.item||'',l.name||itemName(l.item),num(+l.qty||0),l.open!=null&&l.open!==''?num(Math.max(0,(+l.qty||0)-(+l.open||0))):'',l.open!=null&&l.open!==''?num(+l.open):'',l.unit||'',pm(l.price),pm(l.value!=null?l.value:(+l.qty||0)*(+l.price||0))]),
@@ -8270,7 +8291,7 @@ async function printSinv(id){const o=byId('sinv',id);if(!o)return;
   let d;try{[d]=await Promise.all([siDoc(o),coLoad()])}catch(e){w.document.body.textContent=e.message||String(e);return}
   const c=byId('clients',o.clientId)||{};const r=byId('team',o.repId)||{};const cn=o.kind==='credit';
   const sub=(d.lines||[]).reduce((s,l)=>s+(+l.total||0),0);
-  brandDoc({titleAr:cn?'إشعار دائن':'فاتورة ضريبية',titleEn:cn?'CREDIT NOTE':'TAX INVOICE',no:String(d.no),date:fdate(String(d.date||o.date).slice(0,10)),meta:[['الاستحقاق',!cn&&d.due?fdate(String(d.due).slice(0,10)):''],['مرجع العميل',d.ref]],status:d.cancelled?'ملغاة':'',
+  brandDoc({titleAr:cn?'إشعار دائن':'فاتورة ضريبية',titleEn:cn?'CREDIT NOTE':'TAX INVOICE',no:String(d.no),date:pdate(String(d.date||o.date).slice(0,10)),meta:[['الاستحقاق',!cn&&d.due?pdate(String(d.due).slice(0,10)):''],['مرجع العميل',d.ref]],status:d.cancelled?'ملغاة':'',
     watermark:d.cancelled?'ملغاة':'',party:[['الاسم',d.name||o.cname],['الكود',d.card||o.clientCode],['الرقم الضريبي',d.vatNo||c.vatNo],['العنوان',d.address],['الجوال',c.phone]],
     sideTitle:'بيانات البيع',side:[['مندوب المبيعات',r.name||tName(o.repId)],['الجوال',r.phone],['الفاتورة الإلكترونية',d.einv==='Valid'?'معتمدة':d.einv||'صدر الباركود']],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الضريبة',n:1},{l:'الإجمالي',n:1,b:1}],
