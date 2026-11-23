@@ -362,7 +362,7 @@ function supOf(rep){return rep?.supId&&byId('team',rep.supId)?.role==='sup'?rep.
 function scopeIds(){const m=me();if(isMgr())return null;if(m.role==='sup')return [m.id,...S.team.filter(t=>t.supId===m.id||(t.role==='rep'&&t.region===m.region)).map(t=>t.id)];return [m.id]}
 // SAP sellers shared by several users: a record of seller X is visible to every user linked to X
 const _SS={k:null,s:null};function sellerSet(ids){const k=S.team.length+'|'+ids.join(',');if(_SS.k!==k){_SS.k=k;_SS.s=new Set(S.team.filter(t=>ids.includes(t.id)).flatMap(t=>t.aliases||[]).map(normTxt).filter(Boolean))}return _SS.s}
-const inScope=r=>{const ids=scopeIds();if(!ids)return true;if(ids.includes(r.repId))return true;if(r.repTxt&&sellerSet(ids).has(normTxt(r.repTxt)))return true;return role()==='sup'&&!r.repId&&r.region&&r.region===me().region};
+const inScope=r=>{const ids=scopeIds();if(!ids)return true;if(r.ownerId)return ids.includes(r.ownerId);if(ids.includes(r.repId))return true;if(r.repTxt&&sellerSet(ids).has(normTxt(r.repTxt)))return true;return role()==='sup'&&!r.repId&&r.region&&r.region===me().region};
 const vis=rows=>rows.filter(inScope);
 const visibleReps=()=>S.team.filter(t=>t.role==='rep'&&inScope({repId:t.id}));
 function cfg(){const s=S.settings.find(x=>x.id==='kpi')||{};return {...DEFAULT_CFG,...s,weights:{...DEFAULT_CFG.weights,...(s.weights||{})},targets:{...DEFAULT_CFG.targets,...(s.targets||{})}}}
