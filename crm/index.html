@@ -8139,29 +8139,38 @@ IC.creditn='<path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 10h6"/><path d="
 {const gi=NAV.findIndex(n=>n[0]==='sinv');const oi=NAV.findIndex(n=>n[0]==='orders');if(gi>oi+1){const [x]=NAV.splice(gi,1);NAV.splice(oi+1,0,x)}}
 if(!S.sinv)S.sinv=[];
 const SINV_ST={open:['غير مسددة','Unpaid','warn'],closed:['مسددة / مقفلة','Paid / closed','ok'],cancelled:['ملغاة','Cancelled','bad']};
+/* what is still owed on an invoice = the SAP receivables aging (customer's SAP balance laid on his newest invoices,
+   every payment and credit taken off the oldest first). An invoice with no balance left there is paid, even if SAP
+   never matched the payment to it (PaidToDate counts matched payments only). */
+let AGB={n:-1,m:null};
+function agBal(){const src=(S.invoices||[]);if(AGB.n===src.length&&AGB.m)return AGB.m;const m=new Map();
+  src.forEach(r=>{if(r.src==='sap'&&+r.tt===13){const k=normCode(r.clientCode)+'|'+String(r.no);m.set(k,(m.get(k)||0)+(+r.bal||0))}});AGB={n:src.length,m};return m}
+const invDue=o=>{if(o.kind==='credit'||o.status==='cancelled')return 0;const b=agBal().get(normCode(o.clientCode)+'|'+String(o.no));return Math.min(+o.total||0,Math.max(0,+b||0))};
+const PAY_ST={paid:['مسددة','Paid','ok'],partial:['مسددة جزئياً','Partly paid','warn'],unpaid:['غير مسددة','Unpaid','bad'],cancelled:['ملغاة','Cancelled','bad']};
+const payState=o=>{if(o.status==='cancelled')return 'cancelled';const d=invDue(o);return d<0.01?'paid':d>=(+o.total||0)-0.01?'unpaid':'partial'};
 const sKind=x=>x.kind==='credit'?L('إشعار دائن','Credit note'):L('فاتورة','Invoice');
 
 const sinvView=kd=>()=>{const P=kd==='credit'?'cn':'si';
   const m=fv(P+'Month',TODAY().slice(0,7));const st=fv(P+'St','');const rp=fv(P+'Rep','');const q=normTxt(fv(P+'Q',''));
   const reps=visibleReps();const all=vis(S.sinv||[]);
-  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&((o.kind==='credit')===(kd==='credit'))&&(!st||o.status===st)&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||'').includes(q)||normCode(o.clientCode)===normCode(q)))
+  const rows=all.filter(o=>(!m||String(o.date||'').slice(0,7)===m)&&((o.kind==='credit')===(kd==='credit'))&&(!st||(kd==='credit'?o.status===st:payState(o)===st))&&(!rp||o.repId===rp)&&(!q||normTxt(o.no).includes(q)||normTxt(o.cname||'').includes(q)||normCode(o.clientCode)===normCode(q)))
     .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||(+b.sapEntry||0)-(+a.sapEntry||0));
   const live=rows.filter(o=>o.status!=='cancelled');const inv=live.filter(o=>o.kind!=='credit'),cn=live.filter(o=>o.kind==='credit');
   const sv=a=>a.reduce((s,o)=>s+(+o.value||0),0),st2=a=>a.reduce((s,o)=>s+(+o.total||0),0);
-  const unpaid=inv.filter(o=>o.status==='open').reduce((s,o)=>s+Math.max(0,(+o.total||0)-(+o.paid||0)),0);
+  const unpaid=inv.reduce((s,o)=>s+invDue(o),0);
   const cnp=kd==='credit';const tot=sv(live);
   return `<div class="fbar"><label class="fl" for="${P}Month">${L('الشهر','Month')}<input type="month" id="${P}Month" data-act="filtSel" data-k="${P}Month" value="${m}"></label>
-   <label class="fl" for="${P}St">${L('الحالة','Status')}<select id="${P}St" data-act="filtSel" data-k="${P}St">${opt(Object.entries(SINV_ST).filter(([k])=>!cnp||k!=='open').map(([k,v])=>[k,cnp&&k==='closed'?L('مقفل','Closed'):L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
+   <label class="fl" for="${P}St">${L('الحالة','Status')}<select id="${P}St" data-act="filtSel" data-k="${P}St">${opt(cnp?[['closed',L('مقفل','Closed')],['cancelled',L('ملغاة','Cancelled')]]:Object.entries(PAY_ST).map(([k,v])=>[k,L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
    ${isLead()?`<label class="fl" for="${P}Rep">${L('المندوب','Rep')}<select id="${P}Rep" data-act="filtSel" data-k="${P}Rep">${opt(reps.map(r=>[r.id,r.name]),rp,L('— الكل —','— all —'))}</select></label>`:''}
    <label class="fl" for="${P}Q">${L('بحث','Search')}<input id="${P}Q" type="search" data-act="filtIn" data-k="${P}Q" value="${esc(fv(P+'Q',''))}" placeholder="${cnp?L('رقم الإشعار أو العميل','Note no. or customer'):L('رقم الفاتورة أو العميل','Invoice no. or customer')}"></label></div>
   <div class="kpis k4">${cnp?`${kpiTile(L('عدد الإشعارات','Credit notes'),num(live.length),L('بدون الملغاة','excl. cancelled'))}
    ${kpiTile(L('القيمة بدون ضريبة','Value ex-VAT'),smoney(tot),'')}${kpiTile(L('الضريبة','VAT'),smoney(live.reduce((s,o)=>s+(+o.vat||0),0)),'')}${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}`
    :`${kpiTile(L('عدد الفواتير','Invoices'),num(live.length),L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('المبيعات بدون ضريبة','Sales ex-VAT'),smoney(tot),'')}
-   ${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}${kpiTile(L('غير المسدد','Unpaid'),smoney(unpaid),L('من فواتير الشهر','of these invoices'))}`}</div>
+   ${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}${kpiTile(L('غير المسدد','Unpaid'),smoney(unpaid),L('بعد خصم السداد من الأقدم (أعمار الديون)','after payments, oldest first (aging)'))}`}</div>
   <div class="card">${table([{l:L('الرقم','No.'),c:'nw',f:o=>`<b><bdi>${esc(o.no)}</bdi></b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
     {l:L('العميل','Customer'),f:o=>`${esc(o.cname||cName(o.clientId))}<div class="small muted"><bdi>${esc(o.clientCode||'')}</bdi></div>`},
     {l:L('المندوب','Rep'),f:o=>esc(tName(o.repId))},{l:L('القيمة','Value'),c:'n',f:o=>num(o.value)},{l:L('الإجمالي شامل الضريبة','Total incl. VAT'),c:'n',f:o=>num(o.total)},
-    {l:L('الحالة','Status'),f:o=>cnp&&o.status!=='cancelled'?pill(L('مقفل','Closed'),'ok'):pillOf(SINV_ST,o.status)}],rows,'sinv',{empty:cnp?L('ما فيه إشعارات دائنة لهذا الشهر. تظهر هنا بعد ما يطلع لها الباركود من ساب.','No credit notes this month. They appear after SAP issues the e-invoice QR.'):L('ما فيه فواتير لهذا الشهر. الفواتير تظهر هنا بعد ما يطلع لها الباركود (الفاتورة الإلكترونية) من ساب.','No invoices for this month. Invoices appear after SAP issues their e-invoice QR.')})}
+    ...(cnp?[]:[{l:L('المتبقي','Due'),c:'n',f:o=>{const d=invDue(o);return d?num(Math.round(d*100)/100):'—'}}]),{l:L('الحالة','Status'),f:o=>cnp?(o.status==='cancelled'?pillOf(SINV_ST,'cancelled'):pill(L('مقفل','Closed'),'ok')):pillOf(PAY_ST,payState(o))}],rows,'sinv',{empty:cnp?L('ما فيه إشعارات دائنة لهذا الشهر. تظهر هنا بعد ما يطلع لها الباركود من ساب.','No credit notes this month. They appear after SAP issues the e-invoice QR.'):L('ما فيه فواتير لهذا الشهر. الفواتير تظهر هنا بعد ما يطلع لها الباركود (الفاتورة الإلكترونية) من ساب.','No invoices for this month. Invoices appear after SAP issues their e-invoice QR.')})}
    <div class="small muted">${cnp?L('من ساب: الإشعارات الدائنة اللي طلع لها الباركود (الفاتورة الإلكترونية) فقط، ويتحدّث كل 5 دقائق.','From SAP: only credit notes with their e-invoice QR; refreshed every 5 minutes.'):L('من ساب: الفواتير اللي طلع لها الباركود (الفاتورة الإلكترونية) فقط، ويتحدّث كل 5 دقائق.','From SAP: only invoices with their e-invoice QR; refreshed every 5 minutes.')}</div></div>`;
 };
 V.sinv=sinvView('invoice');V.scn=sinvView('credit');
@@ -8169,7 +8178,7 @@ OPEN.sinv=(id,refresh)=>{const o=byId('sinv',id);if(!o)return;
   setDrawer('sinv',id,sKind(o)+' '+o.no,`<div class="toolbar"><button class="btn p" data-act="siPrint" data-id="${id}">🖨 ${L('طباعة / PDF','Print / PDF')}</button></div>
    <dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · <bdi>${esc(o.clientCode||'')}</bdi></dd>
    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('القيمة بدون ضريبة','Value ex-VAT')}</dt><dd>${money(o.value)}</dd><dt>${L('الضريبة','VAT')}</dt><dd>${money(o.vat)}</dd>
-   <dt>${L('الإجمالي','Total')}</dt><dd><b>${money(o.total)}</b></dd>${o.kind!=='credit'?`<dt>${L('المسدد','Paid')}</dt><dd>${money(o.paid)}</dd>`:''}<dt>${L('الحالة','Status')}</dt><dd>${pillOf(SINV_ST,o.status)}</dd>
+   <dt>${L('الإجمالي','Total')}</dt><dd><b>${money(o.total)}</b></dd>${o.kind!=='credit'?`<dt>${L('المتبقي عليها','Still due')}</dt><dd>${money(invDue(o))} <span class="small muted">${L('بعد خصم السداد من الأقدم','payments applied oldest first')}</span></dd>`:''}<dt>${L('الحالة','Status')}</dt><dd>${o.kind==='credit'?pillOf(SINV_ST,o.status):pillOf(PAY_ST,payState(o))}</dd>
    ${o.ref?`<dt>${L('مرجع العميل','Customer ref.')}</dt><dd>${esc(o.ref)}</dd>`:''}<dt>${L('الفاتورة الإلكترونية','E-invoice')}</dt><dd>${pill(L('صدر الباركود','QR issued'),'ok')} ${o.einv?`<span class="small muted">${esc(o.einv)}</span>`:''}</dd></dl>
    <div class="card" id="si_lines"><h2>${L('الأصناف','Lines')}</h2><div class="muted small">${L('جاري التحميل من ساب…','Loading from SAP…')}</div></div>`,refresh);
   siDoc(o).then(d=>{const b=document.getElementById('si_lines');if(!b)return;
@@ -8320,7 +8329,7 @@ async function printSinv(id){const o=byId('sinv',id);if(!o)return;
     sideTitle:'بيانات البيع',side:[['مندوب المبيعات',r.name||tName(o.repId)],['الجوال',r.phone],['الفاتورة الإلكترونية',d.einv==='Valid'?'معتمدة':d.einv||'صدر الباركود']],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الضريبة',n:1},{l:'الإجمالي',n:1,b:1}],
     rows:(d.lines||[]).map(l=>[l.code,l.name,num(+l.qty||0),l.unit,pm(l.net),l.vatPct!=null?`${+l.vatPct}%`:'',pm(l.total)]),
-    totals:[['الإجمالي قبل الضريبة',pm(sub)],...(+d.disc?[['الخصم','- '+pm(d.disc)]]:[]),['ضريبة القيمة المضافة',pm(d.vat)],[`الإجمالي شامل الضريبة (ر.س)`,pm(d.total),1],...(!cn&&+d.paid?[['المسدد',pm(d.paid)],['المتبقي',pm(Math.max(0,(+d.total||0)-(+d.paid||0)))]]:[])],
+    totals:[['الإجمالي قبل الضريبة',pm(sub)],...(+d.disc?[['الخصم','- '+pm(d.disc)]]:[]),['ضريبة القيمة المضافة',pm(d.vat)],[`الإجمالي شامل الضريبة (ر.س)`,pm(d.total),1],...(!cn&&invDue(o)>0.01?[['المتبقي',pm(invDue(o))]]:[])],
     notes:[['ملاحظات',d.comments]],qr:d.qr,sigs:cn?0:2},w)}
 ACT.siPrint=d=>printSinv(d.id);
 
