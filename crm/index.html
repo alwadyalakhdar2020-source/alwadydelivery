@@ -8180,11 +8180,17 @@ function qrSvg(text){try{const q=new WQR(-1,0);q.addData(String(text));q.make();
   for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+=`M${c} ${r}h1v1h-1z`;
   return `<svg viewBox="-2 -2 ${n+4} ${n+4}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`}catch(e){console.warn('qr',e);return ''}}
 const pm=v=>(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-function brandDoc(o){
-  const k=qCfg();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';
+/* company details from SAP's company settings (name, VAT no., phones, e-mail), cached on the device for a day;
+   anything filled in «بيانات الشركة» (⚙ in a quotation) overrides it */
+let CO_SAP=(()=>{try{const x=JSON.parse(localStorage.getItem('wady.co')||'null');return x&&Date.now()-x.at<864e5?x.v:null}catch(e){return null}})();
+async function coLoad(){if(CO_SAP)return CO_SAP;try{const {data}=await window.__sb.functions.invoke('sap-doc',{body:{kind:'company'}});if(data&&data.company){CO_SAP=data.company;try{localStorage.setItem('wady.co',JSON.stringify({at:Date.now(),v:CO_SAP}))}catch(e){}}}catch(e){}return CO_SAP}
+setTimeout(()=>{if(window.__sb&&(typeof wadyLvl!=='function'||wadyLvl('crm','quotes')>=1||wadyLvl('crm','sinv')>=1))coLoad()},5000);
+const coInfo=()=>{const q=qCfg();const o={...(CO_SAP||{})};Object.entries(q).forEach(([a,v])=>{if(v!==''&&v!=null)o[a]=v});return o};
+function brandDoc(o,win){
+  const k=coInfo();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';
   const kv=rows=>rows.filter(r=>r&&r[1]!=null&&r[1]!=='').map(([a,b])=>`<div class="kv"><span>${a}</span><b>${esc(String(b))}</b></div>`).join('');
-  const w=window.open('','_blank');if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
-  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(o.titleAr+' '+o.no)}</title>
+  const w=win||window.open('','_blank');if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
+  if(win)w.document.open();w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(o.titleAr+' '+o.no)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 <style>
 @page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}
@@ -8213,7 +8219,7 @@ table.ln{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #
 .wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:90px;color:rgba(210,0,0,.07);transform:rotate(-25deg);font-weight:900;pointer-events:none}
 </style></head><body>
 ${o.watermark?`<div class="wm">${esc(o.watermark)}</div>`:''}
-<div class="top"><div class="lg"><img src="${logo}" alt=""></div><div class="co"><b>${esc(k.coName||'مصنع الوادي الأخضر المميز')}</b>${k.coNameEn?`<small dir="ltr" style="text-align:right">${esc(k.coNameEn)}</small>`:''}<small>${[k.vatNo&&'الرقم الضريبي: '+k.vatNo,k.crNo&&'س.ت: '+k.crNo].filter(Boolean).map(esc).join(' · ')}</small></div>
+<div class="top"><div class="lg"><img src="${logo}" alt=""></div><div class="co"><b>${esc(k.coName||'مصنع الوادي الأخضر المميز')}</b>${k.coNameEn?`<small dir="ltr" style="text-align:right">${esc(k.coNameEn)}</small>`:''}${k.tagline?`<small>${esc(k.tagline)}</small>`:''}<small>${[k.vatNo&&'الرقم الضريبي: '+k.vatNo,k.crNo&&'س.ت: '+k.crNo].filter(Boolean).map(esc).join(' · ')}</small></div>
  <div class="dt"><h1>${esc(o.titleAr)}</h1><span>${esc(o.titleEn)}</span></div></div>
 <div class="meta"><div class="chip">الرقم<b dir="ltr">${esc(o.no)}</b></div><div class="chip">التاريخ<b>${esc(o.date)}</b></div>${(o.meta||[]).filter(x=>x&&x[1]).map(([a,b])=>`<div class="chip">${a}<b>${esc(String(b))}</b></div>`).join('')}${o.status?`<div class="chip st">${esc(o.status)}</div>`:''}</div>
 <div class="cards"><div class="cardp"><h3>${o.partyTitle||'العميل'}</h3>${kv(o.party||[])}</div><div class="cardp b"><h3>${o.sideTitle||'بيانات المستند'}</h3>${kv(o.side||[])}</div></div>
@@ -8253,8 +8259,10 @@ function printOrder(id){const o=byId('orders',id);if(!o)return;const c=byId('cli
     totals:[['الإجمالي بدون ضريبة',pm(o.value!=null?o.value:sub)],['ضريبة القيمة المضافة',pm(vat)],['الإجمالي شامل الضريبة (ر.س)',pm(o.total!=null?o.total:sub+vat),1]],sigs:2})}
 ACT.soPrint=d=>printOrder(d.id);
 
-async function printSinv(id){const o=byId('sinv',id);if(!o)return;toast(L('جاري تجهيز الطباعة من ساب…','Preparing from SAP…'));
-  let d;try{d=await siDoc(o)}catch(e){toast(e.message||String(e));return}
+async function printSinv(id){const o=byId('sinv',id);if(!o)return;
+  const w=window.open('','_blank');if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
+  w.document.write('<!doctype html><meta charset="utf-8"><body dir="rtl" style="font-family:Tajawal,Tahoma,sans-serif;display:grid;place-items:center;height:90vh;color:#051D48">جاري تجهيز المستند من ساب…</body>');
+  let d;try{[d]=await Promise.all([siDoc(o),coLoad()])}catch(e){w.document.body.textContent=e.message||String(e);return}
   const c=byId('clients',o.clientId)||{};const r=byId('team',o.repId)||{};const cn=o.kind==='credit';
   const sub=(d.lines||[]).reduce((s,l)=>s+(+l.total||0),0);
   brandDoc({titleAr:cn?'إشعار دائن':'فاتورة ضريبية',titleEn:cn?'CREDIT NOTE':'TAX INVOICE',no:String(d.no),date:fdate(String(d.date||o.date).slice(0,10)),meta:[['الاستحقاق',!cn&&d.due?fdate(String(d.due).slice(0,10)):''],['مرجع العميل',d.ref]],status:d.cancelled?'ملغاة':'',
@@ -8263,7 +8271,7 @@ async function printSinv(id){const o=byId('sinv',id);if(!o)return;toast(L('جا�
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الضريبة',n:1},{l:'الإجمالي',n:1,b:1}],
     rows:(d.lines||[]).map(l=>[l.code,l.name,num(+l.qty||0),l.unit,pm(l.net),l.vatPct!=null?`${+l.vatPct}%`:'',pm(l.total)]),
     totals:[['الإجمالي قبل الضريبة',pm(sub)],...(+d.disc?[['الخصم','- '+pm(d.disc)]]:[]),['ضريبة القيمة المضافة',pm(d.vat)],[`الإجمالي شامل الضريبة (ر.س)`,pm(d.total),1],...(!cn&&+d.paid?[['المسدد',pm(d.paid)],['المتبقي',pm(Math.max(0,(+d.total||0)-(+d.paid||0)))]]:[])],
-    notes:[['ملاحظات',d.comments]],qr:d.qr,sigs:cn?0:2})}
+    notes:[['ملاحظات',d.comments]],qr:d.qr,sigs:cn?0:2},w)}
 ACT.siPrint=d=>printSinv(d.id);
 
 /* print buttons: every quotation (in-app or SAP) and every sales order */
