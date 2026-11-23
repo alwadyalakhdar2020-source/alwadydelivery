@@ -8210,7 +8210,10 @@ const BI_EN={'الرقم':'No.','التاريخ':'Date','الاستحقاق':'Du
   'الإجمالي قبل الخصم':'Subtotal','الإجمالي قبل الضريبة':'Total before VAT','الإجمالي بدون ضريبة':'Total excl. VAT','الخصم':'Discount','الصافي':'Net','ضريبة القيمة المضافة':'VAT',
   'الإجمالي شامل الضريبة (ر.س)':'Total incl. VAT (SAR)','الإجمالي شامل الضريبة':'Total incl. VAT','المسدد':'Paid',
   'الشروط والأحكام':'Terms & conditions','ملاحظات':'Notes','بيانات التحويل البنكي':'Bank details','تنبيه':'Note',
-  'توقيع وختم الشركة':'Company signature & stamp','استلام العميل (الاسم والتوقيع)':'Received by (name & signature)','موافقة العميل (الاسم والتوقيع والختم)':'Customer acceptance (name, signature & stamp)'};
+  'توقيع وختم الشركة':'Company signature & stamp','استلام العميل (الاسم والتوقيع)':'Received by (name & signature)','موافقة العميل (الاسم والتوقيع والختم)':'Customer acceptance (name, signature & stamp)',
+  'نوع المستند':'Type','البيان':'Details','مدين':'Debit','دائن':'Credit','الرصيد':'Balance','رصيد افتتاحي':'Opening balance','إجمالي المدين':'Total debit','إجمالي الدائن':'Total credit',
+  'الرصيد الختامي (ر.س)':'Closing balance (SAR)','الحد الائتماني':'Credit limit','رصيد العميل في ساب اليوم':'SAP balance today','الفترة':'Period','من':'From','إلى':'To','الحساب':'Account',
+  'المحاسب':'Accountant','العميل (المصادقة على الرصيد والختم)':'Customer (balance confirmation & stamp)','المرجع':'Ref.'};
 // «Arabic» with its English under it; labels with a number in them (e.g. «الخصم 3%») translate their first part
 const bi=(ar,inline)=>{const a=String(ar||'');let en=BI_EN[a];if(!en){const m=/^(.*?)\s*(\d+(?:\.\d+)?%)\s*$/.exec(a);if(m&&BI_EN[m[1]])en=BI_EN[m[1]]+' '+m[2];else{const k=Object.keys(BI_EN).find(x=>a.startsWith(x+' '));if(k)en=BI_EN[k]+a.slice(k.length)}}
   return en?(inline?`${esc(a)} <i class="en">${esc(en)}</i>`:`${esc(a)}<i class="en b">${esc(en)}</i>`):esc(a)};
@@ -8274,20 +8277,22 @@ table.ln{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #
 .nt{margin-top:10px;border:1px solid #DDE4EE;border-radius:12px;padding:6px 12px;white-space:pre-wrap;line-height:1.6;font-size:11px;break-inside:avoid}.nt h3{margin:0 0 4px;font-size:11px;color:#38AC57}
 .sg{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:22px;break-inside:avoid;text-align:center}.sg div{border-top:1px solid #9AA6B8;padding-top:6px;color:#4A5568}
 .ft{margin-top:16px;display:flex;justify-content:space-between;gap:10px;border-top:3px solid #38AC57;padding-top:6px;color:#66738A;font-size:10px}
+.dense .ln th{padding:5px;font-size:10px}.dense .ln td{padding:2.5px 5px;font-size:10px;line-height:1.3}.dense .ln td.tx{max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dense .ln tr.hl td{background:#EAF6EE;font-weight:700}
+.ln thead{display:table-header-group}.ln tr{break-inside:avoid}
 .wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:90px;color:rgba(210,0,0,.07);transform:rotate(-25deg);font-weight:900;pointer-events:none}
-</style></head><body>
+</style></head><body class="${o.dense?'dense':''}">
 ${o.watermark?`<div class="wm">${esc(o.watermark)}</div>`:''}
 <div class="top"><div class="lg"><img src="${logo}" alt=""></div><div class="dt"><h1>${esc(o.titleAr)}</h1><span>${esc(o.titleEn)}</span></div></div>
 <div class="co"><b>${esc(k.coName||'شركة الوادي الأخضر المميز')}</b>${k.coNameEn?`<span class="en">${esc(k.coNameEn)}</span>`:''}${k.tagline?`<span class="tg">${esc(k.tagline)}</span>`:''}
  <span class="ids">${k.vatNo?`<span>الرقم الضريبي <bdi class="ce">VAT No.</bdi><b><bdi dir="ltr">${esc(k.vatNo)}</bdi></b></span>`:''}${k.crNo?`<span>السجل التجاري <bdi class="ce">CR No.</bdi><b><bdi dir="ltr">${esc(k.crNo)}</bdi></b></span>`:''}</span></div>
 <div class="meta">${[['الرقم',o.no],['التاريخ',o.date],...(o.meta||[])].filter(x=>x&&x[1]).map(([a,b])=>`<div class="chip"><span>${esc(a)}</span>${BI_EN[a]?` <bdi class="ce">${esc(BI_EN[a])}</bdi>`:''}<b><bdi dir="ltr">${esc(String(b))}</bdi></b></div>`).join('')}${o.status?`<div class="chip st">${esc(o.status)}</div>`:''}</div>
 <div class="cards"><div class="cardp"><h3>${bi(o.partyTitle||'العميل',1)}</h3>${kv(o.party||[])}</div><div class="cardp b"><h3>${bi(o.sideTitle||'بيانات المستند',1)}</h3>${kv(o.side||[])}</div></div>
-<table class="ln"><tr><th style="width:28px">#</th>${o.cols.map(c=>`<th class="${c.n?'n':''}">${bi(c.l)}</th>`).join('')}</tr>
-${o.rows.map((r,i)=>`<tr><td>${i+1}</td>${r.map((v,j)=>`<td class="${o.cols[j].n?'n':''}">${o.cols[j].b?`<b>${esc(String(v??''))}</b>`:esc(String(v??''))}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${o.cols.length+1}" style="text-align:center;color:#888">—</td></tr>`}</table>
+<table class="ln"><thead><tr>${o.noIdx?'':'<th style="width:28px">#</th>'}${o.cols.map(c=>`<th class="${c.n?'n':''}">${bi(c.l)}</th>`).join('')}</tr></thead><tbody>
+${o.rows.map((r0,i)=>{const r=Array.isArray(r0)?r0:r0.cells;return `<tr class="${r0.cls||''}">${o.noIdx?'':`<td>${i+1}</td>`}${r.map((v,j)=>`<td class="${o.cols[j].n?'n':''}${o.cols[j].tx?' tx':''}"${o.cols[j].tx?` title="${esc(String(v??''))}"`:''}>${o.cols[j].b?`<b>${esc(String(v??''))}</b>`:esc(String(v??''))}</td>`).join('')}</tr>`}).join('')||`<tr><td colspan="${o.cols.length+1}" style="text-align:center;color:#888">—</td></tr>`}</tbody></table>
 <div class="bot"><div>${o.qr?`<div class="qr"><div id="qr">${qrSvg(o.qr)}</div><small><b>فاتورة إلكترونية · E-invoice</b><br>امسح الرمز للتحقق من الفاتورة (هيئة الزكاة والضريبة والجمارك).<br><i class="en">Scan to verify with ZATCA.</i></small></div>`:''}
  ${(o.notes||[]).filter(x=>x&&x[1]).map(([a,b])=>`<div class="nt"><h3>${bi(a,1)}</h3>${esc(b)}</div>`).join('')}</div>
  <div class="tot">${o.totals.map(([a,b,g])=>`<div class="${g?'g':''}"><span>${bi(a)}</span><span class="n">${b}</span></div>`).join('')}</div></div>
-${o.sigs?`<div class="sg"><div>${bi('توقيع وختم الشركة')}</div><div>${bi(o.sigs===2?'استلام العميل (الاسم والتوقيع)':'موافقة العميل (الاسم والتوقيع والختم)')}</div></div>`:''}
+${o.sigs?`<div class="sg">${(Array.isArray(o.sigs)?o.sigs:['توقيع وختم الشركة',o.sigs===2?'استلام العميل (الاسم والتوقيع)':'موافقة العميل (الاسم والتوقيع والختم)']).map(x=>`<div>${bi(x)}</div>`).join('')}</div>`:''}
 <div class="ft"><span>${[k.addr,k.phone,k.email].filter(Boolean).map(esc).join(' · ')}</span><span>${esc(k.foot||'')}</span><span dir="ltr">${new Date().toLocaleString('en-GB')}</span></div>
 <script>window.onload=()=>{if(!window.frameElement)setTimeout(()=>print(),450)}<\/script></body></html>`);w.document.close()}
 window.brandDoc=brandDoc;
@@ -8338,6 +8343,65 @@ ACT.siPrint=d=>printSinv(d.id);
   mb.insertAdjacentHTML('afterbegin',`<div class="toolbar"><button class="btn p" data-act="qPrint" data-id="${id}">🖨 ${L('طباعة / PDF','Print / PDF')}</button></div>`)}}
 {const _o=OPEN.order;OPEN.order=(id,refresh)=>{_o(id,refresh);const mb=document.getElementById('mbody');if(!mb||mb.querySelector('[data-act="soPrint"]'))return;
   mb.insertAdjacentHTML('afterbegin',`<div class="toolbar"><button class="btn p" data-act="soPrint" data-id="${id}">🖨 ${L('طباعة / PDF','Print / PDF')}</button></div>`)}}
+
+/* ============ Customer statement (كشف حساب) in the Sales menu — read from SAP's journal for the customer (23/11) ============
+   who: holders of the «stmt» page, only for customers they can see (the server checks it too). */
+IC.stmt='<path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/><path d="M15 15l2 2 3-4"/>';
+{const si=NAV.findIndex(n=>n[0]==='scn');const at=si>=0?si+1:NAV.findIndex(n=>n[0]==='orders')+1;
+ NAV.splice(at,0,['stmt','stmt',()=>L('كشف حساب العميل','Customer statement'),()=>typeof wadyLvl!=='function'||wadyLvl('crm','stmt')>=1])}
+// the old «SAP documents» screen is not used for daily work any more: it stays only for the admin (SAP user links and settings), under Settings
+{const i=NAV.findIndex(n=>n[0]==='sapdocs');if(i>=0){const [x]=NAV.splice(i,1);x[2]=()=>L('إعدادات ربط ساب','SAP link settings');const f=x[3];x[3]=()=>isAdmin()&&(!f||f());
+  const d=NAV.findIndex(n=>n[0]==='data');NAV.splice(d>=0?d+1:NAV.length,0,x)}}
+const STX={};
+const stClient=code=>{const k=normCode(code);return (S.clients||[]).find(c=>normCode(c.code)===k)||null};
+// SAP's own line memo («A/R Invoices - C14914») repeats the type and the customer: keep it only when it says something more
+const stNote=(x,card)=>{let t=String(x.note||'').trim();if(/^(A\/R|Incoming|Outgoing|Journal|Opening|Down|Reconcil|A\/P)/i.test(t)&&new RegExp('-\\s*'+String(card).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*$','i').test(t))t='';
+  const ref=String(x.ref||'').trim();if(ref&&ref!==String(x.num)&&!t.includes(ref))t=t?`${t} · ${ref}`:ref;return t};
+V.stmt=()=>{const s=STX;const y=TODAY().slice(0,4);
+  return `<div class="card"><div class="fbar"><label class="fl" style="flex:1;min-width:240px">${L('العميل','Customer')}<input id="st_card" data-wcust="crm" value="${esc(s.cardIn||'')}" autocomplete="off"></label>
+   <label class="fl">${L('من','From')}<input type="date" id="st_from" value="${esc(s.from||y+'-01-01')}"></label><label class="fl">${L('إلى','To')}<input type="date" id="st_to" value="${esc(s.to||TODAY())}"></label>
+   <button class="btn p" data-act="stRun">${L('عرض الكشف','Show statement')}</button>${s.res?`<button class="btn s" data-act="stPrint">🖨 ${L('طباعة / PDF','Print / PDF')}</button>`:''}</div>
+   <div class="small muted">${L('الكشف من قيود ساب لحساب العميل مباشرة. تظهر لك عملاؤك فقط (والمشرف عملاء مناديبه).','Straight from SAP journal lines for the customer. Only your own customers (a supervisor: his reps\' customers).')}</div></div>
+   ${s.busy?`<div class="card empty">${L('جاري الجلب من ساب…','Loading from SAP…')}</div>`:s.err?`<div class="banner bad"><span class="sp">${esc(s.err)}</span></div>`:s.res?stTable(s.res):''}`};
+function stTable(r){const c=stClient(r.customer.CardCode)||{};const dr=r.rows.reduce((a,x)=>a+x.debit,0),cr=r.rows.reduce((a,x)=>a+x.credit,0);
+  const rows=[{_o:1,date:r.from,balance:r.opening},...r.rows];
+  return `<div class="kpis"><div class="kpi"><span>${L('رصيد افتتاحي','Opening')}</span><b>${pm(r.opening)}</b></div><div class="kpi"><span>${L('إجمالي المدين','Debit')}</span><b>${pm(dr)}</b></div>
+   <div class="kpi"><span>${L('إجمالي الدائن','Credit')}</span><b>${pm(cr)}</b></div><div class="kpi"><span>${L('الرصيد في','Balance at')} ${pdate(r.to)}</span><b>${pm(r.closing)}</b></div></div>
+   <div class="card"><div class="small" style="margin-bottom:6px"><b>${esc(r.customer.CardName)}</b> — <bdi dir="ltr">${esc(r.customer.CardCode)}</bdi> · ${L('المندوب','Rep')}: <b>${esc(c.repId?tName(c.repId):'—')}</b> · ${L('رصيد ساب اليوم','SAP balance today')} <b>${pm(r.current)}</b>
+    ${r.match===false?` <span class="flag">${L('تنبيه: مجموع القيود لا يساوي رصيد ساب','Ledger total differs from SAP balance')}</span>`:''}</div>
+   ${table([{l:L('التاريخ','Date'),f:x=>pdate(x.date)},{l:L('المستند','Document'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:`${esc(x.label||'')} <bdi dir="ltr">${esc(x.num||'')}</bdi>`},
+    {l:L('البيان','Details'),f:x=>x._o?'':esc(stNote(x,r.customer.CardCode))},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?pm(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?pm(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${pm(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
+   <div class="small muted" style="margin-top:6px">${esc(r.note||'')}</div></div>`}
+async function stPrint(){const r=STX.res;if(!r)return;const w=docWin();if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
+  try{await coLoad()}catch(e){}
+  const card=r.customer.CardCode;const c=stClient(card)||{};const rep=byId('team',c.repId)||{};const dr=r.rows.reduce((a,x)=>a+x.debit,0),cr=r.rows.reduce((a,x)=>a+x.credit,0);
+  brandDoc({titleAr:'كشف حساب عميل',titleEn:'STATEMENT OF ACCOUNT',no:card,date:pdate(TODAY()),meta:[['من',pdate(r.from)],['إلى',pdate(r.to)]],dense:1,noIdx:1,
+    party:[['الاسم',r.customer.CardName],['الكود',card],['الجوال',c.phone],['الرقم الضريبي',c.vatNo],['المدينة',[c.city,c.district].filter(Boolean).join(' - ')]],
+    sideTitle:'الحساب',side:[['مندوب المبيعات',rep.name||(c.repId?tName(c.repId):'')||'غير محدد'],['الجوال',rep.phone],['الحد الائتماني',pm(r.customer.CreditLimit||0)],['رصيد العميل في ساب اليوم',pm(r.current)]],
+    cols:[{l:'التاريخ'},{l:'نوع المستند'},{l:'الرقم'},{l:'البيان',tx:1},{l:'مدين',n:1},{l:'دائن',n:1},{l:'الرصيد',n:1,b:1}],
+    rows:[{cls:'hl',cells:[pdate(r.from),'رصيد افتتاحي','','','','',pm(r.opening)]},...r.rows.map(x=>[pdate(x.date),x.label||'',String(x.num||''),stNote(x,card),x.debit?pm(x.debit):'',x.credit?pm(x.credit):'',pm(x.balance)])],
+    totals:[['رصيد افتتاحي',pm(r.opening)],['إجمالي المدين',pm(dr)],['إجمالي الدائن',pm(cr)],['الرصيد الختامي (ر.س)',pm(r.closing),1]],
+    notes:[['ملاحظات','الكشف مستخرج من قيود ساب لحساب العميل. نرجو مراجعته وإفادتنا بأي ملاحظة خلال 15 يوماً، وإلا يُعد الرصيد مصادقاً عليه.']],
+    sigs:['المحاسب','العميل (المصادقة على الرصيد والختم)']},w)}
+Object.assign(ACT,{stRun:async()=>{const g=id=>(document.getElementById(id)||{});const inp=g('st_card');const cardIn=inp.value||'';const card=(inp.dataset&&inp.dataset.code)||cardIn.split(' — ')[0].trim();
+    if(!card)return toast(L('اختر العميل','Pick the customer'));const s={cardIn,from:g('st_from').value,to:g('st_to').value,busy:true};Object.keys(STX).forEach(k=>delete STX[k]);Object.assign(STX,s);render();
+    try{STX.res=await sdRead('statement',{card,from:s.from,to:s.to})}catch(e){STX.err=e.message}STX.busy=false;render()},
+  stPrint:()=>stPrint(),
+  stOpen:d=>{const c=byId('clients',d.id);if(!c)return;Object.keys(STX).forEach(k=>delete STX[k]);STX.cardIn=`${c.code} — ${c.name}`;closeModal();go('stmt');setTimeout(()=>ACT.stRun(),50)}});
+// the SAP screen's own statement prints the same way
+if(typeof sdStmtPrint==='function'){sdStmtPrint=function(){const r=SDX.stmt&&SDX.stmt.res;if(!r)return;STX.res=r;stPrint()}}
+// «كشف حساب» button in the customer card
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');
+  if(!c||!mb||!c.code||mb.querySelector('[data-act="stOpen"]')||(typeof wadyLvl==='function'&&wadyLvl('crm','stmt')<1))return;
+  mb.insertAdjacentHTML('afterbegin',`<div class="toolbar"><button class="btn s" data-act="stOpen" data-id="${id}">📄 ${L('كشف حساب','Statement')}</button></div>`)}}
+// «سند تسليم» on an open SAP sales order: for whoever has the delivery-note right (same as SAP: grant it to those who issue deliveries there)
+{const _o=OPEN.order;OPEN.order=(id,refresh)=>{_o(id,refresh);const o=byId('orders',id);const mb=document.getElementById('mbody');
+  if(!o||!mb||mb.querySelector('[data-act="dnNew"]'))return;const lv=typeof wadyLvl==='function'?wadyLvl('crm','dlvnote'):3;
+  const entry=o.sapEntry||(/^so-(\d+)$/.exec(o.id)||[])[1];if(lv<3||!entry||!['open','partial'].includes(o.status))return;
+  const tb=mb.querySelector('.toolbar');const b=`<button class="btn p" data-act="dnNew" data-id="${id}">🚚 ${L('سند تسليم','Delivery note')}</button>`;
+  if(tb)tb.insertAdjacentHTML('beforeend',b);else mb.insertAdjacentHTML('afterbegin',`<div class="toolbar">${b}</div>`)}}
+ACT.dnNew=d=>{const o=byId('orders',d.id);if(!o)return;const entry=+(o.sapEntry||(/^so-(\d+)$/.exec(o.id)||[])[1]);if(typeof sdForm!=='function')return toast('—');
+  closeModal();setTimeout(()=>sdForm('delivery',{card:o.clientCode,doc:{type:'order',entry}}),60)};
 }
 </script>
 <script src="wady-back.js"></script></body></html>
