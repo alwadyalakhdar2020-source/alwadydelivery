@@ -8213,7 +8213,7 @@ const BI_EN={'الرقم':'No.','التاريخ':'Date','الاستحقاق':'Du
   'توقيع وختم الشركة':'Company signature & stamp','استلام العميل (الاسم والتوقيع)':'Received by (name & signature)','موافقة العميل (الاسم والتوقيع والختم)':'Customer acceptance (name, signature & stamp)',
   'نوع المستند':'Type','البيان':'Details','مدين':'Debit','دائن':'Credit','الرصيد':'Balance','رصيد افتتاحي':'Opening balance','إجمالي المدين':'Total debit','إجمالي الدائن':'Total credit',
   'الرصيد الختامي (ر.س)':'Closing balance (SAR)','الحد الائتماني':'Credit limit','رصيد العميل في ساب اليوم':'SAP balance today','الفترة':'Period','من':'From','إلى':'To','الحساب':'Account',
-  'المحاسب':'Accountant','العميل (المصادقة على الرصيد والختم)':'Customer (balance confirmation & stamp)','المرجع':'Ref.'};
+  'المحاسب':'Accountant','العميل (المصادقة على الرصيد والختم)':'Customer (balance confirmation & stamp)','المرجع':'Ref.','المستحقات المتأخرة':'Overdue receivables'};
 // «Arabic» with its English under it; labels with a number in them (e.g. «الخصم 3%») translate their first part
 const bi=(ar,inline)=>{const a=String(ar||'');let en=BI_EN[a];if(!en){const m=/^(.*?)\s*(\d+(?:\.\d+)?%)\s*$/.exec(a);if(m&&BI_EN[m[1]])en=BI_EN[m[1]]+' '+m[2];else{const k=Object.keys(BI_EN).find(x=>a.startsWith(x+' '));if(k)en=BI_EN[k]+a.slice(k.length)}}
   return en?(inline?`${esc(a)} <i class="en">${esc(en)}</i>`:`${esc(a)}<i class="en b">${esc(en)}</i>`):esc(a)};
@@ -8278,7 +8278,10 @@ table.ln{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #
 .sg{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:22px;break-inside:avoid;text-align:center}.sg div{border-top:1px solid #9AA6B8;padding-top:6px;color:#4A5568}
 .ft{margin-top:16px;display:flex;justify-content:space-between;gap:10px;border-top:3px solid #38AC57;padding-top:6px;color:#66738A;font-size:10px}
 .dense .ln th{padding:5px;font-size:10px}.dense .ln td{padding:2.5px 5px;font-size:10px;line-height:1.3}.dense .ln td.tx{max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dense .ln tr.hl td{background:#EAF6EE;font-weight:700}
-.ln thead{display:table-header-group}.ln tr{break-inside:avoid}
+.ln thead{display:table-header-group}
+.ag{border:1px solid #DDE4EE;border-radius:12px;padding:8px 12px;margin:-2px 0 12px;break-inside:avoid}.ag h3{margin:0 0 6px;font-size:12px;color:#051D48;display:flex;gap:6px;align-items:baseline}.ag h3 small{margin-inline-start:auto;color:#66738A;font-weight:500;font-size:9.5px}
+.ag .bs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:end}.ag .b{text-align:center}.ag .bar{height:46px;display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid #DDE4EE}.ag .bar i{display:block;width:62%;border-radius:6px 6px 0 0;min-height:2px}
+.ag .b b{display:block;font-size:12px;margin-top:3px;direction:ltr;font-variant-numeric:tabular-nums}.ag .b span{font-size:10px;color:#4A5568}.ag .b.t b{color:#051D48;font-size:13px}.ag .ft2{font-size:9.5px;color:#66738A;margin-top:5px}.ln tr{break-inside:avoid}
 .wm{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:90px;color:rgba(210,0,0,.07);transform:rotate(-25deg);font-weight:900;pointer-events:none}
 </style></head><body class="${o.dense?'dense':''}">
 ${o.watermark?`<div class="wm">${esc(o.watermark)}</div>`:''}
@@ -8287,6 +8290,7 @@ ${o.watermark?`<div class="wm">${esc(o.watermark)}</div>`:''}
  <span class="ids">${k.vatNo?`<span>الرقم الضريبي <bdi class="ce">VAT No.</bdi><b><bdi dir="ltr">${esc(k.vatNo)}</bdi></b></span>`:''}${k.crNo?`<span>السجل التجاري <bdi class="ce">CR No.</bdi><b><bdi dir="ltr">${esc(k.crNo)}</bdi></b></span>`:''}</span></div>
 <div class="meta">${[['الرقم',o.no],['التاريخ',o.date],...(o.meta||[])].filter(x=>x&&x[1]).map(([a,b])=>`<div class="chip"><span>${esc(a)}</span>${BI_EN[a]?` <bdi class="ce">${esc(BI_EN[a])}</bdi>`:''}<b><bdi dir="ltr">${esc(String(b))}</bdi></b></div>`).join('')}${o.status?`<div class="chip st">${esc(o.status)}</div>`:''}</div>
 <div class="cards"><div class="cardp"><h3>${bi(o.partyTitle||'العميل',1)}</h3>${kv(o.party||[])}</div><div class="cardp b"><h3>${bi(o.sideTitle||'بيانات المستند',1)}</h3>${kv(o.side||[])}</div></div>
+${o.extra||''}
 <table class="ln"><thead><tr>${o.noIdx?'':'<th style="width:28px">#</th>'}${o.cols.map(c=>`<th class="${c.n?'n':''}">${bi(c.l)}</th>`).join('')}</tr></thead><tbody>
 ${o.rows.map((r0,i)=>{const r=Array.isArray(r0)?r0:r0.cells;return `<tr class="${r0.cls||''}">${o.noIdx?'':`<td>${i+1}</td>`}${r.map((v,j)=>`<td class="${o.cols[j].n?'n':''}${o.cols[j].tx?' tx':''}"${o.cols[j].tx?` title="${esc(String(v??''))}"`:''}>${o.cols[j].b?`<b>${esc(String(v??''))}</b>`:esc(String(v??''))}</td>`).join('')}</tr>`}).join('')||`<tr><td colspan="${o.cols.length+1}" style="text-align:center;color:#888">—</td></tr>`}</tbody></table>
 <div class="bot"><div>${o.qr?`<div class="qr"><div id="qr">${qrSvg(o.qr)}</div><small><b>فاتورة إلكترونية · E-invoice</b><br>امسح الرمز للتحقق من الفاتورة (هيئة الزكاة والضريبة والجمارك).<br><i class="en">Scan to verify with ZATCA.</i></small></div>`:''}
@@ -8353,6 +8357,16 @@ IC.stmt='<path d="M5 3h14v18H5z"/><path d="M8 7h8M8 11h8M8 15h5"/><path d="M15 1
 {const i=NAV.findIndex(n=>n[0]==='sapdocs');if(i>=0){const [x]=NAV.splice(i,1);x[2]=()=>L('إعدادات ربط ساب','SAP link settings');const f=x[3];x[3]=()=>isAdmin()&&(!f||f());
   const d=NAV.findIndex(n=>n[0]==='data');NAV.splice(d>=0?d+1:NAV.length,0,x)}}
 const STX={};
+const ST_TT={13:'فاتورة مبيعات',14:'إشعار دائن',24:'سند قبض',46:'سند صرف',30:'قيد يومية',1470000071:'قيد يومية',203:'دفعة مقدمة',[-2]:'رصيد افتتاحي',321:'تسوية',25:'إيداع',15:'سند تسليم',16:'مرتجع مبيعات',18:'فاتورة مشتريات',19:'إشعار دائن مورد'};
+const stType=x=>ST_TT[+x.tt]||x.label||'قيد';
+const stDesc=(x,card)=>{const n=stNote(x,card);return n?`${stType(x)} — ${n}`:stType(x)};
+/* overdue receivables for the customer by age (days past due date, as of today), from the receivables aging */
+function stAging(card){if(typeof agData!=='function'||!(S.invoices||[]).length)return null;const k=normCode(card);
+  const o=agData().rows.find(r=>normCode(r.code)===k)||{cur:0,b30:0,b60:0,b90:0,b90p:0,tot:0};return {cur:o.cur||0,b30:o.b30||0,b60:o.b60||0,b90:o.b90||0,b90p:o.b90p||0,od:(o.b30||0)+(o.b60||0)+(o.b90||0)+(o.b90p||0),tot:o.tot||0}}
+const AGC=[['b30','1 – 30 يوم','1–30 days','#8FC153'],['b60','31 – 60 يوم','31–60 days','#F3B235'],['b90','61 – 90 يوم','61–90 days','#F39235'],['b90p','أكثر من 90 يوم','Over 90 days','#D92D20'],['od','الإجمالي','Total','#051D48']];
+function stAgHtml(a,print){if(!a)return '';const mx=Math.max(1,...AGC.map(([k])=>a[k]));
+  return `<div class="ag"><h3>المستحقات المتأخرة <i class="en">Overdue receivables</i><small>حسب تاريخ الاستحقاق، كما في ${pdate(TODAY())}</small></h3><div class="bs">${AGC.map(([k,ar,en,c])=>`<div class="b ${k==='od'?'t':''}"><div class="bar"><i style="height:${Math.round(a[k]/mx*100)}%;background:${c}"></i></div><b>${pm(a[k])}</b><span>${ar}</span>${print?`<i class="en b" style="text-align:center">${en}</i>`:''}</div>`).join('')}</div>
+   <div class="ft2">غير مستحق بعد: ${pm(a.cur)} · إجمالي المفتوح على العميل: ${pm(a.tot)}</div></div>`}
 const stClient=code=>{const k=normCode(code);return (S.clients||[]).find(c=>normCode(c.code)===k)||null};
 // SAP's own line memo («A/R Invoices - C14914») repeats the type and the customer: keep it only when it says something more
 const stNote=(x,card)=>{let t=String(x.note||'').trim();if(/^(A\/R|Incoming|Outgoing|Journal|Opening|Down|Reconcil|A\/P)/i.test(t)&&new RegExp('-\\s*'+String(card).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*$','i').test(t))t='';
@@ -8367,10 +8381,10 @@ function stTable(r){const c=stClient(r.customer.CardCode)||{};const dr=r.rows.re
   const rows=[{_o:1,date:r.from,balance:r.opening},...r.rows];
   return `<div class="kpis"><div class="kpi"><span>${L('رصيد افتتاحي','Opening')}</span><b>${pm(r.opening)}</b></div><div class="kpi"><span>${L('إجمالي المدين','Debit')}</span><b>${pm(dr)}</b></div>
    <div class="kpi"><span>${L('إجمالي الدائن','Credit')}</span><b>${pm(cr)}</b></div><div class="kpi"><span>${L('الرصيد في','Balance at')} ${pdate(r.to)}</span><b>${pm(r.closing)}</b></div></div>
-   <div class="card"><div class="small" style="margin-bottom:6px"><b>${esc(r.customer.CardName)}</b> — <bdi dir="ltr">${esc(r.customer.CardCode)}</bdi> · ${L('المندوب','Rep')}: <b>${esc(c.repId?tName(c.repId):'—')}</b> · ${L('رصيد ساب اليوم','SAP balance today')} <b>${pm(r.current)}</b>
+   ${stAgHtml(stAging(r.customer.CardCode))}<div class="card"><div class="small" style="margin-bottom:6px"><b>${esc(r.customer.CardName)}</b> — <bdi dir="ltr">${esc(r.customer.CardCode)}</bdi> · ${L('المندوب','Rep')}: <b>${esc(c.repId?tName(c.repId):'—')}</b> · ${L('رصيد ساب اليوم','SAP balance today')} <b>${pm(r.current)}</b>
     ${r.match===false?` <span class="flag">${L('تنبيه: مجموع القيود لا يساوي رصيد ساب','Ledger total differs from SAP balance')}</span>`:''}</div>
-   ${table([{l:L('التاريخ','Date'),f:x=>pdate(x.date)},{l:L('المستند','Document'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:`${esc(x.label||'')} <bdi dir="ltr">${esc(x.num||'')}</bdi>`},
-    {l:L('البيان','Details'),f:x=>x._o?'':esc(stNote(x,r.customer.CardCode))},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?pm(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?pm(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${pm(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
+   ${table([{l:L('التاريخ','Date'),f:x=>pdate(x.date)},{l:L('الرقم','No.'),f:x=>x._o?'':`<bdi dir="ltr">${esc(x.num||'')}</bdi>`},
+    {l:L('البيان','Details'),f:x=>x._o?`<b>${L('رصيد افتتاحي','Opening balance')}</b>`:esc(stDesc(x,r.customer.CardCode))},{l:L('مدين','Debit'),c:'n',f:x=>x.debit?pm(x.debit):''},{l:L('دائن','Credit'),c:'n',f:x=>x.credit?pm(x.credit):''},{l:L('الرصيد','Balance'),c:'n',f:x=>`<b>${pm(x.balance)}</b>`}],rows.map(x=>({...x,id:null})))}
    <div class="small muted" style="margin-top:6px">${esc(r.note||'')}</div></div>`}
 async function stPrint(){const r=STX.res;if(!r)return;const w=docWin();if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
   try{await coLoad()}catch(e){}
@@ -8378,8 +8392,9 @@ async function stPrint(){const r=STX.res;if(!r)return;const w=docWin();if(!w){to
   brandDoc({titleAr:'كشف حساب عميل',titleEn:'STATEMENT OF ACCOUNT',no:card,date:pdate(TODAY()),meta:[['من',pdate(r.from)],['إلى',pdate(r.to)]],dense:1,noIdx:1,
     party:[['الاسم',r.customer.CardName],['الكود',card],['الجوال',c.phone],['الرقم الضريبي',c.vatNo],['المدينة',[c.city,c.district].filter(Boolean).join(' - ')]],
     sideTitle:'الحساب',side:[['مندوب المبيعات',rep.name||(c.repId?tName(c.repId):'')||'غير محدد'],['الجوال',rep.phone],['الحد الائتماني',pm(r.customer.CreditLimit||0)],['رصيد العميل في ساب اليوم',pm(r.current)]],
-    cols:[{l:'التاريخ'},{l:'نوع المستند'},{l:'الرقم'},{l:'البيان',tx:1},{l:'مدين',n:1},{l:'دائن',n:1},{l:'الرصيد',n:1,b:1}],
-    rows:[{cls:'hl',cells:[pdate(r.from),'رصيد افتتاحي','','','','',pm(r.opening)]},...r.rows.map(x=>[pdate(x.date),x.label||'',String(x.num||''),stNote(x,card),x.debit?pm(x.debit):'',x.credit?pm(x.credit):'',pm(x.balance)])],
+    extra:stAgHtml(stAging(card),1),
+    cols:[{l:'التاريخ'},{l:'الرقم'},{l:'البيان',tx:1},{l:'مدين',n:1},{l:'دائن',n:1},{l:'الرصيد',n:1,b:1}],
+    rows:[{cls:'hl',cells:[pdate(r.from),'','رصيد افتتاحي','','',pm(r.opening)]},...r.rows.map(x=>[pdate(x.date),String(x.num||''),stDesc(x,card),x.debit?pm(x.debit):'',x.credit?pm(x.credit):'',pm(x.balance)])],
     totals:[['رصيد افتتاحي',pm(r.opening)],['إجمالي المدين',pm(dr)],['إجمالي الدائن',pm(cr)],['الرصيد الختامي (ر.س)',pm(r.closing),1]],
     notes:[['ملاحظات','الكشف مستخرج من قيود ساب لحساب العميل. نرجو مراجعته وإفادتنا بأي ملاحظة خلال 15 يوماً، وإلا يُعد الرصيد مصادقاً عليه.']],
     sigs:['المحاسب','العميل (المصادقة على الرصيد والختم)']},w)}
@@ -8400,6 +8415,10 @@ if(typeof sdStmtPrint==='function'){sdStmtPrint=function(){const r=SDX.stmt&&SDX
   const entry=o.sapEntry||(/^so-(\d+)$/.exec(o.id)||[])[1];if(lv<3||!entry||!['open','partial'].includes(o.status))return;
   const tb=mb.querySelector('.toolbar');const b=`<button class="btn p" data-act="dnNew" data-id="${id}">🚚 ${L('سند تسليم','Delivery note')}</button>`;
   if(tb)tb.insertAdjacentHTML('beforeend',b);else mb.insertAdjacentHTML('afterbegin',`<div class="toolbar">${b}</div>`)}}
+{const st=document.createElement('style');st.textContent=`#view .ag{background:var(--card,#fff);border:1px solid var(--line,#DDE4EE);border-radius:14px;padding:10px 14px;margin-bottom:12px}#view .ag h3{margin:0 0 8px;font-size:14px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}#view .ag h3 i.en{display:none}#view .ag h3 small{margin-inline-start:auto;color:var(--muted,#66738A);font-weight:500;font-size:11.5px}
+#view .ag .bs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:end}#view .ag .b{text-align:center;min-width:0}#view .ag .bar{height:64px;display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid var(--line,#DDE4EE)}#view .ag .bar i{display:block;width:60%;border-radius:6px 6px 0 0;min-height:2px}
+#view .ag .b b{display:block;font-size:13px;margin-top:4px;direction:ltr;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}#view .ag .b span{font-size:11.5px;color:var(--muted,#66738A)}#view .ag .ft2{font-size:11.5px;color:var(--muted,#66738A);margin-top:6px}
+@media(max-width:600px){#view .ag .b b{font-size:11px}#view .ag .b span{font-size:10px}}`;document.head.appendChild(st)}
 ACT.dnNew=d=>{const o=byId('orders',d.id);if(!o)return;const entry=+(o.sapEntry||(/^so-(\d+)$/.exec(o.id)||[])[1]);if(typeof sdForm!=='function')return toast('—');
   closeModal();setTimeout(()=>sdForm('delivery',{card:o.clientCode,doc:{type:'order',entry}}),60)};
 }
