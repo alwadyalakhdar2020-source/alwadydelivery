@@ -5818,8 +5818,11 @@ function wpHi(t,q){t=String(t??'');const toks=wpNorm(q).split(' ').filter(Boolea
 /* rank: exact code, code prefix, text prefix, word prefix, contains */
 function wpFind(list,q,limit=60){const toks=wpNorm(q).split(' ').filter(Boolean);if(!toks.length)return list.slice(0,limit);const res=[];
   for(let i=0;i<list.length;i++){const x=list[i];const k=x._k||(x._k=wpNorm([x.code,x.label,x.sub,x.keys].filter(Boolean).join(' ')));if(!toks.every(t=>k.includes(t)))continue;
-    const c=x._c??(x._c=wpNorm(x.code||''));const t0=toks[0];const s=c&&c===wpNorm(q)?0:c&&c.startsWith(t0)?1:k.startsWith(t0)?2:(' '+k).includes(' '+t0)?3:4;res.push([s,i,x])}
-  res.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);return res.slice(0,limit).map(r=>r[2])}
+    const c=x._c??(x._c=wpNorm(x.code||''));const n=x._n??(x._n=wpNorm(x.label||''));const qq=wpNorm(q);const t0=toks[0];
+    // closest first: exact code/name, then code or name starting with what was typed, then whole-word matches, then anywhere
+    const s=(c&&c===qq)||n===qq?0:c&&c.startsWith(qq)?1:n.startsWith(qq)?2:c&&c.startsWith(t0)?3:(' '+n).includes(' '+qq)?4:toks.every(t=>(' '+k).includes(' '+t))?5:k.includes(qq)?6:7;
+    res.push([s,s===1||s===3?(c.length*1000+(parseInt(c.replace(/\D+/g,''))||0)%1000):(n.length||99),i,x])}
+  res.sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]);return res.slice(0,limit).map(r=>r[3])}
 function wpEnsure(){if(WP.pop)return WP.pop;const p=document.createElement('div');p.id='wp_pop';p.className='wp-pop';p.hidden=true;document.body.appendChild(p);
   p.addEventListener('mousedown',e=>e.preventDefault());p.addEventListener('click',e=>{const it=e.target.closest('.wp-it');if(it&&WP.cur)wpChoose(+it.dataset.i)});WP.pop=p;return p}
 function wpPlace(){const c=WP.cur;if(!c)return;const p=WP.pop;const r=c.input.getBoundingClientRect();const sheet=window.innerWidth<600;p.classList.toggle('sheet',sheet);
@@ -5985,7 +5988,7 @@ function swCFL({title,titleAr,cols,rows,find='',multi=false,onChoose,remote}){
    e=>{if(e.key==='Escape'){e.preventDefault();swDlgClose()}else if(e.key==='ArrowDown'){e.preventDefault();st.hi=Math.min(st.list.length-1,st.hi+1);paint()}else if(e.key==='ArrowUp'){e.preventDefault();st.hi=Math.max(0,st.hi-1);paint()}else if(e.key==='Enter'){e.preventDefault();choose()}});
   const q=document.getElementById('cfl_q');q.addEventListener('input',()=>{st.q=q.value;st.hi=0;st.sel.clear();paint();runRemote()});setTimeout(()=>{q.focus();q.select()},20);
   const o=document.getElementById('sw_dlg');o.onclick=e=>{const b=e.target.closest('[data-swd]');if(b){b.dataset.swd==='ok'?choose():swDlgClose();return}
-    const tr=e.target.closest('tr[data-i]');if(!tr)return;const i=+tr.dataset.i;if(multi&&(e.ctrlKey||e.metaKey)){st.sel.has(i)?st.sel.delete(i):st.sel.add(i)}else st.sel.clear();st.hi=i;paint()};
+    const tr=e.target.closest('tr[data-i]');if(!tr)return;const i=+tr.dataset.i;if(multi&&(e.ctrlKey||e.metaKey)){st.sel.has(i)?st.sel.delete(i):st.sel.add(i);st.hi=i;paint();return}st.sel.clear();st.hi=i;choose()};
   o.ondblclick=e=>{const tr=e.target.closest('tr[data-i]');if(tr){st.hi=+tr.dataset.i;st.sel.clear();choose()}};
   paint();runRemote()}
 function swCflItems(find,after){if(!SDE||!SDE.cust){swMsg('Specify the customer first — اختر العميل أولاً','err');document.getElementById('sd_client')?.focus();return}
@@ -6049,7 +6052,7 @@ sdForm=function(kind,pre){if(kind==='payment')return _sdFormOld(kind,pre);
   SDE={kind,cust:null,lines:[],disc:0,fleet:[],pay:{invoices:[]},bpl:null,series:null,slp:null,contact:null,round:false};swWin(kind,'add');sdPaint();
   swSetup().then(swFillHdr).catch(e=>swMsg('Could not read branches and series from SAP — '+esc(e.message),'err'));
   const ci=document.getElementById('sd_client');swBindCust(ci);setTimeout(()=>ci.focus(),60);if(pre)setTimeout(()=>sdPrefill(pre),0)};
-function swBindCust(ci){ci.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter')return;const v=ci.value.trim();if(e.shiftKey)return;
+function swBindCust(ci){swCustAhead(ci);ci.addEventListener('keydown',e=>{if(e._wp||e.defaultPrevented||(e.key!=='Tab'&&e.key!=='Enter'))return;const v=ci.value.trim();if(e.shiftKey)return;
   if(!v){if(e.key==='Enter'){e.preventDefault();swCflBP('')}return}
   if(SDE&&SDE.cust&&SDE.cust.CardCode===v)return;
   const ex=wpClients().find(x=>x.code&&x.code.toLowerCase()===v.toLowerCase());e.preventDefault();
@@ -6092,8 +6095,8 @@ sdPaint=function(){if(!SDE)return;const box=document.getElementById('sd_lines');
      <td><input id="sw_desc" class="sw-ci" placeholder="Item Description — اكتب الوصف" autocomplete="off" dir="auto"></td><td></td><td></td><td class="ro n">0.00</td><td class="ro">VAT 15%</td><td></td><td class="ro">${esc(swWh()||'')}</td><td class="g"></td><td class="g"></td>${hasBase?'<td></td>':''}</tr>`
    :!SDE.lines.length?`<tr><td colspan="${nc}" class="sw-empty">Use “Copy From” to draw lines from a base document — استخدم «Copy From» لنسخ الأسطر</td></tr>`:''}</tbody></table>`;
   const qi=document.getElementById('sd_q'),di=document.getElementById('sw_desc');
-  if(qi)qi.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=qi.value.trim();if(!v){if(e.key==='Enter'){e.preventDefault();swCflItems('')}return}e.preventDefault();swItemCode(v)});
-  if(di)di.addEventListener('keydown',e=>{if(e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=di.value.trim();if(!v)return;e.preventDefault();di.value='';swCflItems(v)});
+  if(qi)qi.addEventListener('keydown',e=>{if(e._wp||e.defaultPrevented||e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=qi.value.trim();if(!v){if(e.key==='Enter'){e.preventDefault();swCflItems('')}return}e.preventDefault();swItemCode(v)});
+  if(di)di.addEventListener('keydown',e=>{if(e._wp||e.defaultPrevented||e.key!=='Tab'&&e.key!=='Enter'||e.shiftKey)return;const v=di.value.trim();if(!v)return;e.preventDefault();di.value='';swCflItems(v)});
   const t=sdTotals();document.getElementById('sd_tot').innerHTML=`<div class="sw-r">${swLbl('Total Before Discount','الإجمالي قبل الخصم')}<div class="sw-f"><input class="sw-in ro n" readonly value="${swM(t.net0)} SAR"></div></div>
    <div class="sw-r">${swLbl('Discount','الخصم')}<div class="sw-f"><input id="sd_disc" class="sw-in n" style="width:64px" inputmode="decimal" value="${esc(SDE.disc||0)}"><span class="sw-pct">%</span><input class="sw-in ro n" readonly value="${swM(t.disc)} SAR"></div></div>
    <div class="sw-r">${swLbl('Freight','الشحن')}<div class="sw-f">${swArrow}<input class="sw-in ro n" readonly value="${swM(0)} SAR"></div></div>
@@ -6280,6 +6283,26 @@ textarea.sw-in{height:auto;padding:3px 5px;resize:vertical}.sw-in.n{text-align:r
 #modal.sapmode .sw-cfl,#modal.sapmode .sw-btn{min-height:0!important}
 @media(max-width:860px){#modal.sapmode .sw input.sw-in,#modal.sapmode .sw input.sw-ci{height:30px!important;font-size:14px!important}.sw-hd,.sw-ft{grid-template-columns:1fr;gap:2px}.sw-c2{justify-self:stretch;width:100%}.sw-r{grid-template-columns:120px 1fr}#modal.sapmode .sheet{height:100vh;width:100vw;border-radius:0}.sw-panel{margin:0 6px}.sw-tabs{padding:0 6px;overflow-x:auto}.sw-in,.sw-ci{font-size:14px;height:30px}.sw-grid td{height:30px}}
 `;document.head.appendChild(st)})();
+
+// registered before the type-ahead's own key handler: when its list is open with results, Enter/Tab belongs to it
+function swWpMark(inp){inp.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key==='Tab')&&WP.cur&&WP.cur.input===inp&&WP.cur.items.length&&inp.value.trim())e._wp=true},true)}
+/* Type-ahead in SAP entry screens (management request 23/11): customer by code/name/phone, item by code/name.
+   Results are ranked closest first and a single click/tap (or Enter) adds it — no separate Choose step. */
+function swCustAhead(ci){if(!ci||ci._wp||ci.readOnly)return;swWpMark(ci);
+  wCombo(ci,{source:wpCustSrc(true),limit:40,min:1,openOnFocus:false,tabPick:true,width:460,empty:'No matching customer — ما فيه عميل مطابق',
+    pick:x=>{ci.value=x.code;const nm=document.getElementById('sw_name');if(nm)nm.value=x.label||'';swMsg('');sdPickClient(x.code)}})}
+function swItemSrc(q){if(!SDE||!SDE.cust)throw new Error('Specify the customer first — اختر العميل أولاً');
+  const run=items=>wpFind(items,q,60);const c=SDX.cat[String(SDE.cust.PriceListNum)];
+  if(c&&c.items)return run(c.items);return sdCatalog(SDE.cust.PriceListNum).then(run)}
+function swItemAhead(inp){if(!inp||inp._wp)return;swWpMark(inp);
+  wCombo(inp,{source:swItemSrc,limit:60,min:1,openOnFocus:false,tabPick:true,width:560,empty:'No matching item — ما فيه صنف مطابق',
+    pick:x=>{inp.value='';const q0=document.getElementById('sd_q');if(q0)q0.value='';swAddLine(x);swMsg('');sdPaint();const n=document.querySelector(`[data-sdl="${SDE.lines.length-1}"][data-f="qty"]`);if(n){n.focus();n.select()}}});
+}
+// a repaint (e.g. a line price arriving from SAP) must not eat what the user is typing: keep text, focus and the open list
+{const _p=sdPaint;sdPaint=function(){const a=document.activeElement;const keep=a&&(a.id==='sd_q'||a.id==='sw_desc')?{id:a.id,v:a.value,open:!!(WP.cur&&WP.cur.input===a)}:null;
+  if(keep&&keep.open)wpClose();const r=_p.apply(this,arguments);
+  try{const q=document.getElementById('sd_q'),d=document.getElementById('sw_desc');swItemAhead(q);swItemAhead(d);
+    if(keep){const n=document.getElementById(keep.id);if(n&&n!==a){n.value=keep.v;n.focus();try{n.setSelectionRange(keep.v.length,keep.v.length)}catch(e){}if(keep.open&&keep.v.trim())wpOpen(n,n._wp)}}}catch(e){}return r}}
 
 
 /* ============ AI assistant (suggests only; never changes data) ============ */
