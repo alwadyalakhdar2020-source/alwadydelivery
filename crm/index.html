@@ -2830,9 +2830,14 @@ OPEN.order=(id,refresh)=>{const o=byId('orders',id);if(!o)return;
 function plSources(rep,month){
   const repOfQ=q=>q.repId||byId('clients',q.clientId)?.repId||'';
   const mEnd=addMonths(month+'-01',1);const b3End=addMonths(month+'-01',4);
-  const qs=S.quotes.filter(q=>repOfQ(q)===rep&&['open','pending','accepted'].includes(q.status)&&!(q.status==='accepted'&&q.closeDate&&q.closeDate<month+'-01')&&!S.orders.some(o=>o.quoteId===q.id||(o.quoteNo&&normCode(o.quoteNo)===normCode(q.no))));
+  // open = not yet turned into an order: in-app open/pending/sent/accepted, and SAP quotes still open (status 'sent')
+  const ordered=new Set();S.orders.forEach(o=>{if(o.quoteId)ordered.add('i:'+o.quoteId);if(o.quoteNo)ordered.add('n:'+normCode(o.quoteNo))});
+  const openQ=S.quotes.filter(q=>repOfQ(q)===rep&&['open','pending','sent','accepted'].includes(q.status)&&!(q.status==='accepted'&&q.closeDate&&q.closeDate<month+'-01')&&!ordered.has('i:'+q.id)&&!(q.no&&ordered.has('n:'+normCode(q.no))));
+  // a quote whose validity ended before this month is stale even if still open in SAP: shown as a count, not added to the pipeline
+  const valid=q=>q.status==='accepted'||(q.validUntil||q.expClose||'9999-12-31')>=month+'-01';
+  const qs=openQ.filter(valid);const qx=openQ.length-qs.length;
   const os=S.orders.filter(o=>o.repId===rep&&(o.status==='open'||o.status==='partial'));
-  return {qs,os,mEnd,b3End};
+  return {qs,os,mEnd,b3End,qx};
 }
 function plFillFromQuotes(){
   const {rep,month}=plCurrent();if(!plCanEdit(rep))return;const d=PL.doc;const {qs,os,mEnd,b3End}=plSources(rep,month);
@@ -2849,9 +2854,9 @@ function plFillFromQuotes(){
   if(!a&&!b&&!c){toast(L('لا توجد عروض أسعار أو أوامر بيع مفتوحة جديدة لهذا المندوب','No new open quotations or orders for this rep'));return}
   plDirty();render();toast(L(`أُضيف ${a} عميل للشهر، و${b} للـ Back log خلال 3 أشهر، و${c} بعدها. راجع النسب ثم احفظ.`,`Added ${a} for the month, ${b} to 3-month backlog, ${c} later. Review and save.`));
 }
-{const _sheet=plSheetView;plSheetView=function(){let h=_sheet();try{const {rep,month}=plCurrent();if(!rep||!plCanEdit(rep))return h;const {qs,os}=plSources(rep,month);
+{const _sheet=plSheetView;plSheetView=function(){let h=_sheet();try{const {rep,month}=plCurrent();if(!rep||!plCanEdit(rep))return h;const {qs,os,qx}=plSources(rep,month);
   const mine=vis(S.clients).filter(c=>c.repId===rep).length;
-  const box=`<div class="banner info"><span class="sp">${L(`عملاء المندوب: <b>${mine}</b> · عروض أسعار مفتوحة: <b>${qs.length}</b> (${smoney(qs.reduce((s,q)=>s+(+q.value||0),0))}) · أوامر بيع مفتوحة: <b>${os.length}</b>. اضغط «تعبئة من العروض والأوامر» ليُبنى البايب لاين منها: المتوقع إغلاقه هذا الشهر في جدول الفرص، والباقي في الـ Back log حسب تاريخ الإغلاق المتوقع.`,`Rep customers: <b>${mine}</b> · open quotations: <b>${qs.length}</b> · open orders: <b>${os.length}</b>. Use “Fill from quotations & orders” to build the sheet.`)}</span>${qs.length||os.length?`<button class="btn s p" data-act="plFromQuotes">${L('تعبئة من العروض والأوامر','Fill from quotations & orders')}</button>`:''}</div>`;
+  const box=`<div class="banner info"><span class="sp">${L(`عملاء المندوب: <b>${mine}</b> · عروض أسعار مفتوحة: <b>${qs.length}</b> (${smoney(qs.reduce((s,q)=>s+(+q.value||0),0))})${qx?` · منتهية الصلاحية ولسا مفتوحة في ساب: <b>${qx}</b> (ما تدخل البايب لاين)`:''} · أوامر بيع مفتوحة: <b>${os.length}</b>. اضغط «تعبئة من العروض والأوامر» ليُبنى البايب لاين منها: المتوقع إغلاقه هذا الشهر في جدول الفرص، والباقي في الـ Back log حسب تاريخ الإغلاق المتوقع.`,`Rep customers: <b>${mine}</b> · open quotations: <b>${qs.length}</b> · open orders: <b>${os.length}</b>. Use “Fill from quotations & orders” to build the sheet.`)}</span>${qs.length||os.length?`<button class="btn s p" data-act="plFromQuotes">${L('تعبئة من العروض والأوامر','Fill from quotations & orders')}</button>`:''}</div>`;
   const i=h.indexOf('<div id="plBar"');return i>=0?h.slice(0,i)+box+h.slice(i):box+h}catch(e){console.warn(e);return h}}}
 {const _sum=plSummaryView;plSummaryView=function(){const h=_sum();if(plReps().length)return h;
   return `<div class="banner bad"><span class="sp">${L('لا يوجد مندوبو مبيعات مسجلون بعد، لذلك البايب لاين فاضي. أضف المندوبين من «المستخدمون والفريق» بنفس الأسماء أو الأكواد المكتوبة في ملفات Excel، ثم استورد العملاء وعروض الأسعار.','No sales reps yet, so the pipeline is empty. Add reps in “Users & team” using the names or codes in your Excel files, then import customers and quotations.')}</span>${isMgr()?`<button class="btn s p" data-go="team">${L('إضافة المندوبين','Add reps')}</button>`:''}</div>`+h}}
