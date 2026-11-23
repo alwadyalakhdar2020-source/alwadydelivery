@@ -6630,5 +6630,206 @@ const _mm=V.mmore;V.mmore=function(){const h=_mm.apply(this,arguments);const d=t
   const row=`<button type="button" class="mh-tile" data-act="thToggle"><span class="ic" style="background:rgba(52,190,240,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px">${d?SUN:MOON}</svg></span><b>${d?L('الوضع الفاتح','Light mode'):L('الوضع الغامق (كحلي)','Dark (navy) mode')}</b></button>`;
   return h.replace('<div class="mh-list">','<div class="mh-list">'+row)};
 }
+
+/* ============ Fast entry on the phone (management request 23/11): every form, every screen ============
+   - smart defaults (rep = me, region = mine, date = today) so a rep never picks himself
+   - only the required/essential fields up front; the rest folded under «حقول إضافية»
+   - right keyboards (numbers, phone, email), Enter jumps to the next field
+   - short lists as big tap chips instead of drop-downs; quick date chips; «موقعي الحالي» for coordinates
+   - big camera button for photos; missing fields highlighted and scrolled to
+   - unsaved new entries kept as a draft on the device and offered back
+   - after a visit: one tap to the next action (quote, opportunity, complaint, follow-up)
+   - a «＋» button on the phone screens for the common entries */
+{
+const FE_ESSENTIAL=new Set(['clientId','name','title','phone','contact','value','qty','amount','lines','items','notes','product','date','dueDate','closeDate','expClose','oppId','projectId','kind','type','stage','priority','result','nextStep','nextDate','time','desc','description','subject']);
+const feMob=()=>document.documentElement.classList.contains('m-mode')||window.matchMedia('(max-width:640px)').matches;
+const feKey=t=>'wady.draft:'+(me().id||'')+':'+t;
+
+/* ---------- smart defaults + drafts + folding, wrapped around the generic form ---------- */
+const _openForm=openForm;
+openForm=function(o){
+  const isNew=!(o.data&&o.data.id);const data={...(o.data||{})};const fields=o.fields.map(f=>({...f}));
+  if(isNew){fields.forEach(f=>{
+    if(f.k==='repId'&&!data.repId&&role()==='rep'&&me().id)data.repId=me().id;
+    if(f.k==='region'&&!data.region&&me().region)data.region=me().region;
+    if(f.t==='date'&&(f.k==='date'||f.k==='visitDate')&&!data[f.k])data[f.k]=TODAY()})}
+  // a rep creating his own record never needs to see the «rep» picker
+  if(isNew&&role()==='rep'&&me().id)fields.forEach(f=>{if(f.k==='repId'&&data.repId===me().id){f.ro=1;f._fold=1}});
+  const r=_openForm({...o,data,fields});
+  const title=o.title;const key=feKey(title);
+  if(FORM&&isNew&&typeof FORM.onSave==='function'){const os=FORM.onSave;FORM.onSave=async v=>{const x=await os(v);try{localStorage.removeItem(key)}catch(e){}return x}}
+  const form=document.getElementById('theform');
+  if(form){
+    if(feMob())feFold(form,fields);
+    if(isNew)feDraft(form,key);
+  }
+  return r};
+
+function feFold(form,fields){
+  const real=fields.filter(f=>f.t!=='html');if(real.length<=7)return;
+  const grid=form.querySelector('.fgrid');if(!grid)return;
+  const fold=real.filter(f=>f._fold||(!f.req&&!FE_ESSENTIAL.has(f.k)&&f.t!=='rows'));if(fold.length<2)return;
+  const box=document.createElement('details');box.className='fmore';
+  box.innerHTML=`<summary>${L('حقول إضافية','More fields')} <span class="fmore-n">${fold.length}</span><small>${L('اختيارية — تقدر تتركها','optional')}</small></summary><div class="fgrid"></div>`;
+  const g2=box.querySelector('.fgrid');
+  fold.forEach(f=>{const el=form.querySelector(`[name="${CSS.escape(f.k)}"]`);const fld=el&&el.closest('.fld');if(fld&&grid.contains(fld))g2.appendChild(fld)});
+  if(g2.children.length)grid.after(box)}
+
+function feDraft(form,key){
+  let d=null;try{d=JSON.parse(localStorage.getItem(key)||'null')}catch(e){}
+  if(d&&d.at&&Date.now()-d.at<7*864e5&&d.v){
+    const bn=document.createElement('div');bn.className='banner info fdraft';
+    bn.innerHTML=`<span class="sp">${L('عندك إدخال ما انحفظ من','You have an unsaved entry from')} ${fdt(new Date(d.at).toISOString())}</span><button type="button" class="btn s p" data-fd="use">${L('استرجاعه','Restore')}</button><button type="button" class="btn s" data-fd="drop">${L('تجاهل','Discard')}</button>`;
+    form.prepend(bn);
+    bn.addEventListener('click',e=>{const b=e.target.closest('[data-fd]');if(!b)return;
+      if(b.dataset.fd==='use')feRestore(form,d.v);else try{localStorage.removeItem(key)}catch(x){}
+      bn.remove()})}
+  let t=null;const snap=()=>{t=null;try{const v=collect();const any=Object.entries(v).some(([k,x])=>FORM.fields.find(f=>f.k===k&&!f.ro)&&(Array.isArray(x)?x.some(r=>r&&Object.values(r).some(y=>y!==''&&y!=null&&y!==0)):x!==''&&x!=null&&x!==false));
+    if(any)localStorage.setItem(key,JSON.stringify({at:Date.now(),v}))}catch(e){}};
+  form.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(snap,600)});form.addEventListener('change',()=>{clearTimeout(t);t=setTimeout(snap,300)})}
+
+function feRestore(form,v){
+  Object.entries(v).forEach(([k,x])=>{const f=FORM.fields.find(z=>z.k===k);if(!f||f.ro||f.t==='html')return;
+    if(f.t==='rows'){FORM.rows[k]=(x||[]).map(r=>({...r}));renderRows(k);return}
+    if(f.t==='multi'){form.querySelectorAll(`input[name="${CSS.escape(k)}"]`).forEach(i=>i.checked=(x||[]).includes(i.value));return}
+    const el=form.querySelector(`[name="${CSS.escape(k)}"]`);if(!el)return;
+    if(f.t==='check')el.checked=!!x;else el.value=x==null?'':x;
+    el.dispatchEvent(new Event('change',{bubbles:true}))});
+  try{wpSweep()}catch(e){}feChipsSync(form);toast(L('رجّعنا الإدخال','Restored'))}
+
+/* ---------- validation: show exactly which fields, jump to the first ---------- */
+const _submit=submitForm;
+submitForm=async function(){
+  const form=document.getElementById('theform');
+  if(form&&FORM){form.querySelectorAll('.fld.ferr').forEach(x=>x.classList.remove('ferr'));
+    let vals={};try{vals=collect()}catch(e){}
+    const miss=FORM.fields.filter(f=>f.req&&(vals[f.k]==null||vals[f.k]===''||(Array.isArray(vals[f.k])&&!vals[f.k].length)));
+    let first=null;miss.forEach(f=>{const el=form.querySelector(`[name="${CSS.escape(f.k)}"]`);const fld=el&&el.closest('.fld');if(fld){fld.classList.add('ferr');const dt=fld.closest('details');if(dt)dt.open=true;first=first||fld}});
+    if(first){first.scrollIntoView({block:'center',behavior:'smooth'});const i=first.querySelector('input:not([type=hidden]):not(.wp-hidden),select:not(.wp-hidden),textarea');if(i&&!feMob())setTimeout(()=>i.focus(),250)}}
+  return _submit.apply(this,arguments)};
+document.addEventListener('input',e=>{const f=e.target.closest&&e.target.closest('.fld.ferr');if(f)f.classList.remove('ferr')},true);
+document.addEventListener('change',e=>{const f=e.target.closest&&e.target.closest('.fld.ferr');if(f)f.classList.remove('ferr')},true);
+
+/* ---------- input polish for every modal form (generic and custom ones like the visit) ---------- */
+const PHONE=/(^|_)(phone|mobile|tel|whatsapp|wa)$/i,EMAIL=/(^|_)email$/i;
+function feInputs(root){
+  root.querySelectorAll('input').forEach(i=>{if(i._fe)return;i._fe=1;const n=i.name||i.id||'';
+    if(i.type==='number'){i.setAttribute('inputmode','decimal')}
+    else if(i.type==='text'&&PHONE.test(n)){i.type='tel';i.setAttribute('inputmode','tel');i.setAttribute('autocomplete','tel');i.dir='ltr'}
+    else if(i.type==='text'&&EMAIL.test(n)){i.type='email';i.setAttribute('inputmode','email');i.dir='ltr'}
+    if(['text','tel','email','number','search'].includes(i.type)&&!i.classList.contains('wp-sel'))i.setAttribute('enterkeyhint','next')})}
+// Enter in a field moves to the next one (the last field submits as usual)
+document.addEventListener('keydown',e=>{if(e.key!=='Enter'||e.shiftKey||e.defaultPrevented||e._wp)return;const i=e.target;
+  if(!(i instanceof HTMLInputElement)||!['text','tel','email','number'].includes(i.type)||i.classList.contains('wp-sel')||(WP.cur&&WP.cur.input===i))return;
+  const form=i.closest('#mbody form');if(!form)return;
+  const all=[...form.querySelectorAll('input:not([type=hidden]):not([type=file]):not([type=checkbox]):not([disabled]):not(.wp-hidden),select:not(.wp-hidden):not([disabled]),textarea')].filter(x=>x.offsetParent!==null);
+  const k=all.indexOf(i);if(k>=0&&k<all.length-1){e.preventDefault();all[k+1].focus();if(all[k+1].select)try{all[k+1].select()}catch(x){}}});
+
+/* short lists → big tap chips (phone only) */
+function feChips(root){if(!feMob())return;
+  root.querySelectorAll('select:not([multiple]):not([disabled])').forEach(s=>{
+    if(s._chips||s._wpi||s.dataset.pick!=null||s.name==='clientId'||s.dataset.row!=null||s.closest('.sw'))return;
+    const opts=[...s.options].filter(o=>o.value!=='');if(opts.length<2||opts.length>8||opts.some(o=>o.textContent.length>28))return;
+    s.dataset.nopick='1';s._chips=1;
+    const box=document.createElement('div');box.className='fchips';box.setAttribute('role','radiogroup');
+    box.innerHTML=opts.map(o=>`<button type="button" class="fchip" role="radio" data-v="${esc(o.value)}">${esc(o.textContent)}</button>`).join('');
+    s.classList.add('wp-hidden');s.after(box);
+    box.addEventListener('click',e=>{const b=e.target.closest('.fchip');if(!b)return;s.value=s.value===b.dataset.v&&!s.required&&s.options[0]&&s.options[0].value===''?'':b.dataset.v;s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new Event('change',{bubbles:true}));sync()});
+    const sync=()=>box.querySelectorAll('.fchip').forEach(b=>{const on=b.dataset.v===s.value;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});
+    s._chipSync=sync;s.addEventListener('change',sync);sync()})}
+function feChipsSync(root){root.querySelectorAll('select').forEach(s=>s._chipSync&&s._chipSync())}
+
+/* quick date chips */
+function feDates(root){if(!feMob())return;
+  root.querySelectorAll('input[type=date]:not([disabled])').forEach(i=>{if(i._qd||i.readOnly)return;i._qd=1;
+    const t=TODAY();const nx=/next|nd$|due|until|valid|close|exp/i.test(i.name||i.id||'');
+    const ch=nx?[[addDays(t,1),L('بكرة','Tomorrow')],[addDays(t,3),L('بعد 3 أيام','+3 days')],[addDays(t,7),L('بعد أسبوع','+1 week')]]:[[t,L('اليوم','Today')],[addDays(t,-1),L('أمس','Yesterday')]];
+    const box=document.createElement('div');box.className='fchips fchips-s';box.innerHTML=ch.map(([v,l])=>`<button type="button" class="fchip" data-d="${v}">${l}</button>`).join('');
+    i.after(box);box.addEventListener('click',e=>{const b=e.target.closest('[data-d]');if(!b)return;i.value=b.dataset.d;i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}))})})}
+
+/* «موقعي الحالي» for any lat/lng pair */
+function feGeo(root){const la=root.querySelector('input[name=lat]'),ln=root.querySelector('input[name=lng]');if(!la||!ln||la._geo||la.disabled)return;la._geo=1;
+  const b=document.createElement('button');b.type='button';b.className='btn fgeo';b.innerHTML=`📍 ${L('استخدم موقعي الحالي','Use my current location')}`;
+  const fld=la.closest('.fld');(fld||la).before(b);
+  b.addEventListener('click',async()=>{b.disabled=true;const t=b.innerHTML;b.textContent=L('جاري تحديد الموقع…','Locating…');
+    try{const g=await getGPS();la.value=g.lat;ln.value=g.lng;[la,ln].forEach(x=>x.dispatchEvent(new Event('input',{bubbles:true})));toast(L(`تم — الدقة ±${g.acc} م`,`Done — ±${g.acc} m`))}
+    catch(e){toast(e.message||String(e))}finally{b.disabled=false;b.innerHTML=t}})}
+
+/* big camera button for photo inputs */
+function fePhotos(root){root.querySelectorAll('input[type=file][accept^="image"]').forEach(i=>{if(i._ph)return;i._ph=1;
+  const b=document.createElement('button');b.type='button';b.className='fcam';
+  const paint=()=>{const n=i.files?i.files.length:0;b.innerHTML=`<span class="ico">📷</span><span><b>${n?L(`${n} صورة — اضغط لتغييرها`,`${n} photo(s) — tap to change`):L('صوّر من الموقع','Take a photo')}</b><small>${i.multiple?L('تقدر تختار حتى 3 صور','up to 3'):''}</small></span>`;b.classList.toggle('done',n>0)};
+  paint();i.classList.add('wp-hidden');i.after(b);b.addEventListener('click',()=>i.click());i.addEventListener('change',paint)})}
+
+function feEnhance(root){if(!root)return;try{feInputs(root);feChips(root);feDates(root);feGeo(root);fePhotos(root)}catch(e){console.warn('fastentry',e)}}
+const _om=openModal;openModal=function(){const r=_om.apply(this,arguments);const mb=document.getElementById('mbody');feEnhance(mb);
+  // forms that re-paint themselves (e.g. check-in) get the same polish
+  if(mb&&!mb._feObs){mb._feObs=new MutationObserver(()=>{clearTimeout(mb._feT);mb._feT=setTimeout(()=>feEnhance(mb),30)});mb._feObs.observe(mb,{childList:true,subtree:true})}
+  return r};
+const _rr=renderRows;renderRows=function(k){const r=_rr.apply(this,arguments);const b=document.getElementById('rows_'+k);if(b)feInputs(b);return r};
+
+/* ---------- after a visit: one tap to what comes next ---------- */
+function feNext(clientId){const c=byId('clients',clientId);if(!c)return;
+  const it=(act,ic,l,s)=>`<button type="button" class="mh-tile" data-fn="${act}"><span class="ic" style="background:rgba(52,190,240,.14)"><span style="font-size:22px">${ic}</span></span><span style="display:flex;flex-direction:column;gap:2px"><b>${l}</b><small style="margin:0">${s}</small></span></button>`;
+  openModal(L('انحفظت الزيارة ✓','Visit saved ✓'),`<p class="small muted" style="margin:0 0 10px">${esc(c.name)} — ${L('وش الخطوة الجاية؟','what next?')}</p><div class="mh-list" id="fe_next">
+    ${it('quote','🧾',L('عرض سعر','Quotation'),L('بنود وأسعار العميل','lines with customer prices'))}
+    ${it('opp','🎯',L('فرصة بيع','Opportunity'),L('مشروع أو طلب متوقع','expected business'))}
+    ${it('task','⏰',L('تذكير متابعة','Follow-up reminder'),L('مكالمة أو زيارة لاحقة','call or revisit'))}
+    ${it('complaint','⚠️',L('شكوى','Complaint'),L('جودة، توريد، فواتير…','quality, supply, invoices…'))}
+    </div><div class="formbar"><span style="flex:1"></span><button type="button" class="btn" data-act="closeModal">${L('تم، لا شي','Done')}</button></div>`,
+   {mount:b=>b.querySelector('#fe_next').addEventListener('click',e=>{const x=e.target.closest('[data-fn]');if(!x)return;const p={clientId};
+     closeModal();setTimeout(()=>{({quote:()=>editQuote(null,p),opp:()=>editOpp(null,p),task:()=>editTask(null,{...p,kind:'call',date:addDays(TODAY(),3)}),complaint:()=>editComplaint(null,p)})[x.dataset.fn]()},120)})});}
+const _save=save;save=async function(col,obj,opts){const r=await _save.apply(this,arguments);
+  if(col==='visits'&&opts&&opts.action==='checkout'&&obj&&obj.clientId)setTimeout(()=>{if(document.getElementById('modal').hidden)feNext(obj.clientId)},450);
+  return r};
+
+/* ---------- «＋» on the phone screens ---------- */
+function feFabHtml(){return `<button type="button" class="fe-fab" data-act="feFab" aria-label="${L('إدخال جديد','New entry')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>`}
+ACT.feFab=()=>{const can=k=>navItems().some(n=>n[0]===k);
+  const it=(fn,ic,l)=>`<button type="button" class="mh-tile" data-fn="${fn}"><span class="ic" style="background:rgba(56,172,87,.14)"><span style="font-size:22px">${ic}</span></span><b>${l}</b></button>`;
+  const rows=[['visit','📍',L('زيارة الآن','Visit now')],can('clients')&&['client','👤',L('عميل جديد','New customer')],can('quotes')&&['quote','🧾',L('عرض سعر','Quotation')],can('opps')&&['opp','🎯',L('فرصة بيع','Opportunity')],['task','⏰',L('مهمة / تذكير','Task / reminder')],can('complaints')&&['complaint','⚠️',L('شكوى','Complaint')]].filter(Boolean);
+  openModal(L('إدخال جديد','New entry'),`<div class="mh-grid" id="fe_fab" style="margin:0">${rows.map(r=>it(...r)).join('')}</div>`,{mount:b=>b.querySelector('#fe_fab').addEventListener('click',e=>{const x=e.target.closest('[data-fn]');if(!x)return;closeModal();
+    setTimeout(()=>({visit:()=>ACT.mNew(),client:()=>editClient(),quote:()=>editQuote(),opp:()=>editOpp(),task:()=>editTask(),complaint:()=>editComplaint()})[x.dataset.fn](),120)})})};
+{const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);if(!MOB.on){document.querySelector('.fe-fab')?.remove();return}
+  const show=/^m(home|today|clients|grp)$/.test(route);let f=document.querySelector('.fe-fab');
+  if(show&&!f){document.body.insertAdjacentHTML('beforeend',feFabHtml())}else if(!show&&f)f.remove()}}
+
+const st=document.createElement('style');st.textContent=`
+.fld.ferr input,.fld.ferr select,.fld.ferr textarea,.fld.ferr .wp-sel,.fld.ferr .fchips{outline:2px solid var(--bad);outline-offset:1px;border-radius:10px}
+.fld.ferr>label{color:var(--bad)}
+[data-theme=dark] .wp-sh{background:var(--surface);border-color:var(--line)}[data-theme=dark] .wp-shq{background:var(--sunk);color:var(--ink);border-color:#34BEF0}[data-theme=dark] .wp-x{background:var(--sunk);color:var(--ink)}
+.fmore{grid-column:1/-1;margin-top:10px;border:1px dashed var(--line);border-radius:14px;padding:4px 12px}
+.fmore>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:48px;font-weight:800;color:var(--ink)}
+.fmore>summary::-webkit-details-marker{display:none}
+.fmore>summary:before{content:"＋";display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--sunk);font-weight:800}
+.fmore[open]>summary:before{content:"－"}
+.fmore>summary small{color:var(--muted);font-weight:500;font-size:12px;margin-inline-start:auto}
+.fmore-n{background:var(--sunk);border-radius:999px;padding:0 8px;font-size:12px}
+.fmore>.fgrid{padding-bottom:10px}
+.fchips{display:flex;flex-wrap:wrap;gap:8px}
+.fchip{min-height:44px;padding:0 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.fchip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.fchips-s{margin-top:6px}.fchips-s .fchip{min-height:36px;font-size:13px;padding:0 12px;border-radius:999px;font-weight:600}
+.fgeo{width:100%;min-height:48px;margin:6px 0;grid-column:1/-1}
+.fcam{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:10px 14px;border-radius:14px;border:2px dashed var(--info);background:var(--info-soft);color:var(--ink);font:inherit;text-align:start;cursor:pointer}
+.fcam .ico{font-size:28px}.fcam b{display:block;font-size:15px}.fcam small{color:var(--muted);font-size:12px}
+.fcam.done{border-style:solid;border-color:var(--accent);background:var(--accent-soft)}
+.fe-fab{position:fixed;inset-inline-start:16px;bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:905;width:58px;height:58px;border-radius:18px;border:0;background:#38AC57;color:#fff;display:grid;place-items:center;box-shadow:0 10px 24px -6px rgba(56,172,87,.6);cursor:pointer}
+.fe-fab svg{width:28px;height:28px}.fe-fab:active{transform:scale(.95)}
+/* phone forms: full screen, big fields, save button always under the thumb */
+@media (max-width:640px){
+ #mbody input:not([type=checkbox]):not([type=radio]):not([type=file]),#mbody select,#mbody textarea,#mbody .wp-sel{font-size:16px!important;min-height:48px;border-radius:12px}
+ #mbody textarea{min-height:88px}
+ #mbody .fld>label{font-size:14px;font-weight:700}
+ #mbody .fgrid{gap:12px}
+ #mbody .formbar{position:sticky;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);margin:12px -16px calc(-24px - env(safe-area-inset-bottom,0px));padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;flex-wrap:nowrap}
+ #mbody .formbar .grow{display:none}
+ #mbody .formbar .btn{min-height:50px;font-size:16px;border-radius:14px}
+ #mbody .formbar .btn.p{flex:1;order:-1}
+ #mbody .chk label{min-height:44px;display:flex;align-items:center;gap:8px}
+ #mbody .chk input[type=checkbox]{width:22px;height:22px}
+}
+`;document.head.appendChild(st);
+}
 </script>
 <script src="wady-back.js"></script></body></html>
