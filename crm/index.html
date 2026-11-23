@@ -4,13 +4,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('wady.theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>window.WADY_STORE={table:'crm_store',bucket:'hr-files',app:'crm',teamView:'crm_team',cacheCols:['clients','items','invoices','orders','quotes']};</script>
 <script src="claude-shim.js"></script>
 <style>
 /* Layout: operations console — fixed nav rail (desktop) / bottom tab bar (phone), one working column of filter bar, KPI tiles, charts and lists */
 :root{
-  --bg:#F2F4F8; --surface:#FFFFFF; --sunk:#E8ECF3; --line:#D9DFEA;
+  --bg:#F2F4F8; --surface:#FFFFFF; --card:#FFFFFF; --sunk:#E8ECF3; --line:#D9DFEA;
   --ink:#051D48; --muted:#5A6885; --brand:#051D48; --brand-ink:#FFFFFF;
   --accent:#38AC57; --accent-ink:#1E7A3A; --accent-soft:#E2F4E7;
   --warn:#F39235; --warn-ink:#9A4F07; --warn-soft:#FDEEDC;
@@ -22,23 +23,23 @@
   --r:10px; --shadow:0 1px 2px rgba(5,29,72,.06),0 4px 14px rgba(5,29,72,.06);
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#071226; --surface:#0E1C38; --sunk:#14264A; --line:#22365E;
-  --ink:#E7EDF7; --muted:#9AAAC8; --brand:#0B2A63; --brand-ink:#FFFFFF;
+  --bg:#051D48; --surface:#0B2A5E; --card:#0B2A5E; --sunk:#082252; --line:#1C3E78;
+  --ink:#F3F6FB; --muted:#A9BBDB; --brand:#03142F; --brand-ink:#FFFFFF;
   --accent:#45BF65; --accent-ink:#7EDB97; --accent-soft:#15382A;
   --warn:#F39235; --warn-ink:#F8B678; --warn-soft:#3D2A14;
   --bad:#E25858; --bad-ink:#F29393; --bad-soft:#3E1C22;
   --info:#34BEF0; --info-ink:#86D8F7; --info-soft:#123449; --barfill:#34BEF0;
   --c1:#7FA6E8; --c2:#45BF65; --c3:#F39235; --c4:#34BEF0; --c5:#8FC153; --c6:#5A6885;
-  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}}
+  --shadow:0 1px 2px rgba(0,0,0,.25),0 8px 22px -12px rgba(0,0,0,.5); color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#071226; --surface:#0E1C38; --sunk:#14264A; --line:#22365E;
-  --ink:#E7EDF7; --muted:#9AAAC8; --brand:#0B2A63; --brand-ink:#FFFFFF;
+  --bg:#051D48; --surface:#0B2A5E; --card:#0B2A5E; --sunk:#082252; --line:#1C3E78;
+  --ink:#F3F6FB; --muted:#A9BBDB; --brand:#03142F; --brand-ink:#FFFFFF;
   --accent:#45BF65; --accent-ink:#7EDB97; --accent-soft:#15382A;
   --warn:#F39235; --warn-ink:#F8B678; --warn-soft:#3D2A14;
   --bad:#E25858; --bad-ink:#F29393; --bad-soft:#3E1C22;
   --info:#34BEF0; --info-ink:#86D8F7; --info-soft:#123449; --barfill:#34BEF0;
   --c1:#7FA6E8; --c2:#45BF65; --c3:#F39235; --c4:#34BEF0; --c5:#8FC153; --c6:#5A6885;
-  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+  --shadow:0 1px 2px rgba(0,0,0,.25),0 8px 22px -12px rgba(0,0,0,.5); color-scheme:dark}
 [hidden]{display:none!important}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.55;font-variant-numeric:tabular-nums}
@@ -6434,7 +6435,7 @@ html[dir=ltr] #side nav .ng:not(.open) .chev{transform:rotate(-90deg)}
 
 /* ============ Phone home: big section tiles → section page → screen (management request 23/11) ============ */
 {
-const MH_COL=[['#051D48','rgba(5,29,72,.08)'],['#2e8f47','rgba(56,172,87,.12)'],['#c96d12','rgba(243,146,53,.14)'],['#1489b8','rgba(52,190,240,.14)'],['#5f8f2a','rgba(143,193,83,.16)']];
+const MH_COL=[['#051D48','rgba(5,29,72,.08)','#5B7FD6'],['#2e8f47','rgba(56,172,87,.12)','#38AC57'],['#c96d12','rgba(243,146,53,.14)','#F39235'],['#1489b8','rgba(52,190,240,.14)','#34BEF0'],['#5f8f2a','rgba(143,193,83,.16)','#8FC153']];
 const MH_SKIP=/^m(today|clients|alerts|more|home|grp)$/;
 const MH_QUICK=['mydash','dash','alerts','recs','prodplan'];
 // sections the user can open, in menu order: [{t,ic,pages:[nav rows]}]
@@ -6464,10 +6465,10 @@ html.m-mode #top{flex-wrap:nowrap!important;gap:8px;padding-block:8px}
 html.m-mode #top h1{flex-basis:auto!important;flex:1;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mh-q{width:100%;font:inherit;font-size:16px;padding:12px 14px;border-radius:14px;border:1px solid var(--line,#d5dbe5);background:var(--card,#fff);margin-bottom:14px}
 .mh-h{display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px}
-.mh-h h3{margin:0;font-size:15px;font-weight:800;color:#051D48}
+.mh-h h3{margin:0;font-size:15px;font-weight:800;color:var(--ink)}
 .mh-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
 @media(min-width:520px){.mh-grid{grid-template-columns:repeat(3,1fr)}}
-.mh-tile{display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:16px;padding:14px;min-height:112px;text-align:start;font:inherit;color:#051D48;cursor:pointer;box-shadow:0 1px 3px rgba(5,29,72,.05);transition:transform .15s ease-out,box-shadow .15s ease-out}
+.mh-tile{display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:16px;padding:14px;min-height:112px;text-align:start;font:inherit;color:var(--ink);cursor:pointer;box-shadow:0 1px 3px rgba(5,29,72,.05);transition:transform .15s ease-out,box-shadow .15s ease-out}
 .mh-tile:active{transform:scale(.97);box-shadow:none}
 .mh-tile .ic{width:48px;height:48px;border-radius:14px;display:grid;place-items:center}
 .mh-tile .ic svg{width:26px;height:26px}
@@ -6475,7 +6476,7 @@ html.m-mode #top h1{flex-basis:auto!important;flex:1;font-size:17px;white-space:
 .mh-tile small{color:var(--muted,#667);font-size:12px;margin-top:-6px}
 .mh-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;scrollbar-width:none}
 .mh-row::-webkit-scrollbar{display:none}
-.mh-chip{flex:none;display:flex;align-items:center;gap:8px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:999px;padding:8px 14px 8px 12px;font:inherit;font-size:14px;font-weight:700;color:#051D48;min-height:44px;cursor:pointer}
+.mh-chip{flex:none;display:flex;align-items:center;gap:8px;background:var(--card,#fff);border:1px solid var(--line,#e3e7ee);border-radius:999px;padding:8px 14px 8px 12px;font:inherit;font-size:14px;font-weight:700;color:var(--ink);min-height:44px;cursor:pointer}
 .mh-chip svg{width:18px;height:18px}
 .mh-back{display:inline-flex;align-items:center;gap:6px;background:none;border:0;font:inherit;font-weight:700;color:#1489b8;padding:8px 2px;min-height:44px;cursor:pointer}
 .mh-back svg{width:18px;height:18px}
@@ -6485,17 +6486,49 @@ html[dir=ltr] .mh-back svg{transform:scaleX(-1)}
 .mh-list .mh-tile .chev{margin-inline-start:auto;width:18px;height:18px;opacity:.45}
 html[dir=rtl] .mh-list .mh-tile .chev{transform:scaleX(-1)}
 .mh-list{display:flex;flex-direction:column;gap:8px}
-html.m-mode #top .mh-topback{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line,#d5dbe5);background:var(--card,#fff);border-radius:12px;min-height:44px;padding:0 12px;font:inherit;font-weight:700;color:#051D48;cursor:pointer;flex:none}
+html.m-mode #top .mh-topback{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line,#d5dbe5);background:var(--card,#fff);border-radius:12px;min-height:44px;padding:0 12px;font:inherit;font-weight:700;color:var(--ink);cursor:pointer;flex:none}
 html.m-mode #top .mh-topback svg{width:18px;height:18px}
 html[dir=ltr] .mh-topback svg{transform:scaleX(-1)}
+.mh-k{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.mh-kc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 12px 10px;position:relative;overflow:hidden;text-align:start;font:inherit;color:var(--ink);cursor:pointer;min-height:44px}
+.mh-kc:before{content:"";position:absolute;inset-block-start:0;inset-inline:0;height:3px;background:var(--k)}
+.mh-kc:after{content:"";position:absolute;inset-inline-end:-26px;top:-26px;width:80px;height:80px;border-radius:50%;background:var(--k);opacity:.12}
+.mh-kc .l{font-size:12px;color:var(--muted);display:block}
+.mh-kc .v{font-size:21px;font-weight:800;line-height:1.3;display:block;font-variant-numeric:tabular-nums}
+.mh-kc .v small{font-size:12px;font-weight:600;color:var(--muted)}
+.mh-kc .s{font-size:11.5px;font-weight:700;color:var(--k);display:block;margin-top:2px}
+.mh-kc .mb{height:5px;border-radius:9px;background:var(--sunk);margin-top:7px;overflow:hidden}.mh-kc .mb i{display:block;height:100%;border-radius:9px;background:var(--k)}
+[data-theme=dark] .mh-hero{background:linear-gradient(135deg,#0E3A80 0%,#0B2A5E 60%,#123d6e 100%);border:1px solid var(--line);box-shadow:none}
+[data-theme=dark] .mh-tile .ic{background:var(--s)!important;box-shadow:0 6px 14px -6px var(--s)}
+[data-theme=dark] .mh-tile .ic svg{stroke:#fff}
 @media(prefers-reduced-motion:reduce){.mh-tile{transition:none}}
 `;document.head.appendChild(st);
 
 const CHEV='<path d="M9 6l6 6-6 6"/>';const BACK='<path d="M9 6l6 6-6 6"/>';
 const svg=p=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
-function tile(k,label,sub,ci,attr){const [fg,bg]=MH_COL[ci%MH_COL.length];
-  return `<button type="button" class="mh-tile" ${attr}><span class="ic" style="background:${bg}">${mhIco(k,fg)}</span><b>${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</button>`}
+function tile(k,label,sub,ci,attr){const [fg,bg,so]=MH_COL[ci%MH_COL.length];
+  return `<button type="button" class="mh-tile" style="--s:${so}" ${attr}><span class="ic" style="background:${bg}">${mhIco(k,fg)}</span><b>${esc(label)}</b>${sub?`<small>${esc(sub)}</small>`:''}</button>`}
 
+// this month's indicators: the rep's own, or the team the user can see (supervisor / manager)
+function mhKpis(){try{const u=me();const isRep=role()==='rep';const t=TODAY(),ms=t.slice(0,8)+'01',mo=t.slice(0,7);
+  const mine=r=>isRep?r.repId===u.id:true;const V_=a=>(typeof vis==='function'?vis(a):a).filter(mine);
+  const ords=V_(S.orders||[]);
+  const sales=ords.filter(o=>o.status!=='cancelled'&&(o.date||'')>=ms&&(o.date||'')<=t).reduce((a,o)=>a+(+o.value||0),0);
+  const pls=(S.pipeline||[]).filter(d=>d.month===mo&&(isRep?d.repId===u.id:V_([d]).length));const tgt=pls.reduce((a,d)=>a+(+d.target||0),0);
+  const ordered=new Set();ords.forEach(o=>{if(o.quoteId)ordered.add('i:'+o.quoteId);if(o.quoteNo)ordered.add('n:'+normCode(o.quoteNo))});
+  const oq=V_(S.quotes||[]).filter(q=>['open','pending','sent','accepted'].includes(q.status)&&(q.status==='accepted'||(q.validUntil||q.expClose||'9999-12-31')>=ms)&&!ordered.has('i:'+q.id)&&!(q.no&&ordered.has('n:'+normCode(q.no))));
+  const six=addMonths(ms,-5);const oo=ords.filter(o=>(o.status==='open'||o.status==='partial')&&(o.date||'')>=six);
+  let coll=null,collT=0;try{const P=period({preset:'month'});const f=isRep?{rep:u.id}:{};const k=kpiFor(f,P);coll=k.m.coll;collT=k.collT||0}catch(e){}
+  const pc=(a,b)=>b>0?Math.round(a/b*100):null;
+  const card=(c,go,l,v,unit,sub,p)=>`<button type="button" class="mh-kc" style="--k:${c}" data-go="${go}"><span class="l">${l}</span><span class="v">${v}${unit?` <small>${unit}</small>`:''}</span>${sub?`<span class="s">${sub}</span>`:''}${p!=null?`<span class="mb"><i style="width:${Math.min(100,p)}%"></i></span>`:''}</button>`;
+  const sm=x=>x>=1e6?(x/1e6).toFixed(2):x>=1e3?num(Math.round(x/1e3)):num(Math.round(x)),su=x=>x>=1e6?L('مليون ر.س','M SAR'):x>=1e3?L('ألف ر.س','K SAR'):L('ر.س','SAR');
+  const ps=pc(sales,tgt),pcl=pc(coll||0,collT);
+  return `<div class="mh-h"><h3>${isRep?L('مؤشراتي هذا الشهر','My month'):L('مؤشرات الفريق هذا الشهر','Team this month')}</h3><span class="small muted">${L('بدون ضريبة','ex-VAT')}</span></div><div class="mh-k">
+   ${card('#38AC57','orders',L('مبيعات الشهر (أوامر)','Sales (orders)'),sm(sales),su(sales),ps!=null?L(`${ps}% من التارجت`,`${ps}% of target`):L('ما فيه تارجت مسجّل','No target set'),ps)}
+   ${coll!=null?card('#8FC153','collections',L('التحصيل','Collections'),sm(coll),su(coll),pcl!=null?L(`${pcl}% من المستهدف`,`${pcl}% of target`):'',pcl):''}
+   ${card('#34BEF0','quotes',L('عروض أسعار مفتوحة','Open quotes'),num(oq.length),L('عرض','quotes'),`${sm(oq.reduce((a,q)=>a+(+q.value||0),0))} ${su(oq.reduce((a,q)=>a+(+q.value||0),0))}`)}
+   ${card('#F39235','orders',L('أوامر لم تكتمل','Open orders'),num(oo.length),L('أمر','orders'),L('مفتوحة أو مسلّمة جزئياً · آخر 6 أشهر','open or partial · last 6 months'))}
+  </div>`}catch(e){console.warn('mhKpis',e);return ''}}
 V.mhome=()=>{
   const u=me();const first=(String(u.name||'').trim().split(/\s+/)[0]||'').replace(/^[—-]$/,'');const t=TODAY();
   let stats='';
@@ -6504,11 +6537,12 @@ V.mhome=()=>{
     stats=`<div class="mh-stats"><button type="button" class="mh-stat" data-go="mtoday"><b><bdi>${done}/${mine.length}</bdi></b><span>${L('زيارات اليوم','Today visits')}</span></button>
       <button type="button" class="mh-stat ${al?'warn':''}" data-go="malerts"><b>${num(al)}</b><span>${L('تنبيهات','Alerts')}</span></button>
       <button type="button" class="mh-stat" data-go="mclients"><b>${num(cl)}</b><span>${L('عملائي','My clients')}</span></button></div>`}catch(e){}
+  const kp=mhKpis();
   const quick=MH_QUICK.map(mhPage).filter(mhOk);
   const rec=mhRecent().map(mhPage).filter(n=>mhOk(n)&&!MH_QUICK.includes(n[0])).slice(0,5);
   const secs=mhSections();
   const chips=a=>a.map(n=>`<button type="button" class="mh-chip" data-go="${n[0]}">${mhIco(n[1])}${esc(mhLbl(n))}</button>`).join('');
-  return mStatus()+mInstallBox()+`<div class="mh-hero"><h2>${mhGreet()}${first?'، '+esc(first):''}</h2><div class="sub">${fdate(t)}</div>${stats}</div>
+  return mStatus()+mInstallBox()+`<div class="mh-hero"><h2>${mhGreet()}${first?'، '+esc(first):''}</h2><div class="sub">${fdate(t)}</div>${stats}</div>${kp}
    <input class="mh-q" id="mhq" type="search" placeholder="${L('ابحث عن شاشة… (مثلاً: أوامر البيع)','Find a screen…')}" autocomplete="off" aria-label="${L('بحث عن شاشة','Find a screen')}">
    <div id="mhres" class="mh-list" hidden style="margin-bottom:14px"></div>
    <div id="mhmain">
@@ -6519,7 +6553,7 @@ V.mhome=()=>{
 
 V.mgrp=()=>{const g=mhSections().find(x=>x.i===+F.mG);if(!g){F.mG=null;return V.mhome()}
   const ci=Math.max(0,mhSections().findIndex(x=>x.i===g.i));
-  return `<div class="mh-list" style="margin-top:4px">${g.pages.map(n=>`<button type="button" class="mh-tile" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[ci%MH_COL.length][1]}">${mhIco(n[1],MH_COL[ci%MH_COL.length][0])}</span><b>${esc(mhLbl(n))}</b><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${CHEV}</svg></button>`).join('')}</div>`};
+  return `<div class="mh-list" style="margin-top:4px">${g.pages.map(n=>`<button type="button" class="mh-tile" style="--s:${MH_COL[ci%MH_COL.length][2]}" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[ci%MH_COL.length][1]}">${mhIco(n[1],MH_COL[ci%MH_COL.length][0])}</span><b>${esc(mhLbl(n))}</b><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${CHEV}</svg></button>`).join('')}</div>`};
 
 // account page: the screens now live on the home page, so keep only account actions here
 V.mmore=()=>{const u=me();const rl={mgr:L('مدير','Manager'),sup:L('مشرف','Supervisor'),rep:L('مندوب','Rep')}[u.role]||'';
@@ -6555,8 +6589,46 @@ document.addEventListener('input',e=>{if(e.target.id!=='mhq')return;const q=e.ta
   if(!q){res.hidden=true;res.innerHTML='';main.hidden=false;return}
   const hits=[];mhSections().forEach((g,j)=>g.pages.forEach(n=>{const l=mhLbl(n);if(l.toLowerCase().includes(q)||g.t.toLowerCase().includes(q))hits.push([n,g,j])}));
   MH_QUICK.map(mhPage).filter(mhOk).forEach(n=>{if(mhLbl(n).toLowerCase().includes(q))hits.unshift([n,{t:L('وصول سريع','Quick')},0])});
-  res.innerHTML=hits.slice(0,20).map(([n,g,j])=>`<button type="button" class="mh-tile" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[j%MH_COL.length][1]}">${mhIco(n[1],MH_COL[j%MH_COL.length][0])}</span><span style="display:flex;flex-direction:column;gap:2px"><b>${esc(mhLbl(n))}</b><small style="margin:0">${esc(g.t)}</small></span></button>`).join('')||`<div class="mcard muted">${L('ما لقينا شاشة بهالاسم','No screen found')}</div>`;
+  res.innerHTML=hits.slice(0,20).map(([n,g,j])=>`<button type="button" class="mh-tile" style="--s:${MH_COL[j%MH_COL.length][2]}" data-go="${n[0]}"><span class="ic" style="background:${MH_COL[j%MH_COL.length][1]}">${mhIco(n[1],MH_COL[j%MH_COL.length][0])}</span><span style="display:flex;flex-direction:column;gap:2px"><b>${esc(mhLbl(n))}</b><small style="margin:0">${esc(g.t)}</small></span></button>`).join('')||`<div class="mcard muted">${L('ما لقينا شاشة بهالاسم','No screen found')}</div>`;
   res.hidden=false;main.hidden=true});
+}
+
+/* ============ Light / navy theme switch (management request 23/11) + colourful KPI tiles ============ */
+{
+const thGet=()=>document.documentElement.dataset.theme==='light'?'light':'dark';
+function thSet(t){document.documentElement.dataset.theme=t;try{localStorage.setItem('wady.theme',t)}catch(e){}
+  const m=document.querySelector('meta[name=theme-color]');if(m)m.content=t==='dark'?'#051D48':'#F2F4F8';thPaint();try{render()}catch(e){}}
+const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON='<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>';
+function thBtnHtml(){const d=thGet()==='dark';return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d?SUN:MOON}</svg><span>${d?L('فاتح','Light'):L('غامق','Dark')}</span>`}
+function thPaint(){document.querySelectorAll('.th-btn').forEach(b=>{b.innerHTML=thBtnHtml();b.setAttribute('aria-label',thGet()==='dark'?L('التبديل للوضع الفاتح','Switch to light'):L('التبديل للوضع الغامق','Switch to dark'))})}
+ACT.thToggle=()=>thSet(thGet()==='dark'?'light':'dark');
+const st=document.createElement('style');st.textContent=`
+.th-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;min-height:38px;padding:0 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;flex:none}
+.th-btn svg{width:18px;height:18px}
+html.m-mode .th-btn{min-height:44px;padding:0 10px}html.m-mode .th-btn span{display:none}
+/* colourful KPI tiles (both themes); stronger glow on navy */
+.kpis .kpi{position:relative;overflow:hidden;border-top:3px solid var(--kc,var(--accent))}
+.kpis .kpi:nth-child(5n+1){--kc:#38AC57}.kpis .kpi:nth-child(5n+2){--kc:#34BEF0}.kpis .kpi:nth-child(5n+3){--kc:#F39235}.kpis .kpi:nth-child(5n+4){--kc:#8FC153}.kpis .kpi:nth-child(5n+5){--kc:#7C8CF8}
+[data-theme=dark] .kpis .kpi:after{content:"";position:absolute;inset-inline-end:-34px;top:-34px;width:110px;height:110px;border-radius:50%;background:var(--kc);opacity:.13;pointer-events:none}
+[data-theme=dark] .kpis .kpi .v{color:#fff}
+[data-theme=dark] .rk{background:var(--card);border-color:var(--line)}[data-theme=dark] .rk .v{color:var(--ink)}
+[data-theme=dark] .rk-t tr.rk-grp td{background:#03142F}
+[data-theme=dark] .mnav{background:#03142F}[data-theme=dark] .mnav button.on{color:#45BF65;background:rgba(56,172,87,.16)}
+[data-theme=dark] .mseq{background:#34BEF0;color:#03142F}
+[data-theme=dark] .wp-pop{background:var(--surface);border-color:var(--line);color:var(--ink);box-shadow:0 14px 34px rgba(0,0,0,.45)}
+[data-theme=dark] .wp-pop .on,[data-theme=dark] .wp-pop .wp-it.on{background:var(--sunk)}
+[data-theme=dark] .wp-pop mark{background:rgba(243,146,53,.35);color:#fff}
+[data-theme=dark] input,[data-theme=dark] select,[data-theme=dark] textarea{background-color:var(--sunk);border-color:var(--line);color:var(--ink)}
+[data-theme=dark] .sw input,[data-theme=dark] .sw select,[data-theme=dark] .sw textarea{background-color:#fff;color:#1F1F1F;border-color:#B9C2CE}
+`;document.head.appendChild(st);
+// button in the top bar of every screen
+const _rc=renderChrome;renderChrome=function(){_rc.apply(this,arguments);const top=document.getElementById('top');if(!top||top.querySelector('.th-btn'))return;
+  const b=document.createElement('button');b.type='button';b.className='th-btn';b.dataset.act='thToggle';top.appendChild(b);thPaint()};
+// and a row on the phone account page
+const _mm=V.mmore;V.mmore=function(){const h=_mm.apply(this,arguments);const d=thGet()==='dark';
+  const row=`<button type="button" class="mh-tile" data-act="thToggle"><span class="ic" style="background:rgba(52,190,240,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px">${d?SUN:MOON}</svg></span><b>${d?L('الوضع الفاتح','Light mode'):L('الوضع الغامق (كحلي)','Dark (navy) mode')}</b></button>`;
+  return h.replace('<div class="mh-list">','<div class="mh-list">'+row)};
 }
 </script>
 <script src="wady-back.js"></script></body></html>
