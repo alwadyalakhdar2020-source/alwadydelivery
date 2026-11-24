@@ -2559,11 +2559,15 @@ const docTone=n=>n<0?"neg":n<=7?"warn":"";
 function paintDocs(){const el=$("#v-docs");if(!el||S.view!=="docs")return;if(!FX.docs){el.innerHTML=`<div class="panel empty">…جاري التحميل</div>`;return}const ed=canW("docs");
   const A=docAlerts();const vs=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp);const D={};(FX.docs.docs||[]).forEach(d=>{D[d.vehicle_id+"|"+d.kind]=d});
   const cell=(v,k)=>{const d=D[v.id+"|"+k]||{};const n=d.expires_on?daysTo(d.expires_on):null;return `<td>${ed?`<input type="date" data-doc="${v.id}|${k}" value="${d.expires_on||""}" style="min-width:130px">`:(d.expires_on?fd(d.expires_on):"—")}${n!=null&&n<=FX.docDays?`<div class="small ${docTone(n)}">${n<0?`منتهية منذ ${-n} يوم`:n===0?"تنتهي اليوم":`باقي ${n} يوم`}</div>`:""}</td>`};
-  el.innerHTML=`<div class="panel"><div class="filters"><label class="f">نبّهني قبل الانتهاء بـ<select id="dc-days">${[15,30,45,60,90].map(n=>`<option value="${n}" ${FX.docDays===n?"selected":""}>${n} يوم</option>`).join("")}</select></label><div class="quick"><button class="btn sm" id="dc-run">تحديث</button></div></div></div>
+  el.innerHTML=`<div class="panel"><div class="filters"><label class="f">نبّهني قبل الانتهاء بـ<select id="dc-days">${[15,30,45,60,90].map(n=>`<option value="${n}" ${FX.docDays===n?"selected":""}>${n} يوم</option>`).join("")}</select></label><div class="quick"><button class="btn sm" id="dc-run">تحديث</button><button class="btn sm primary" id="dc-xls" type="button">⬇ Excel</button></div></div></div>
    <div class="panel" style="border-inline-start:4px solid ${A.some(a=>a.n<0)?"#B42318":"#E0A100"}"><h2 style="margin-top:0">وثائق تنتهي خلال ${FX.docDays} يوم أو منتهية (${A.length})</h2>
    ${A.length?`<div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة / السائق</th><th>الفرع</th><th class="txt">الوثيقة</th><th>تاريخ الانتهاء</th><th>المتبقي</th></tr></thead><tbody>${A.map(a=>`<tr><td class="txt"><b>${esc(a.who)}</b></td><td>${esc(a.branch)}</td><td class="txt">${a.what}</td><td>${fd(a.date)}</td><td class="${docTone(a.n)}"><b>${a.n<0?`منتهية منذ ${-a.n} يوم`:a.n===0?"اليوم":`${a.n} يوم`}</b></td></tr>`).join("")}</tbody></table></div>`:`<p class="muted" style="margin:0">كل الوثائق سارية ✓</p>`}</div>
    <div class="panel"><h2 style="margin-top:0">تواريخ وثائق السيارات</h2><p class="small muted" style="margin:0 0 8px">${ed?"اكتب تاريخ الانتهاء ويتحفظ مباشرة. ":""}رخص السائقين تتحدث من صفحة «السائقين».</p><div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th>${DOC_KINDS.map(k=>`<th>${k[1]}</th>`).join("")}</tr></thead><tbody>
    ${vs.map(v=>`<tr><td class="txt"><b>${esc(vehLabel(v))}</b></td><td>${esc(v.branch||"")}</td>${DOC_KINDS.map(k=>cell(v,k[0])).join("")}</tr>`).join("")}</tbody></table></div></div>`}
+function exportDocs(){const A=docAlerts();const vs=[...S.vehicles].filter(v=>v.active!==false).sort(vehCmp);const D={};(FX.docs.docs||[]).forEach(d=>{D[d.vehicle_id+"|"+d.kind]=d});
+  exportXLSX(`وثائق_منتهية_أو_قريبة_${today()}.xlsx`,{[`تنتهي خلال ${FX.docDays} يوم أو منتهية`]:A.map(a=>({"السيارة / السائق":a.who,"الفرع":a.branch,"الوثيقة":String(a.what).replace(/<[^>]+>/g,""),"تاريخ الانتهاء":a.date,"المتبقي بالأيام":a.n,"الحالة":a.n<0?`منتهية منذ ${-a.n} يوم`:a.n===0?"تنتهي اليوم":`باقي ${a.n} يوم`})),
+    "كل وثائق السيارات":vs.map(v=>Object.assign({"السيارة":vehLabel(v),"الفرع":v.branch||""},Object.fromEntries(DOC_KINDS.map(k=>[k[1],(D[v.id+"|"+k[0]]||{}).expires_on||""]))))})}
+document.addEventListener("click",e=>{if(e.target.closest&&e.target.closest("#dc-xls")){e.preventDefault();if(FX.docs)exportDocs()}});
 function docBadge(){const n=docAlerts().length;const b=document.querySelector('nav.tabs button[data-v="docs"]');if(b)b.textContent="الوثائق والتنبيهات"+(n?` (${n})`:"");if(typeof fnavMark==="function")fnavMark()}
 setTimeout(async()=>{try{if(typeof ME!=="undefined"&&ME&&["sysadmin","ops_mgr","dispatcher"].includes(ME.role)){FX.docs=await api("fleet_docs");docBadge()}}catch(e){}},2500);
 
@@ -2940,7 +2944,22 @@ function fnavGroup(){const nav=$("nav.tabs");if(!nav)return;
   nav.classList.add("grouped");fnavMark()}
 function fnavMark(){document.querySelectorAll("nav.tabs .fg").forEach(g=>{const cur=g.querySelector('button[aria-current="page"]');g.classList.toggle("cur",!!cur);const h=g.querySelector(".fg-h");const base=FNAV_G.find(x=>x[1].includes((g.querySelector("button[data-v]")||{}).dataset?.v))?.[0]||h.textContent;h.textContent=cur?base+" · "+cur.textContent:base})}
 const fnavClose=()=>document.querySelectorAll("nav.tabs .fg.open").forEach(g=>{g.classList.remove("open");g.querySelector(".fg-h").setAttribute("aria-expanded","false")});
-document.addEventListener("click",e=>{const h=e.target.closest&&e.target.closest(".fg-h");if(h){e.preventDefault();e.stopPropagation();const g=h.parentElement,o=!g.classList.contains("open");fnavClose();if(o){g.classList.add("open");h.setAttribute("aria-expanded","true")}return}
+/* phones: the group opens as a sheet at the bottom of the screen, outside the sticky header (iPhone Safari mis-places and
+   mis-targets a fixed menu nested in a sticky header, so taps on the pages did nothing and the app looked frozen) */
+const fnavSheetClose=()=>{const x=document.getElementById("fnav-sheet");if(x)x.remove();document.documentElement.style.overflow=""};
+function fnavSheet(g){fnavSheetClose();const label=FNAV_G.find(x=>x[1].includes((g.querySelector("button[data-v]")||{}).dataset?.v))?.[0]||"";
+  const items=[...g.querySelectorAll(".fg-m button[data-v]")].filter(b=>!b.hidden);const d=document.createElement("div");d.id="fnav-sheet";
+  d.innerHTML=`<div class="fs-bg"></div><div class="fs-p" role="menu"><div class="fs-h"><b>${label}</b><button type="button" class="fs-x" aria-label="إغلاق">✕</button></div>${items.map(b=>`<button type="button" class="fs-i${b.getAttribute("aria-current")==="page"?" on":""}" data-fs="${b.dataset.v}">${b.textContent}</button>`).join("")}</div>`;
+  document.body.appendChild(d);document.documentElement.style.overflow="hidden"}
+(function(){const st=document.createElement("style");st.textContent=`#fnav-sheet{position:fixed;inset:0;z-index:10050}#fnav-sheet .fs-bg{position:absolute;inset:0;background:rgba(5,15,35,.5)}
+ #fnav-sheet .fs-p{position:absolute;inset-inline:0;bottom:0;background:#fff;color:#051D48;border-radius:18px 18px 0 0;padding:10px 12px calc(14px + env(safe-area-inset-bottom,0px));max-height:75vh;overflow:auto;display:flex;flex-direction:column;gap:4px;box-shadow:0 -10px 30px rgba(5,29,72,.3)}
+ #fnav-sheet .fs-h{display:flex;align-items:center;justify-content:space-between;padding:6px 6px 10px;font-size:16px}#fnav-sheet .fs-x{border:0;background:#EEF2F7;border-radius:50%;width:38px;height:38px;font-size:16px;color:#051D48}
+ #fnav-sheet .fs-i{border:0;background:transparent;text-align:start;font:inherit;font-size:16px;color:#051D48;padding:14px 12px;border-radius:10px;min-height:48px}#fnav-sheet .fs-i.on{background:#E6F4EA;box-shadow:inset -3px 0 0 #38AC57;font-weight:700}`;document.head.appendChild(st)})();
+document.addEventListener("click",e=>{const sh=e.target.closest&&e.target.closest("#fnav-sheet");if(!sh)return;e.preventDefault();e.stopPropagation();
+  const it=e.target.closest("[data-fs]");if(it){const v=it.dataset.fs;fnavSheetClose();go(v);setTimeout(fnavMark,0);return}
+  if(e.target.closest(".fs-x")||e.target.classList.contains("fs-bg"))fnavSheetClose()},true);
+window.addEventListener("hashchange",fnavSheetClose);
+document.addEventListener("click",e=>{const h=e.target.closest&&e.target.closest(".fg-h");if(h&&window.innerWidth<=700){e.preventDefault();e.stopPropagation();fnavClose();fnavSheet(h.parentElement);return}if(h){e.preventDefault();e.stopPropagation();const g=h.parentElement,o=!g.classList.contains("open");fnavClose();if(o){g.classList.add("open");h.setAttribute("aria-expanded","true")}return}
   if(!e.target.closest||!e.target.closest(".fg-m"))fnavClose();else setTimeout(()=>{fnavClose();fnavMark()},0)},true);
 document.addEventListener("keydown",e=>{if(e.key==="Escape")fnavClose()});
 const _fnavSetup=setupNav;setupNav=function(){_fnavSetup.apply(this,arguments);fnavGroup()};
@@ -3254,6 +3273,41 @@ function gstChart(X){for(const k in GST.charts){try{GST.charts[k].destroy()}catc
     options:{maintainAspectRatio:false,locale:"en-US",plugins:{legend:{position:"bottom",rtl:true},tooltip:{rtl:true},title:{display:true,text:"حالة السيارات يومياً (عدد السيارات)"}},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{precision:0}}}}})}
 {const _r=renderGpsKpi;renderGpsKpi=function(){_r.apply(this,arguments);const el=document.getElementById("v-gpskpi");if(!el||!GK.d)return;const X=gstCompute();
   const first=el.querySelector(".panel");if(first&&!el.querySelector("#gst")){first.insertAdjacentHTML("afterend",gstHtml(X));gstChart(X)}}}
+
+/* ===== Extra driver and target surplus (24/11) =====
+   - When a vehicle has more than one driver on a day (day.drvs), the trips of the extra driver(s) are added to that day's target,
+     so the vehicle is not counted as «over target» for work that a second driver did. Same rule on the server (fleet.days_calc).
+   - Dashboard panel: the vehicles above target and where the surplus came from (more trips on working days, work on days
+     without a target such as Fridays and holidays) plus the extra drivers' trips that were added to the target. */
+function xdShares(day,A){const L=day&&Array.isArray(day.drvs)&&day.drvs.length>1?day.drvs:null;if(!L)return null;
+  const it=L.map(o=>o.a===""||o.a==null?null:Number(o.a));const K=it.reduce((s,x)=>s+(x!=null?x:0),0),unk=it.filter(x=>x==null).length;A=Number(A)||0;
+  let sh;if(!unk&&K>0)sh=it.map(x=>x/K);else if(A>0){const rem=Math.max(0,A-K);sh=it.map(x=>x!=null?Math.min(1,x/A):(rem/A)/unk);const S=sh.reduce((s,x)=>s+x,0);if(S>0)sh=sh.map(x=>x/S)}else sh=it.map(()=>1/it.length);return sh}
+function xdTrips(cfg,v,day){const A=dayAchieved(cfg,v,day);const sh=xdShares(day,A);if(!sh)return 0;return A*(1-sh[0])}
+const _dtBase=dayTarget;
+dayTarget=function(cfg,v,iso,day){const t=_dtBase(cfg,v,iso,day);if(!ruleFor(cfg,v))return t;return t+xdTrips(cfg,v,day)};
+
+function surplusRows(){const c=cfg(),today=localToday(),from=S.f.from,to=S.f.to;
+  const vs=activeVehicles().filter(v=>(S.f.vehicle==="الكل"||v.id===S.f.vehicle)&&(S.f.branch==="الكل"||v.branch===S.f.branch));
+  return vs.map(v=>{const o={v,t0:0,xd:0,t:0,a:0,sur:0,surW:0,surOff:0,days:0,best:0,bestDay:"",n:0,f:0,j:0,dx:0};
+    for(let iso=from;iso<=to;iso=addDays(iso,1)){const day=getDay(v.id,iso);const x=calcDay(c,v,iso,day,today);if(!x.t&&!x.a)continue;
+      const t0=(c.kpiStart&&iso<c.kpiStart)?0:_dtBase(c,v,iso,day);const xd=x.t-t0;o.t0+=t0;o.xd+=Math.max(0,xd);if(xd>0)o.dx++;o.t+=x.t;o.a+=x.a;
+      const s=Math.max(0,x.a-x.t);o.sur+=s;if(s>0){o.days++;if(t0>0)o.surW+=s;else o.surOff+=s;if(s>o.best){o.best=s;o.bestDay=iso}}
+      if(day){o.n+=num(day.n);o.f+=num(day.f);o.j+=num(day.j)}}
+    o.net=o.a-o.t;return o}).filter(o=>o.sur>0||o.xd>0).sort((a,b)=>b.net-a.net||b.sur-a.sur)}
+function surplusPanel(){const R=surplusRows();if(!R.length)return "";const T=R.reduce((s,o)=>({sur:s.sur+o.sur,w:s.w+o.surW,off:s.off+o.surOff,xd:s.xd+o.xd}),{sur:0,w:0,off:0,xd:0});
+  return `<div class="panel" id="sur-panel"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">السيارات اللي حققت أكثر من المستهدف — كيف؟</h2><span class="grow" style="flex:1"></span><button type="button" class="btn sm" id="sur-xls">⬇ Excel</button></div>
+   <p class="small muted" style="margin:6px 0 10px">الزيادة = المحقق − المستهدف في كل يوم. «زيادة في أيام العمل» = ردود أكثر من مستهدف اليوم. «شغل بدون مستهدف» = جمعة أو إجازة اشتغلت فيها السيارة. ردود السائق الإضافي تنضاف للمستهدف وما تنحسب زيادة.</p>
+   <div class="kpis" style="margin-bottom:10px"><div class="kpi" style="--c:#38AC57"><span class="l">إجمالي الزيادة</span><span class="v">${fmt(T.sur,1)}</span><span class="s">رد</span></div>
+    <div class="kpi" style="--c:#34BEF0"><span class="l">زيادة في أيام العمل</span><span class="v">${fmt(T.w,1)}</span><span class="s">${pct(T.sur?T.w/T.sur:null,0)}</span></div>
+    <div class="kpi" style="--c:#F39235"><span class="l">شغل بدون مستهدف (جمعة/إجازة)</span><span class="v">${fmt(T.off,1)}</span><span class="s">${pct(T.sur?T.off/T.sur:null,0)}</span></div>
+    <div class="kpi" style="--c:#8FC153"><span class="l">ردود السائق الإضافي (أضيفت للمستهدف)</span><span class="v">${fmt(T.xd,1)}</span><span class="s">ما تنحسب زيادة</span></div></div>
+   <div class="tbl-wrap"><table><thead><tr><th class="txt">السيارة</th><th>الفرع</th><th>المستهدف الأساسي</th><th>+ السائق الإضافي</th><th>المحقق</th><th>صافي الفرق</th><th>إجمالي الزيادة</th><th>في أيام العمل</th><th>بدون مستهدف</th><th>أيام فوق المستهدف</th><th>أعلى يوم</th><th>قريبة / بعيدة / جدة والطائف</th></tr></thead><tbody>
+   ${R.map(o=>`<tr><td class="txt"><b>${esc(vehLabel(o.v))}</b></td><td>${esc(o.v.branch||"")}</td><td>${fmt(o.t0,1)}</td><td>${o.xd?`${fmt(o.xd,1)} <span class="small muted">(${o.dx} يوم)</span>`:"—"}</td><td>${fmt(o.a,1)}</td>
+     <td class="${o.net>=0?"pos":"neg"}">${o.net>=0?"+":""}${fmt(o.net,1)}</td><td>${fmt(o.sur,1)}</td><td>${fmt(o.surW,1)}</td><td>${fmt(o.surOff,1)}</td><td>${o.days}</td><td>${o.best?`${fmt(o.best,1)} <span class="small muted">${fd(o.bestDay)}</span>`:"—"}</td><td>${fmt(o.n)} / ${fmt(o.f)} / ${fmt(o.j)}</td></tr>`).join("")}</tbody></table></div></div>`}
+function exportSurplus(){const R=surplusRows();exportXLSX(`تحقيق_المستهدف_${S.f.from}_${S.f.to}.xlsx`,{"السيارات فوق المستهدف":R.map(o=>({"السيارة":vehLabel(o.v),"الفرع":o.v.branch||"","المستهدف الأساسي":+o.t0.toFixed(1),"ردود السائق الإضافي":+o.xd.toFixed(1),"أيام السائق الإضافي":o.dx,
+  "المستهدف بعد الإضافة":+o.t.toFixed(1),"المحقق":+o.a.toFixed(1),"صافي الفرق":+o.net.toFixed(1),"إجمالي الزيادة":+o.sur.toFixed(1),"زيادة في أيام العمل":+o.surW.toFixed(1),"شغل بدون مستهدف":+o.surOff.toFixed(1),"أيام فوق المستهدف":o.days,"أعلى يوم":o.bestDay,"زيادة أعلى يوم":+o.best.toFixed(1),"ردود قريبة":o.n,"ردود بعيدة":o.f,"ردود جدة والطائف":o.j}))})}
+document.addEventListener("click",e=>{if(e.target.closest&&e.target.closest("#sur-xls")){e.preventDefault();exportSurplus()}});
+{const _rd=renderDashboard;renderDashboard=function(){_rd.apply(this,arguments);try{const el=$("#v-dashboard");if(!el||document.getElementById("sur-panel"))return;const h=surplusPanel();if(h)el.insertAdjacentHTML("beforeend",h)}catch(e){console.error(e)}}}
 
 start();
 
