@@ -265,7 +265,7 @@ const num=n=>Math.round(n||0).toLocaleString('en-US');
 const price2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); // unit prices keep their halalas (1.35, not 1)
 const money=n=>num(n)+' '+L('ر.س','SAR');
 const smoney=n=>{n=n||0;const a=Math.abs(n);if(a>=1e6)return (n/1e6).toFixed(2)+' '+L('مليون','M');if(a>=1e3)return Math.round(n/1e3)+' '+L('ألف','K');return num(n)};
-const fdate=s=>s?new Date(s.length<=10?s+'T12:00:00':s).toLocaleDateString(loc(),{day:'numeric',month:'short',year:(s.slice(0,4)===TODAY().slice(0,4)?undefined:'numeric')}):'—';
+const fdate=s=>{if(!s)return '—';s=String(s);const d=new Date(s.length<=10?s+'T12:00:00':s);if(isNaN(d))return s;const p=n=>String(n).padStart(2,'0');return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`};
 const fdt=s=>s?new Date(s).toLocaleString(loc(),{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
 const pct=(a,b)=>b?Math.round(a/b*100):0;
 const fpct=(x,d=0)=>x==null||!isFinite(x)?'—':(x*100).toFixed(d)+'%';
@@ -1590,7 +1590,7 @@ V.collections=()=>{
     ${fp.length>fl?`<button class="btn" data-act="more" data-k="fpLim" data-n="${fl+50}">${L('عرض المزيد','Show more')} (${fp.length-fl})</button>`:''}</div>`})()}
    <div class="card"><h2>${L('سندات القبض','Collection vouchers')}<span class="sub">${rows.length} ${L('سند في الفترة','in period')}</span></h2>
    <div class="toolbar" style="margin-bottom:8px"><span class="grow"><input id="colq" type="search" placeholder="${L('بحث برقم السند أو العميل أو الفاتورة','Search voucher, customer, invoice')}" value="${esc(fv('colq',''))}" data-act="filtIn" data-k="colq"></span></div>
-   ${table([{l:L('السند','Voucher'),f:r=>`<b>${esc(r.v)}</b>`},{l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.d)},{l:L('العميل','Customer'),f:r=>r.cid?esc(cName(r.cid)):`${esc(r.cn||r.code)} ${pill(L('غير مطابق','Unmatched'),'warn')}`},{l:L('المندوب','Rep'),f:r=>esc(tName(r.rep))},{l:L('المبلغ','Amount'),c:'n',f:r=>money(r.amt),t:rs=>money(rows.reduce((s,x)=>s+x.amt,0))},{l:L('الطريقة','Method'),f:r=>esc(r.pm||'—')},{l:L('الفاتورة','Invoice'),f:r=>esc(r.inv||'—')}],rows.slice(0,lim).map(r=>({...r,id:r.cid})),'client',{foot:1})}
+   ${table([{l:L('السند','Voucher'),f:r=>`<b>${esc(r.v)}</b>`},{l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.d)},{l:L('العميل','Customer'),f:r=>r.cid?esc(cName(r.cid)):`${esc(r.cn||r.code)} ${pill(L('غير مطابق','Unmatched'),'warn')}`},{l:L('المندوب','Rep'),f:r=>esc(tName(r.rep))},{l:L('المبلغ','Amount'),c:'n',f:r=>money(r.amt),t:rs=>money(rows.reduce((s,x)=>s+x.amt,0))},{l:L('الطريقة','Method'),f:r=>esc(r.pm||'—')},{l:L('الفاتورة','Invoice'),f:r=>esc(r.inv||'—')},{l:'',f:r=>`<button class="btn s" data-act="cvPrint" data-v="${esc(r.v)}" title="${L('طباعة سند القبض','Print receipt')}">🖨</button>`}],rows.slice(0,lim).map(r=>({...r,id:r.cid})),'client',{foot:1})}
    ${rows.length>lim?`<button class="btn" data-act="more" data-k="colLim" data-n="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>`;
 };
 
@@ -2810,14 +2810,18 @@ V.orders=()=>{
    <label class="fl" for="soSt">${L('الحالة','Status')}<select id="soSt" data-act="filtSel" data-k="soSt">${opt(Object.entries(ORDER_ST).map(([k,v])=>[k,L(v[0],v[1])]),st,L('— الكل —','— all —'))}</select></label>
    ${isLead()?`<label class="fl" for="soRep">${L('المندوب','Rep')}<select id="soRep" data-act="filtSel" data-k="soRep">${opt(reps.map(r=>[r.id,r.name]),rp,L('— الكل —','— all —'))}</select></label>`:''}
    <label class="fl" for="soQ">${L('بحث','Search')}<input id="soQ" data-act="filtIn" data-k="soQ" value="${esc(fv('soQ',''))}" placeholder="${L('رقم الأمر أو العميل','Order no. or customer')}"></label>
-   ${isMgr()?`<button class="btn" data-act="goImport" data-t="orders">${L('استيراد أوامر البيع من Excel','Import sales orders from Excel')}</button>`:''}</div>
-  <div class="kpis k4">${kpiTile(L('عدد الأوامر','Orders'),num(rows.length),'')}${kpiTile(L('قيمة الأوامر','Orders value'),smoney(val(live)),L('بدون الملغاة','excl. cancelled'))}
-   ${kpiTile(L('مفتوح / جزئي','Open / partial'),smoney(val(live.filter(o=>o.status==='open'||o.status==='partial'))),num(live.filter(o=>o.status==='open'||o.status==='partial').length)+' '+L('أمر','orders'))}
-   ${kpiTile(L('مُسلّم','Delivered'),smoney(val(live.filter(o=>o.status==='delivered'))),'')}</div>
+   ${typeof soCanNew==='function'&&soCanNew()?`<button class="btn p" data-act="soNew">+ ${L('أمر بيع جديد','New sales order')}</button>`:''}</div>
+  ${(()=>{// delivered / still to deliver are counted from the order lines (qty − open) × price, so a partly delivered order splits correctly
+    const lv=l=>{const q=+l.qty||0,op=l.open!=null&&l.open!==''?Math.min(q,Math.max(0,+l.open)):null,pr=+l.price||(q?(+l.value||0)/q:0);return {dl:op==null?0:(q-op)*pr,op:op==null?0:op*pr}};
+    let dl=0,op=0;live.forEach(o=>{if(!(o.lines||[]).length){if(o.status==='delivered')dl+=+o.value||0;else op+=+o.value||0;return}(o.lines||[]).forEach(l=>{const x=lv(l);dl+=x.dl;op+=x.op})});
+    const oo=live.filter(o=>o.status==='open'||o.status==='partial');const nc=rows.length-live.length;
+    return `<div class="kpis k4">${kpiTile(L('عدد الأوامر','Orders'),num(live.length),nc?`${num(nc)} ${L('ملغي غير محسوب','cancelled not counted')}`:L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('قيمة الأوامر','Orders value'),smoney(val(live)),L('قبل الضريبة','before VAT'))}
+   ${kpiTile(L('تم تسليمه','Delivered'),smoney(dl),L('الكميات المسلّمة × السعر، يشمل التسليم الجزئي','delivered qty × price, incl. partial'))}
+   ${kpiTile(L('متبقي للتسليم','Still to deliver'),smoney(op),`${num(oo.length)} ${L('أمر مفتوح أو جزئي','open/partial orders')}`)}</div>`})()}
   <div class="card">${table([{l:L('رقم الأمر','Order no.'),c:'nw',f:o=>`<b>${esc(o.no)}</b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
     {l:L('العميل','Customer'),f:o=>`${esc(o.cname||cName(o.clientId))}<div class="small muted">${esc(o.clientCode||'')}${o.clientId?'':' · '+L('غير مطابق','unmatched')}</div>`},
     {l:L('المندوب','Rep'),f:o=>esc(tName(o.repId))},{l:L('الأصناف','Lines'),c:'n',f:o=>(o.lines||[]).length},{l:L('القيمة','Value'),c:'n',f:o=>num(o.value)},
-    {l:L('الحالة','Status'),f:o=>pillOf(ORDER_ST,o.status)},{l:L('التسليم','Delivery'),c:'nw',f:o=>o.delivery?fdate(o.delivery):'—'},{l:L('عرض السعر','Quotation'),f:o=>esc(o.quoteNo||'—')},{l:L('التوصيل','Delivery'),f:o=>{const r=(o.dlv||[])[0];return r?pillOf(DLV_ST,r.status):'—'}}],rows.slice(0,500),'order',{empty:L('لا توجد أوامر بيع. استوردها من Excel من «مركز استيراد Excel».','No sales orders. Import them from the Excel import center.')})}
+    {l:L('الحالة','Status'),f:o=>pillOf(ORDER_ST,o.status)},{l:L('التسليم','Delivery'),c:'nw',f:o=>o.delivery?fdate(o.delivery):'—'},{l:L('عرض السعر','Quotation'),f:o=>esc(o.quoteNo||'—')},{l:L('التوصيل','Delivery'),f:o=>{const r=(o.dlv||[])[0];return r?pillOf(DLV_ST,r.status):'—'}}],rows.slice(0,500),'order',{empty:L('لا توجد أوامر بيع في هذا الاختيار.','No sales orders for this filter.')})}
    ${rows.length>500?`<div class="small muted">${L('يُعرض أحدث 500 أمر — ضيّق البحث بالشهر أو المندوب','Latest 500 shown — narrow by month or rep')}</div>`:''}</div>`;
 };
 OPEN.order=(id,refresh)=>{const o=byId('orders',id);if(!o)return;
@@ -3281,7 +3285,7 @@ Object.assign(ACT,{
 NAV.splice(Math.max(0,NAV.findIndex(n=>n[0]==='dash')),0,['mydash','gauge',()=>L('لوحتي','My board'),()=>wadyLvl('crm','dash')>=1]);
 
 /* ============ Delivery inside the CRM: the delivery screens open here, in place, on the same login ============ */
-const DLV_TABS=[['dlvops','ops','map',()=>L('لوحة الحركة','Dispatch board')],['dlv','orders','field',()=>L('طلبات التوصيل','Delivery requests')],['dlvplan','plan','plan',()=>L('تنسيق الردود','Trip planning')],['dlvreserve','reserve','alert',()=>L('الاحتياطي','Reserve')],['dlvmaint','maint','build',()=>L('الصيانة','Maintenance')],['dlvreports','dreports','report',()=>L('تقارير التوصيل','Delivery reports')],['dlvvehicle','vehicle','log',()=>L('سجل السيارة','Vehicle log')],['dlvdrivers','drivers','users',()=>L('السائقين وتقرير ردودهم','Drivers & driver report')]];
+const DLV_TABS=[['dlvops','ops','map',()=>L('لوحة الحركة','Dispatch board')],['dlv','orders','field',()=>L('طلبات التوصيل','Delivery requests')],['dlvplan','plan','plan',()=>L('تنسيق الردود','Trip planning')],['dlvreserve','reserve','alert',()=>L('الاحتياطي','Reserve')],['dlvreports','dreports','report',()=>L('تقارير التوصيل','Delivery reports')],['dlvvehicle','vehicle','log',()=>L('سجل السيارة','Vehicle log')],['dlvdrivers','drivers','users',()=>L('السائقين وتقرير ردودهم','Drivers & driver report')]];
 {const at=Math.max(0,NAV.findIndex(n=>n[0]==='field'));NAV.splice(at,0,['g',()=>L('التوصيل','Delivery')],...DLV_TABS.map(([r,t,ic,l])=>[r,ic,l,()=>wadyLvl('fleet',t)>=1]))}
 const DLV={tab:null};
 function dlvHost(){let h=document.getElementById('dlvHost');if(h)return h;const v=document.getElementById('view');if(!v)return null;
@@ -4291,7 +4295,7 @@ let CE_FORM=null;
 function ceOpenForm(req){const clients=vis(S.clients).filter(c=>!isLead()||true).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   CE_FORM={id:req?.id||null,client_id:req?.client_id||'',files:req?.attachments||[]};
   openModal(req?L('تعديل طلب الاستثناء EX-','Edit EX-')+req.no:L('طلب استثناء توريد جديد','New exception request'),`<form id="ceform" novalidate>
-   <div class="fgrid"><div class="fld full"><label>${L('العميل','Customer')} <span class="req">*</span></label>${req?`<b>${esc(req.client_name)} — ${esc(req.client_code)}</b>`:`<input list="ce_cl" id="ce_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="ce_cl">${clients.slice(0,4000).map(c=>`<option value="${esc(c.code)} — ${esc(c.name)}">`).join('')}</datalist>`}</div>
+   <div class="fgrid"><div class="fld full"><label>${L('العميل','Customer')} <span class="req">*</span></label>${req?`<b>${esc(req.client_name)} — ${esc(req.client_code)}</b>`:`<input data-wcust="crm" id="ce_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off">`}</div>
     <div class="fld"><label>${L('قيمة التوريد المطلوب (ريال)','Requested supply (SAR)')} <span class="req">*</span></label><input type="number" step="any" id="ce_amount" value="${req?.amount??''}"></div>
     <div class="fld"><label>${L('رقم أمر البيع أو طلب التوريد (إن وجد)','Sales order no. (if any)')}</label><input id="ce_so" value="${esc(req?.so_no||'')}"></div></div>
    <div id="ce_snap" class="card" style="margin:8px 0"><div class="muted small">${L('اختر العميل واكتب القيمة، والنظام يحسب الأرقام من بيانات SAP.','Pick the customer and amount; figures come from SAP data.')}</div></div>
@@ -4353,7 +4357,15 @@ function ceHistory(){const q=normTxt(fv('ceHQ',''));const by=new Map();const mk=
   CEX.rows.forEach(r=>{let o=by.get(r.client_code);if(!o){o={code:r.client_code,name:r.client_name,rep:r.rep_id,n:0,month:0,over:0,appr:0,rej:0,unexec:0,settled:0,unsettled:0};by.set(r.client_code,o)}
     o.n++;if(r.month_key===mk&&r.approved_at&&!(r.status==='cancelled'&&!r.executed_at))o.month++;if(r.was_approved&&r.status!=='cancelled'){o.appr++;o.over+=+r.over_amount||0}if(r.status==='rejected')o.rej++;if(r.status==='expired')o.unexec++;if(r.status==='settled')o.settled++;if(['approved','executed'].includes(r.status))o.unsettled++});
   const rows=[...by.values()].filter(o=>!q||normTxt(o.name+' '+o.code+' '+ceName(o.rep)).includes(q)).sort((a,b)=>b.n-a.n);
-  return `<div class="toolbar"><input type="search" placeholder="${L('بحث بالعميل أو الكود أو المندوب','Search')}" value="${esc(fv('ceHQ',''))}" data-act="filtIn" data-k="ceHQ"></div><div class="card">${rows.length?table([{l:L('العميل','Customer'),f:o=>`<a href="#" data-act="ceHist" data-c="${esc(o.code)}">${esc(o.name||'')}</a> <span class="small muted">${esc(o.code)}</span>`},{l:L('المندوب','Rep'),f:o=>esc(ceName(o.rep))},
+  // customers who keep coming back for approvals: count, months in a row, what was approved and what is still open
+  const all=[...by.values()];const rep=all.filter(o=>o.n>=2);const mmax=CEX.cfg&&CEX.cfg.monthly_max;const atMax=mmax?all.filter(o=>o.month>=mmax):[];
+  const months=code=>new Set(CEX.rows.filter(r=>r.client_code===code).map(r=>String(r.created_at).slice(0,7))).size;
+  const top=rep.slice().sort((a,b)=>b.n-a.n).slice(0,8);const mx=Math.max(1,...top.map(o=>o.n));
+  const kp=`<div class="kpis k4">${kpiTile(L('عملاء تكررت طلباتهم','Repeat customers'),num(rep.length),L('طلبين أو أكثر','2+ requests'))}${kpiTile(L('طلبات العملاء المتكررين','Their requests'),num(rep.reduce((s,o)=>s+o.n,0)),`${L('من أصل','of')} ${num(CEX.rows.length)}`)}
+    ${kpiTile(L('وصلوا الحد الشهري','At monthly max'),num(atMax.length),mmax?`${L('الحد','max')} ${mmax} ${L('بالشهر','/ month')}`:'—')}${kpiTile(L('تجاوزات معتمدة لهم','Approved overs'),smoney(rep.reduce((s,o)=>s+o.over,0)),`${num(rep.reduce((s,o)=>s+o.unsettled,0))} ${L('غير مسوّاة','unsettled')}`)}</div>
+   ${top.length?`<div class="card"><h2>${L('أكثر العملاء تكراراً لطلب الموافقة','Most repeated customers')}<span class="sub">${L('اضغط على العميل لتفاصيل طلباته','Tap a customer for details')}</span></h2>${top.map(o=>`<div style="display:flex;gap:8px;align-items:center;margin:5px 0"><a href="#" data-act="ceHist" data-c="${esc(o.code)}" style="flex:0 0 38%" class="small">${esc(o.name||o.code)}</a>
+     <i style="display:block;height:12px;border-radius:5px;background:${o.unsettled?'#F39235':'#38AC57'};width:${o.n/mx*40}%"></i><b class="small">${o.n}</b><span class="small muted">· ${months(o.code)} ${L('شهر','months')} · ${L('معتمد','appr.')} ${o.appr} · ${L('مرفوض','rej.')} ${o.rej}${o.unsettled?` · <b class="flag">${o.unsettled} ${L('غير مسوّى','unsettled')}</b>`:''}</span></div>`).join('')}</div>`:''}`;
+  return kp+`<div class="toolbar"><input type="search" placeholder="${L('بحث بالعميل أو الكود أو المندوب','Search')}" value="${esc(fv('ceHQ',''))}" data-act="filtIn" data-k="ceHQ"></div><div class="card">${rows.length?table([{l:L('العميل','Customer'),f:o=>`<a href="#" data-act="ceHist" data-c="${esc(o.code)}">${esc(o.name||'')}</a> <span class="small muted">${esc(o.code)}</span>`},{l:L('المندوب','Rep'),f:o=>esc(ceName(o.rep))},
     {l:L('الإجمالي','Total'),c:'n',f:o=>num(o.n)},{l:L('هذا الشهر','This month'),c:'n',f:o=>num(o.month)},{l:L('قيمة التجاوزات المعتمدة','Approved overs'),c:'n',f:o=>money(o.over)},{l:L('معتمدة','Approved'),c:'n',f:o=>num(o.appr)},{l:L('مرفوضة','Rejected'),c:'n',f:o=>num(o.rej)},
     {l:L('لم تُنفذ (انتهت)','Not executed'),c:'n',f:o=>num(o.unexec)},{l:L('مسوّاة','Settled'),c:'n',f:o=>num(o.settled)},{l:L('غير مسوّاة','Unsettled'),c:'n',f:o=>o.unsettled?`<b class="flag">${o.unsettled}</b>`:'0'}],rows.map(o=>({...o,id:null}))):`<div class="muted">${L('ما فيه سجل','No history')}</div>`}</div>`}
 /* ---- management dashboard ---- */
@@ -4710,6 +4722,8 @@ const lcCanClose=d=>{const u=me().id;if(d.status!=='approved'||d.closed_at||!['c
   return isMgr()||lcCfg()||(d.kind==='contract'&&[d.created_by,d.rep_id,d.sup_id].includes(u))||(d.kind==='account'&&lcLastAppr(d).includes(u))};
 const lcMine=d=>lcMyTurn(d)||(['draft','returned'].includes(d.status)&&d.created_by===me().id)||(lcCanClose(d)&&(d.kind==='account'||d.created_by===me().id));
 const lcLvl=k=>(typeof wadyLvl==='function'?wadyLvl('crm',LC_KIND[k].page):3);
+const lcCreditOk=()=>new Set((LCX.rows||[]).filter(x=>x.kind==='credit'&&x.status==='approved'&&x.client_id).map(x=>x.client_id));
+const lcCanNew=k=>lcLvl(k)>=3||(k==='contract'&&lcLvl(k)>=1&&lcCreditOk().size>0);
 const lcCfg=()=>isAdmin()||(typeof WADY_PERM!=='undefined'&&(WADY_PERM.admin||(WADY_PERM.app_admin||[]).includes('crm')))||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=3);
 async function lcLoad(force){if(LCX.busy||(!force&&LCX.rows&&Date.now()-LCX.at<30000))return;LCX.busy=true;
   try{const sb=window.__sb;const [r,f,t,p,fm,ce]=await Promise.all([sb.from('lc_docs').select('*').order('created_at',{ascending:false}).limit(3000),sb.from('lc_flows').select('*'),
@@ -4733,9 +4747,10 @@ const lcStepsTxt=k=>(LCX.flows[k]||[]).map(s=>esc(s.name)).join(' ← ');
 function lcView(kind){if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
   if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
   const rows=LCX.rows.filter(d=>d.kind===kind);const tk='lcTab_'+kind,tab=fv(tk,'queue');const q=rows.filter(lcMine);const nl=LC_KIND[kind].newL;
-  let h=`<div class="toolbar">${nl&&lcLvl(kind)>=3?`<button class="btn p" data-act="lcNew" data-k="${kind}">${nl()}</button>`:''}<button class="btn s" data-act="lcRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
+  let h=`<div class="toolbar">${nl&&lcCanNew(kind)?`<button class="btn p" data-act="lcNew" data-k="${kind}">${nl()}</button>`:''}<button class="btn s" data-act="lcRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
     <span class="small muted">${kind==='letter'&&!(LCX.flows.letter||[]).length?L('الخطابات تصدر مباشرة بدون اعتماد (تقدر تضيف مراحل من الإعدادات)','Letters are issued directly'):L('دورة الموافقات: ','Approval route: ')+(lcStepsTxt(kind)||`<span class="flag">${L('لسا ما تحددت','not set')}</span>`)}</span></div>
    ${LCX.err?`<div class="banner bad"><span class="sp">${esc(LCX.err)}</span></div>`:''}
+   ${kind==='contract'&&lcLvl(kind)<3?`<div class="banner info"><span class="sp">${L('تقدر تصدر طلب عقد لعملائك اللي اعتمد لهم طلب التسهيلات الائتمانية فقط.','You can request a contract only for your customers whose credit facility is approved.')}</span></div>`:''}
    ${kind==='credit'?`<div class="banner info"><span class="sp">${L('بعد اعتماد الطلب من كل المراحل، النظام يجهز العقد تلقائياً ويرسله للمندوب ليوقعه العميل مع الضمانات المطلوبة. وبعد تسجيل التوقيع يطلع طلب فتح الحساب.','After full approval the contract is generated for the customer to sign; after signing, an account-opening request is created.')}</span></div>`:''}
    ${kind==='account'?`<div class="banner info"><span class="sp">${L('طلبات فتح الحساب تنشأ تلقائياً بعد تسجيل توقيع عقد التسهيلات. المندوب يكمل النموذج ويرسله، والمرحلة الأخيرة للحسابات اللي تفتح الحساب في SAP.','Created automatically after the credit contract is signed.')}</span></div>`:''}
    <div class="tabs">${[['queue',L('بانتظار إجراء مني','My queue')+` (${q.length})`],['list',L('الكل','All')],['help',L('دليل الوحدة','Guide')]].map(([k,l])=>`<button class="tab ${tab===k?'on':''}" data-act="filt" data-k="${tk}" data-v="${k}">${l}</button>`).join('')}</div>`;
@@ -4782,7 +4797,8 @@ function lcAccFields(f){return LCX.form.map(x=>{const id='lcx_'+x.key,v=f[x.key]
   const inp=x.type==='textarea'?`<textarea id="${id}" rows="2">${esc(v??'')}</textarea>`:x.type==='select'?`<select id="${id}">${opt((x.options||[]).map(o=>[o,o]),v||'',L('— اختر —','— choose —'))}</select>`
     :x.type==='check'?`<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="${id}" ${v===true||v==='true'?'checked':''}> ${L('مرفق / متوفر','Provided')}</label>`:`<input id="${id}" type="${x.type==='number'?'number':x.type==='date'?'date':'text'}" value="${esc(v??'')}">`;
   return lcF(esc(x.label),inp,x.type==='textarea',x.required)}).join('')}
-function lcForm(kind,d){const f=d?.fields||{};const clients=vis(S.clients).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+function lcForm(kind,d){const f=d?.fields||{};let clients=vis(S.clients).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  if(kind==='contract'&&lcLvl('contract')<3){const ok=lcCreditOk();clients=clients.filter(c=>ok.has(c.id))}
   LC_FORM={kind,id:d?.id||null,client_id:d?.client_id||'',files:d?.attachments||[]};const cl=d?byId('clients',d.client_id)||{}:{};
   const T={contract:L('عقد جديد','New contract'),credit:L('طلب تسهيلات ائتمانية جديد','New credit facility request'),letter:L('خطاب جديد','New letter'),fvisit:L('طلب زيارة للمصنع','Factory visit request'),account:''};
   let body='';
@@ -4815,7 +4831,7 @@ function lcForm(kind,d){const f=d?.fields||{};const clients=vis(S.clients).sort(
     body=`<div class="card small"><b>${L('شروط الائتمان المعتمدة','Approved credit terms')}</b>: ${L('الحد','Limit')} ${money(d.amount||0)} · ${L('مدة السداد','Term')} ${esc(f.term_days||'—')} ${L('يوم','days')} · ${L('الضمانات','Guarantees')}: ${esc(lcGuar(f.guarantees))||'—'}</div>
       <div class="fgrid">${LCX.form.length?lcAccFields(pf):`<div class="fld full flag">${L('نموذج فتح الحساب لسا ما تصمم، مدير النظام يصممه من الإعدادات.','The account form is not designed yet.')}</div>`}</div>`}
   openModal(d?`${L('تعديل','Edit')} ${lcRef(d)}`:T[kind],`<form id="lcform" novalidate>
-   <div class="fgrid">${lcF(kind==='fvisit'?L('العميل (لو الزائر عميل مسجل)','Client (if registered)'):L('العميل','Customer'),d&&d.client_id?`<b>${esc(d.client_name||'')} — ${esc(d.client_code||'')}</b>`:`<input list="lc_cl" id="lc_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="lc_cl">${clients.slice(0,4000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`,true,kind!=='fvisit')}</div>
+   <div class="fgrid">${lcF(kind==='fvisit'?L('العميل (لو الزائر عميل مسجل)','Client (if registered)'):L('العميل','Customer'),d&&d.client_id?`<b>${esc(d.client_name||'')} — ${esc(d.client_code||'')}</b>`:`<input ${kind==="contract"&&lcLvl("contract")<3?'list="lc_cl"':'data-wcust="crm"'} id="lc_client" placeholder="${L('اكتب اسم العميل أو كوده','Type customer name or code')}" autocomplete="off"><datalist id="lc_cl">${clients.slice(0,4000).map(x=>`<option value="${esc(x.code)} — ${esc(x.name)}">`).join('')}</datalist>`,true,kind!=='fvisit')}</div>
    <div id="lc_snap" class="small muted" style="margin:4px 0 8px"></div>${body}
    <div class="fgrid">${lcF(L('المرفقات — حتى 5 ملفات، كل ملف أقل من 2.5 ميجا','Attachments (up to 5)'),`<input type="file" id="lc_files" multiple accept="image/*,application/pdf"><div id="lc_flist" class="small muted"></div>`,true)}</div>
    ${d?.status==='returned'?`<div class="banner warn"><span class="sp">${L('سبب الإعادة: ','Returned: ')}${esc(d.decision_note||'')}</span></div>`:''}
@@ -4930,7 +4946,7 @@ function lcPrint(id){const d=LCX.rows.find(x=>x.id===id);if(!d)return;const k=ty
 /* ---- settings: routes, account form, templates ---- */
 let LC_ED=null,LC_FE=null;
 const lcNorm=s=>s.sources?{...s}:{name:s.name,sources:s.type==='sup'?['sup']:s.type==='role'&&s.role?[s.role]:[],users:s.users||[],min_amount:s.min_amount??null};
-V.lcset=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
+V.lcset=()=>{if(!(lcCfg()||isMgr()))return `<div class="card empty">${L('هذي الإعدادات للمدير فقط','Managers only')}</div>`;if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
   if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
   const can=lcCfg();const tab=fv('lcSetK','credit');
   const tabs=[['credit',L('موافقات التسهيلات','Credit route')],['contract',L('موافقات العقود','Contracts route')],['account',L('موافقات فتح الحساب','Account route')],['letter',L('موافقات الخطابات','Letters route')],['fvisit',L('موافقات زيارات المصنع','Factory visits route')],
@@ -5023,7 +5039,7 @@ NAV.push(['contracts','doc',()=>L('العقود','Contracts'),()=>lcLvl('contrac
 NAV.push(['acctopen','users',()=>L('طلبات فتح الحساب','Account opening'),()=>lcLvl('account')>=1]);
 NAV.push(['letters','chat',()=>L('خطابات العملاء','Customer letters'),()=>lcLvl('letter')>=1]);
 NAV.push(['fvisit','pin',()=>L('طلبات زيارة المصنع','Factory visit requests'),()=>lcLvl('fvisit')>=1]);
-NAV.push(['lcset','db',()=>L('إعدادات الموافقات والقوالب','Approvals & templates'),()=>lcCfg()||(typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=1)]);
+NAV.push(['lcset','db',()=>L('إعدادات الموافقات والقوالب','Approvals & templates'),()=>lcCfg()||(isMgr()&&typeof wadyLvl==='function'&&wadyLvl('crm','lcset')>=1)]);
 
 /* ===== SAP sales documents (مستندات ساب) — SAP-style entry screens for the sales chain:
    quotation → sales order → (delivery) → A/R invoice → A/R credit note, plus return request, incoming payment and the
@@ -8213,7 +8229,7 @@ const BI_EN={'الرقم':'No.','التاريخ':'Date','الاستحقاق':'Du
   'توقيع وختم الشركة':'Company signature & stamp','استلام العميل (الاسم والتوقيع)':'Received by (name & signature)','موافقة العميل (الاسم والتوقيع والختم)':'Customer acceptance (name, signature & stamp)',
   'نوع المستند':'Type','البيان':'Details','مدين':'Debit','دائن':'Credit','الرصيد':'Balance','رصيد افتتاحي':'Opening balance','إجمالي المدين':'Total debit','إجمالي الدائن':'Total credit',
   'الرصيد الختامي (ر.س)':'Closing balance (SAR)','الحد الائتماني':'Credit limit','رصيد العميل في ساب اليوم':'SAP balance today','الفترة':'Period','من':'From','إلى':'To','الحساب':'Account',
-  'المحاسب':'Accountant','العميل (المصادقة على الرصيد والختم)':'Customer (balance confirmation & stamp)','المرجع':'Ref.','المستحقات المتأخرة':'Overdue receivables'};
+  'المحاسب':'Accountant','العميل (المصادقة على الرصيد والختم)':'Customer (balance confirmation & stamp)','المرجع':'Ref.','طريقة الدفع':'Payment method','أمر البيع':'Sales order','المبلغ':'Amount','المبلغ المستلم (ر.س)':'Amount received (SAR)','المبلغ كتابة':'Amount in words','بيانات التحصيل':'Payment details','المستلم منه (الاسم والتوقيع)':'Received from (name & signature)','الفاتورة':'Invoice','المستحقات المتأخرة':'Overdue receivables'};
 // «Arabic» with its English under it; labels with a number in them (e.g. «الخصم 3%») translate their first part
 const bi=(ar,inline)=>{const a=String(ar||'');let en=BI_EN[a];if(!en){const m=/^(.*?)\s*(\d+(?:\.\d+)?%)\s*$/.exec(a);if(m&&BI_EN[m[1]])en=BI_EN[m[1]]+' '+m[2];else{const k=Object.keys(BI_EN).find(x=>a.startsWith(x+' '));if(k)en=BI_EN[k]+a.slice(k.length)}}
   return en?(inline?`${esc(a)} <i class="en">${esc(en)}</i>`:`${esc(a)}<i class="en b">${esc(en)}</i>`):esc(a)};
@@ -8421,6 +8437,217 @@ if(typeof sdStmtPrint==='function'){sdStmtPrint=function(){const r=SDX.stmt&&SDX
 @media(max-width:600px){#view .ag .b b{font-size:11px}#view .ag .b span{font-size:10px}}`;document.head.appendChild(st)}
 ACT.dnNew=d=>{const o=byId('orders',d.id);if(!o)return;const entry=+(o.sapEntry||(/^so-(\d+)$/.exec(o.id)||[])[1]);if(typeof sdForm!=='function')return toast('—');
   closeModal();setTimeout(()=>sdForm('delivery',{card:o.clientCode,doc:{type:'order',entry}}),60)};
+
+/* ---------- collection receipt (سند قبض) print, from the collection records (SAP incoming payments) ---------- */
+ACT.cvPrint=d=>{const r=I().coll.find(x=>String(x.v)===String(d.v));if(!r)return toast(L('السند غير موجود','Voucher not found'));
+  const c=r.cid?byId('clients',r.cid)||{}:{};const rep=byId('team',r.rep)||{};const all=I().coll.filter(x=>String(x.v)===String(r.v));const amt=all.reduce((s,x)=>s+(+x.amt||0),0);
+  const words=typeof lcWords==='function'?`فقط ${lcWords(Math.round(amt))} ريال سعودي لا غير`:'';
+  brandDoc({titleAr:'سند قبض',titleEn:'RECEIPT VOUCHER',no:String(r.v),date:pdate(r.d),meta:[],
+    party:[['الاسم',c.name||r.cn],['الكود',c.code||r.code],['الجوال',c.phone],['الرقم الضريبي',c.vatNo]],
+    sideTitle:'بيانات التحصيل',side:[['مندوب المبيعات',rep.name||(r.rep?tName(r.rep):'')],['طريقة الدفع',r.pm],['أمر البيع',r.so]],
+    cols:[{l:'البيان'},{l:'الفاتورة'},{l:'طريقة الدفع'},{l:'المبلغ',n:1,b:1}],
+    rows:all.map(x=>['دفعة من حساب العميل',x.inv||'—',x.pm||'—',pm(x.amt)]),
+    totals:[['المبلغ المستلم (ر.س)',pm(amt),1]],notes:[['المبلغ كتابة',words]],sigs:['المحاسب','المستلم منه (الاسم والتوقيع)']})};
+
+/* ---------- new sales order (posted to SAP through the posting queue), from a quotation or blank ----------
+   who: orders page at edit level; prices come from SAP (or from the quotation it is based on) and are locked unless the user has the SAP screens */
+window.soCanNew=()=>typeof sdForm==='function'&&(typeof wadyLvl!=='function'||wadyLvl('crm','orders')>=3);
+ACT.soNew=()=>{const q=vis(S.quotes).filter(x=>x.source==='sap'?x.sapStatus==='open'&&x.sapEntry:['approved','sent','accepted'].includes(x.status)).sort((a,b)=>String(b.date||b.createdAt||'').localeCompare(String(a.date||a.createdAt||''))).slice(0,300);
+  openModal(L('أمر بيع جديد','New sales order'),`<div class="small muted" style="margin-bottom:8px">${L('اختر عرض السعر اللي يتحول لأمر بيع (البنود والأسعار تنسخ منه ويبقى مربوط فيه في ساب)، أو ابدأ أمر بدون عرض سعر.','Pick the quotation to convert (lines and prices copy from it and stay linked in SAP), or start without one.')}</div>
+   <input id="soq" type="search" placeholder="${L('بحث برقم العرض أو العميل','Search quote no. or customer')}" style="width:100%;margin-bottom:8px">
+   <div id="soql" class="tw" style="max-height:52vh;overflow:auto">${q.length?q.map(x=>`<button class="btn" style="display:flex;width:100%;justify-content:space-between;margin:4px 0;text-align:start" data-act="soFromQ" data-id="${x.id}" data-s="${esc(normTxt((x.no||'')+' '+(x.cname||cName(x.clientId))+' '+(x.clientCode||'')))}">
+     <span><b>${esc(x.no||'')}</b> · ${esc(x.cname||cName(x.clientId))}<span class="small muted"> ${esc(x.clientCode||byId('clients',x.clientId)?.code||'')} · ${fdate(x.date||x.createdAt)}</span></span><span class="small">${smoney(qTotal(x))}</span></button>`).join(''):`<div class="empty">${L('ما فيه عروض أسعار مفتوحة لعملائك','No open quotations for your customers')}</div>`}</div>
+   <div class="formbar"><span class="grow"></span><button class="btn s" data-act="soBlank">${L('أمر بدون عرض سعر','Without a quotation')}</button></div>`);
+  const i=document.getElementById('soq');i&&i.addEventListener('input',()=>{const t=normTxt(i.value);document.querySelectorAll('#soql [data-act="soFromQ"]').forEach(b=>b.style.display=!t||b.dataset.s.includes(t)?'flex':'none')})};
+ACT.soBlank=()=>{closeModal();setTimeout(()=>sdForm('order'),60)};
+ACT.soFromQ=d=>{const q=byId('quotes',d.id);if(!q)return;const card=q.clientCode||byId('clients',q.clientId)?.code;if(!card)return toast(L('العميل ما له كود ساب','Customer has no SAP code'));closeModal();
+  if(q.source==='sap'&&q.sapEntry)return setTimeout(()=>sdForm('order',{card,doc:{type:'quotation',entry:+q.sapEntry}}),60);
+  // an in-app quotation: its approved lines and prices fill the order
+  setTimeout(()=>{sdForm('order',{card});const fill=()=>{if(typeof SDE==='undefined'||!SDE)return;SDE.lines=(q.lines||[]).filter(l=>l.product).map(l=>{const it=(S.items||[]).find(z=>z.code===l.product)||{};return {item_code:l.product,name:l.name||it.name||l.product,unit:l.unit||it.unit,qty:+l.qty||1,price:+l.price||0,disc:0,vat_group:'',wh:it.wh}});SDE.qref=q.no;if(typeof sdPaint==='function')sdPaint()};setTimeout(fill,700)},60)};
+// price and discount follow SAP for whoever does not hold the SAP screens
+if(typeof sdPaint==='function'){const _p=sdPaint;sdPaint=function(){const r=_p.apply(this,arguments);try{if(typeof wadyLvl==='function'&&wadyLvl('crm','sapdocs')<3)document.querySelectorAll('[data-sdl][data-f="price"],[data-sdl][data-f="disc"],#sd_disc,#sw_disc').forEach(x=>{x.readOnly=true;x.classList.add('q-ro');x.title=L('السعر والخصم من ساب','Price and discount from SAP')})}catch(e){}return r}}
+
+/* ---------- print any report page in the brand frame (24/11) ---------- */
+const REPORT_ROUTES=['regions','reps','kpis','reports','decline','aging','collections','orders','sinv','scn','credex','samples','clients','mkreport','mkroi','commdash','pipeline','opps','stmt','dashboard','mydash'];
+function brandReport(title){const v=document.getElementById('view');if(!v)return;const w=docWin();if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
+  const k=coInfo();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';const c=v.cloneNode(true);
+  // filters → a line of what is applied; controls and buttons are not printed
+  const applied=[];v.querySelectorAll('.fbar label.fl,.fbar label').forEach(lb=>{const x=lb.querySelector('select,input');if(!x||x.type==='date'&&!x.value)return;let val=x.tagName==='SELECT'?(x.selectedOptions[0]||{}).text:x.value;if(!val||/^(الكل|All|—)/.test(val))return;applied.push(`${(lb.childNodes[0]&&lb.childNodes[0].textContent||'').trim()}: ${val}`)});
+  c.querySelectorAll('button,.btn,input,select,textarea,.fbar,.toolbar,.tabs .tab:not(.on),iframe,.th-btn,[data-noprint]').forEach(x=>x.remove());
+  c.querySelectorAll('a').forEach(a=>{const sp=document.createElement('span');sp.innerHTML=a.innerHTML;a.replaceWith(sp)});
+  const html=c.innerHTML;const wide=[...c.querySelectorAll('table')].some(t=>(t.rows[0]||{cells:[]}).cells.length>7);
+  w.document.open();w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"><style>
+@page{size:A4 ${wide?'landscape':'portrait'};margin:9mm}*{box-sizing:border-box}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:11px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(120deg,#051D48 0%,#0B2A5E 70%,#123d6e 100%);color:#fff;border-radius:14px 14px 0 0;padding:10px 16px;min-height:60px}
+.top .lg{background:#fff;border-radius:10px;padding:5px 10px}.top .lg img{height:32px;display:block}.top h1{margin:0;font-size:19px;font-weight:800}.top span{display:block;font-size:9.5px;letter-spacing:2px;color:#8FC153;font-weight:700;text-align:left}
+.co{display:flex;flex-wrap:wrap;gap:4px 14px;background:#F3F6FA;border:1px solid #DDE4EE;border-top:0;border-radius:0 0 14px 14px;padding:6px 14px;font-size:10px;color:#4A5568;margin-bottom:10px}.co b{color:#051D48;font-size:12px}.co .r{margin-inline-start:auto}
+.flt{font-size:10px;color:#4A5568;margin:0 0 8px}.flt b{color:#051D48}
+.card{border:1px solid #DDE4EE;border-radius:12px;padding:8px 10px;margin:0 0 10px;break-inside:avoid-page}.card h2{font-size:13px;margin:0 0 6px;color:#051D48;border-inline-start:3px solid #38AC57;padding-inline-start:6px}.card h2 .sub{font-size:9.5px;color:#66738A;font-weight:500;margin-inline-start:6px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:0 0 10px}.kpi{border:1px solid #DDE4EE;border-radius:10px;padding:7px 9px;border-top:3px solid #34BEF0;break-inside:avoid}.kpi:nth-child(2n){border-top-color:#38AC57}.kpi:nth-child(3n){border-top-color:#F39235}
+.kpi span,.kpi .l{display:block;font-size:9.5px;color:#66738A}.kpi b,.kpi .v{display:block;font-size:15px;font-weight:800;color:#051D48}.kpi small,.kpi .s{font-size:9px;color:#66738A}
+table{width:100%;border-collapse:collapse;font-size:10px}thead{display:table-header-group}tr{break-inside:avoid}th{background:#051D48;color:#fff;padding:5px;text-align:start;font-weight:700}td{padding:4px 5px;border-bottom:1px solid #E6EBF2}tr:nth-child(even) td{background:#F7F9FC}
+td.n,th.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums}.pill{border:1px solid #D7E0EE;border-radius:999px;padding:1px 7px;font-size:9px;white-space:nowrap}.pill.ok{background:#E7F5EB;color:#1E7A3A}.pill.warn{background:#FFF3E3;color:#9A5A0B}.pill.bad{background:#FDECEC;color:#B42318}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.muted,.small{color:#66738A;font-size:9.5px}.banner{border:1px solid #DDE4EE;border-radius:8px;padding:5px 8px;margin:0 0 8px;font-size:10px;background:#F3F6FA}svg{max-width:100%}.chips{display:none}
+.ft{margin-top:10px;border-top:2px solid #38AC57;padding-top:5px;font-size:9px;color:#66738A;display:flex;justify-content:space-between}</style></head><body>
+<div class="top"><div class="lg"><img src="${logo}" alt=""></div><div><h1>${esc(title)}</h1><span>REPORT</span></div></div>
+<div class="co"><b>${esc(k.coName||'شركة الوادي الأخضر المميز')}</b><span>${esc(k.tagline||'')}</span><span class="r">${L('تاريخ الطباعة','Printed')}: ${pdate(TODAY())} · ${esc(me().name||'')}</span></div>
+${applied.length?`<div class="flt">${L('الفلاتر','Filters')}: <b>${applied.map(esc).join(' · ')}</b></div>`:''}${html}
+<div class="ft"><span>${esc(k.coName||'')}</span><span>${L('مستخرج من منصة الوادي الأخضر','Generated by the platform')}</span></div>
+<script>window.onload=()=>{if(!window.frameElement)setTimeout(()=>window.print(),400)}<\/script></body></html>`);w.document.close()}
+ACT.repPrint=()=>{const n=NAV.find(x=>x[0]===route);brandReport(n&&typeof n[2]==='function'?n[2]():document.title)};
+{const _r=render;render=function(){const o=_r.apply(this,arguments);try{if(REPORT_ROUTES.includes(route)){const v=document.getElementById('view');if(v&&!v.querySelector('[data-act="repPrint"]')&&v.firstElementChild){
+  const tb=v.querySelector('.toolbar');const b=`<button class="btn s" data-act="repPrint" title="${L('طباعة التقرير','Print report')}">🖨 ${L('طباعة','Print')}</button>`;
+  if(tb)tb.insertAdjacentHTML('beforeend',b);else v.insertAdjacentHTML('afterbegin',`<div class="toolbar" style="justify-content:flex-end">${b}</div>`)}}}catch(e){}return o}}
 }
+
+/* ============ Samples (24/11): linked to the customer, the project and the system items; purpose (display / test / exhibition);
+   stage and a running log of developments; indicators on the samples page ============ */
+const SMP_PURPOSE={display:['للعرض','Display','info'],test:['للاختبار','Testing','warn'],expo:['معرض','Exhibition','ok']};
+const SMP_STAGE={requested:['تم الطلب','Requested','info'],prepared:['جاهزة للتسليم','Prepared','info'],delivered:['تم التسليم','Delivered','ok'],testing:['تحت الاختبار','Under test','warn'],done:['انتهت','Closed','']};
+const smpItemOpts=()=>(S.items||[]).filter(x=>x.active!==false).sort((a,b)=>String(a.code).localeCompare(String(b.code))).map(x=>[x.code,`${x.code} — ${x.name}`]);
+const smpItems=s=>(s.lines&&s.lines.length?s.lines.filter(l=>l.item).map(l=>{const it=(S.items||[]).find(x=>x.code===l.item);return (it?it.name:l.item)+(l.qty?` × ${num(l.qty)}`:'')}):s.product?[prodName(s.product)]:[]).join('، ')||'—';
+const smpClient=s=>s.clientId?cName(s.clientId):s.consultantId?cName(s.consultantId):'—';
+const smpProject=s=>s.projectId?pName(s.projectId):(s.projectName||'—');
+const smpStage=s=>s.stage||(s.approval==='approved'||s.approval==='rejected'?'done':s.testResult&&s.testResult!=='pending'?'done':'delivered');
+const smpLast=s=>(s.log||[]).slice(-1)[0]||null;
+editSample=function(id,preset){
+  const s=id?{...byId('samples',id)}:{stage:'requested',purpose:'test',testResult:'pending',approval:'pending',sentDate:TODAY(),repId:role()==='rep'?me().id:'',lines:[{item:'',qty:''}],...(preset||{})};
+  if(preset&&preset.consultantId&&!s.clientId)s.clientId=preset.consultantId;
+  if(!s.lines||!s.lines.length)s.lines=s.product?[]:[{item:'',qty:''}];
+  const log=(s.log||[]).slice().reverse();
+  const extra=log.length?`<div class="card" style="margin-bottom:10px"><h2 style="font-size:14px">${L('التطورات','Developments')}</h2>${log.map(x=>`<div class="small" style="padding:4px 0;border-bottom:1px solid var(--line)"><b>${fdate(x.at)}</b> · ${esc(tName(x.by))}${x.stage?' · '+pillOf(SMP_STAGE,x.stage):''}<div>${esc(x.text||'')}</div></div>`).join('')}</div>`:'';
+  openForm({title:id?L('عينة','Sample'):L('طلب عينة جديد','New sample request'),data:s,extra,fields:[
+   {k:'clientId',l:L('العميل','Customer'),t:'sel',req:1,opts:clientOpts()},
+   {k:'projectId',l:L('المشروع (من المشاريع المسجلة)','Project (registered)'),t:'sel',opts:projOpts()},
+   {k:'projectName',l:L('اسم المشروع (لو مو مسجل)','Project name (if not registered)')},
+   {k:'purpose',l:L('الغرض من العينة','Purpose'),t:'sel',req:1,opts:Object.entries(SMP_PURPOSE).map(([k,v])=>[k,L(v[0],v[1])])},
+   {k:'lines',l:L('الأصناف','Items'),t:'rows',add:L('صنف','Item'),sub:[{k:'item',l:L('الصنف (ابحث بالكود أو الاسم)','Item (code or name)'),t:'sel',opts:smpItemOpts()},{k:'qty',l:L('الكمية','Qty'),t:'num'}]},
+   {k:'consultantId',l:L('الاستشاري / الجهة المعتمِدة (للاختبار)','Consultant / approver (for testing)'),t:'sel',opts:allClientOpts('consultant').concat(allClientOpts('gov'))},
+   {k:'repId',l:L('المندوب','Rep'),t:'sel',opts:repOpts()},{k:'sentDate',l:L('تاريخ الطلب / الإرسال','Date'),t:'date',req:1},
+   {k:'stage',l:L('المرحلة','Stage'),t:'sel',req:1,opts:Object.entries(SMP_STAGE).map(([k,v])=>[k,L(v[0],v[1])])},
+   {k:'testResult',l:L('نتيجة الاختبار','Test result'),t:'sel',opts:Object.entries(SAMPLE_TEST).map(([k,v])=>[k,L(v[0],v[1])])},
+   {k:'approval',l:L('حالة الاعتماد','Approval'),t:'sel',opts:Object.entries(SAMPLE_APP).map(([k,v])=>[k,L(v[0],v[1])])},{k:'approvedDate',l:L('تاريخ الاعتماد','Approval date'),t:'date'},
+   {k:'_upd',l:L('تحديث جديد على العينة (يضاف لسجل التطورات)','New development (added to the log)'),t:'area'},{k:'notes',l:L('ملاحظات','Notes'),t:'area'}],
+   onSave:v=>{v.lines=(v.lines||[]).filter(l=>l.item);if(!v.lines.length&&!s.product)return formErr(L('اختر صنف واحد على الأقل','Pick at least one item'));
+     if(v.purpose==='test'&&!v.consultantId&&v.stage==='testing')return formErr(L('حدد الجهة اللي تختبر العينة','Choose who tests the sample'));
+     const lg=(s.log||[]).slice();const t=(v._upd||'').trim();if(t||v.stage!==s.stage)lg.push({at:new Date().toISOString(),by:me().id,stage:v.stage,text:t||L('تغيير المرحلة','Stage changed')});delete v._upd;
+     if((v.approval==='approved'||v.approval==='rejected')&&v.stage!=='done')v.stage='done';
+     return save('samples',{...s,...v,log:lg,id:s.id})},
+   del:id&&isMgr()?()=>remove('samples',id):null});
+};
+V.samples=()=>{
+  const all=vis(S.samples);const pf=fv('smP',''),sf=fv('smS',''),q=normTxt(fv('smQ',''));
+  const rows=all.filter(s=>(!pf||(s.purpose||'test')===pf)&&(!sf||smpStage(s)===sf)&&(!q||normTxt(`${smpClient(s)} ${smpProject(s)} ${smpItems(s)}`).includes(q))).sort((a,b)=>(b.sentDate||'').localeCompare(a.sentDate||''));
+  const T=TODAY();const open=all.filter(s=>smpStage(s)!=='done');const tested=all.filter(s=>s.testResult==='pass'||s.testResult==='fail');
+  const late=all.filter(s=>smpStage(s)==='testing'&&s.testResult==='pending'&&s.sentDate&&daysBetween(s.sentDate,T)>14);
+  const days=all.filter(s=>s.approvedDate&&s.sentDate).map(s=>daysBetween(s.sentDate,s.approvedDate));const avg=days.length?Math.round(days.reduce((a,b)=>a+b,0)/days.length):null;
+  const cnt=(m,f)=>Object.keys(m).map(k=>[k,all.filter(s=>f(s)===k).length]);
+  const bars=(m,f)=>{const r=cnt(m,f);const mx=Math.max(1,...r.map(x=>x[1]));return r.map(([k,n])=>`<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><span class="small" style="flex:0 0 34%">${L(m[k][0],m[k][1])}</span><i style="display:block;height:11px;border-radius:5px;background:${({ok:'#38AC57',warn:'#F39235',info:'#34BEF0',bad:'#D92D20'})[m[k][2]]||'#8FC153'};width:${n/mx*50}%"></i><b class="small">${n}</b></div>`).join('')};
+  return `<div class="toolbar"><input type="search" placeholder="${L('بحث بالعميل أو المشروع أو الصنف','Search customer, project or item')}" value="${esc(fv('smQ',''))}" data-act="filtIn" data-k="smQ">
+    <select data-act="filtSel" data-k="smP">${opt(Object.entries(SMP_PURPOSE).map(([k,v])=>[k,L(v[0],v[1])]),pf,L('كل الأغراض','All purposes'))}</select>
+    <select data-act="filtSel" data-k="smS">${opt(Object.entries(SMP_STAGE).map(([k,v])=>[k,L(v[0],v[1])]),sf,L('كل المراحل','All stages'))}</select><span class="grow"></span><button class="btn p" data-act="newSample">+ ${L('طلب عينة','Sample request')}</button></div>
+  <div class="kpis k5">${kpiTile(L('إجمالي العينات','Samples'),num(all.length),'')}${kpiTile(L('مفتوحة','Open'),num(open.length),`${num(all.filter(s=>smpStage(s)==='testing').length)} ${L('تحت الاختبار','under test')}`)}
+   ${kpiTile(L('نسبة النجاح','Pass rate'),tested.length?Math.round(tested.filter(s=>s.testResult==='pass').length/tested.length*100)+'%':'—',`${num(tested.length)} ${L('مختبرة','tested')}`)}
+   ${kpiTile(L('معتمدة','Approved'),num(all.filter(s=>s.approval==='approved').length),avg==null?'':`${L('متوسط','avg')} ${avg} ${L('يوم للاعتماد','days to approve')}`)}
+   ${kpiTile(L('متأخرة بلا نتيجة','Late results'),num(late.length),L('أكثر من 14 يوم تحت الاختبار','over 14 days under test'))}</div>
+  <div class="grid g2"><div class="card"><h2>${L('حسب المرحلة','By stage')}</h2>${bars(SMP_STAGE,smpStage)}</div><div class="card"><h2>${L('حسب الغرض','By purpose')}</h2>${bars(SMP_PURPOSE,s=>s.purpose||'test')}</div></div>
+  <div class="card"><h2>${L('متابعة العينات','Sample tracking')}</h2>${table([{l:L('العميل','Customer'),f:s=>`<b>${esc(smpClient(s))}</b>`},{l:L('المشروع','Project'),f:s=>esc(smpProject(s))},{l:L('الأصناف','Items'),f:s=>esc(smpItems(s))},
+    {l:L('الغرض','Purpose'),f:s=>pillOf(SMP_PURPOSE,s.purpose||'test')},{l:L('التاريخ','Date'),c:'nw',f:s=>fdate(s.sentDate)},{l:L('المرحلة','Stage'),f:s=>pillOf(SMP_STAGE,smpStage(s))},
+    {l:L('النتيجة / الاعتماد','Result / approval'),f:s=>(s.purpose||'test')==='test'?pillOf(SAMPLE_TEST,s.testResult||'pending')+' '+pillOf(SAMPLE_APP,s.approval||'pending'):'—'},
+    {l:L('آخر تطور','Last update'),f:s=>{const x=smpLast(s);return x?`<span class="small">${fdate(x.at)} — ${esc(String(x.text||'').slice(0,60))}</span>`:'<span class="muted small">—</span>'}}],rows,'sample',{empty:L('ما فيه عينات','No samples')})}</div>`;
+};
+
+/* ============ Districts, rep coverage, new-customer requests and the customer data a quotation needs (24/11) ============
+   - District lists for Makkah, Jeddah and Taif: a starting list compiled from public sources, editable by the manager
+     (settings «districts»), because the municipalities' official lists change and are not published in one file.
+   - Each rep gets coverage districts. A rep who quotes a customer outside his coverage must record the customer's location first.
+   - Only managers and holders of «clnew» create customers directly; anyone else's new customer is an opening request
+     (the database enforces it, see 021). Quotations and orders wait for the approval.
+   - Required customer data before a quotation or a sales order. */
+const DIST_SEED={
+ 'مكة المكرمة':['أجياد','الأندلس','البيبان','التقوى','التنعيم','التيسير','الجميزة','الحجون','الخالدية','الخضراء','الخنساء','الراشدية','الرصيفة','الروابي','الروضة','الزاهر','الزايدي','الزهراء','الساقية','السلام','السلامة','السليمانية','الشامية','الشبيكة','الشرائع','الشهداء','الشوقية','الضيافة','الطندباوي','العتيبية','العدل','العزيزية','العسيلة','العكيشية','العمرة','العمرة الجديدة','العوالي','الغزة','الفيصلية','القرارة والنقا','القشاشية','الكدوة','الكعكية','المرسلات','المسفلة','المشاعر','المعابدة','المعلاة','المعيصم','الملك فهد','المنصور','النزهة','النسيم','النوارية','الهجرة','الهجلة','الهنداوية','الإسكان','بطحاء قريش','جبل النور','جبل عمر','جرول','جرهم','حارة الباب','حارة الملاوي','ريع بخش','ريع زاخر','شرائع المجاهدين','شعب عامر','شعب علي','كدي','وادي جليل','ولي العهد'],
+ 'جدة':['أبحر الجنوبية','أبحر الشمالية','أبرق الرغامة','الأجاويد','الأجواد','الأصالة','الأمواج','الأمير عبدالمجيد','الأمير فواز الجنوبي','الأمير فواز الشمالي','الأندلس','البساتين','البشائر','البغدادية الشرقية','البغدادية الغربية','البلد','البوادي','التحلية','التوفيق','الثعالبة','الثغر','الجامعة','الجوهرة','الحرازات','الحمدانية','الحمراء','الخالدية','الربوة','الرحاب','الرحمانية','الروابي','الروضة','الرويس','الرياض','الريان','الزهراء','السامر','السبيل','السروات','السلامة','السليمانية','السنابل','الشاطئ','الشراع','الشرفية','الصالحية','الصحيفة','الصفا','الصواري','العدل','العزيزية','العمارية','الفاروق','الفردوس','الفروسية','الفضل','الفلاح','الفيحاء','الفيصلية','القريات','الكندرة','الكوثر','اللؤلؤ','المجاريد','المحجر','المحمدية','المرجان','المروة','المساعدية','المكرونة','المنار','المنتزهات','النخيل','النزلة الشرقية','النزلة اليمانية','النزهة','النسيم','النعيم','النهضة','الهنداوية','الواحة','الورود','الياقوت','بترومين','بني مالك','طيبة','مدائن الفهد','مشرفة'],
+ 'الطائف':['أسفل','أم السباع','أم العراد','الجال','الحوية','الخالدية','الدهاس','الردف','الرميدة','الريان','السداد','السلامة','السليمانية','السيل الصغير','الشرفية','الشرقية','الشهداء الجنوبية','الشهداء الشمالية','العزيزية','العقيق','العنود','الفيصلية','القطبية','القمرية','القيم','المثناة','النزهة','النسيم','الوسام','الوشحاء','الوكف','الوكيف','الوهط','بدر','بن باين','جبرة','حوايا','شبرا','شهار','عودة','فوق','قروى','مسرة','معشي','نخب','وادي ديرة']};
+const REGION_CITY={mak:'مكة المكرمة',jed:'جدة'};
+const distAll=()=>{const s=(S.settings||[]).find(x=>x.id==='districts');return s&&s.cities?s.cities:DIST_SEED};
+const clCity=c=>{const t=String(c.city||'').trim();if(/طائف|taif/i.test(t))return 'الطائف';if(/جد[ةه]|jed/i.test(t))return 'جدة';if(/مك[ةه]|mak|mec/i.test(t))return 'مكة المكرمة';return REGION_CITY[c.region]||t||''};
+const distKey=(city,d)=>`${city}|${String(d||'').trim()}`;
+const repCov=rid=>{const t=byId('team',rid);return (t&&Array.isArray(t.coverage))?t.coverage:[]};
+// a rep with no coverage set is not limited; otherwise the customer's city|district must be in it
+const inCoverage=(rid,c)=>{const cov=repCov(rid);if(!cov.length)return true;if(!c.district)return false;return cov.includes(distKey(clCity(c),c.district))};
+const canOpenClient=()=>isMgr()||(typeof wadyLvl==='function'&&wadyLvl('crm','clnew')>=3);
+const CL_REQ=[['phone',['الجوال','Phone']],['contact',['اسم المسؤول','Contact person']],['type',['النشاط','Business type']],['region',['المنطقة','Region']],['district',['الحي','District']]];
+const clMissing=c=>CL_REQ.filter(([k])=>!String(c[k]??'').trim()).map(([,l])=>L(l[0],l[1]));
+IC.areas='<path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>';
+
+/* ---- customer form: district suggestions, required fields, requests ---- */
+{const _e=editClient;editClient=function(id,preset){_e(id,preset);if(!FORM)return;const isNew=!id;
+  const req=new Set(CL_REQ.map(x=>x[0]));FORM.fields.forEach(f=>{if(req.has(f.k)&&!f.req){f.req=1;const lb=document.querySelector(`label[for="f_${f.k}"]`)||document.getElementById('f_'+f.k)?.closest('.fld')?.querySelector('label');if(lb&&!lb.querySelector('.req'))lb.insertAdjacentHTML('beforeend',' <span class="req">*</span>')}});
+  const di=document.getElementById('f_district');
+  if(di){const all=distAll();di.setAttribute('list','dl_district');di.setAttribute('autocomplete','off');di.insertAdjacentHTML('afterend',`<datalist id="dl_district">${Object.entries(all).flatMap(([c,ds])=>ds.map(d=>`<option value="${esc(d)}">${esc(c)}</option>`)).join('')}</datalist>`)}
+  if(isNew&&!canOpenClient()){const t=document.querySelector('#modal .mh h2, #modal h2, .modal h2');if(t)t.textContent=L('طلب فتح عميل جديد','New customer request');
+    const f=document.getElementById('theform');f&&f.insertAdjacentHTML('afterbegin',`<div class="banner info"><span class="sp">${L('العميل الجديد يروح طلب للاعتماد. بعد ما يعتمده المسؤول تقدر تسوي له عرض سعر أو أمر بيع.','The new customer goes for approval first; quotations and orders follow once approved.')}</span></div>`);
+    const _s=FORM.onSave;FORM.onSave=v=>{const r=_s(v);toast(L('تم إرسال طلب فتح العميل للاعتماد','Customer request sent for approval'));return r}}}}
+
+/* ---- quotation (and new sales order): the customer must be approved, complete, and — outside the rep's coverage — located ---- */
+function clGate(c,first){if(!c)return null;
+  if(c.reqStatus==='pending')return {msg:L('العميل لسا بانتظار اعتماد فتحه، ما يصير عليه عرض سعر أو أمر بيع قبل الاعتماد.','Customer awaiting approval.')};
+  if(c.reqStatus==='rejected')return {msg:L('طلب فتح هذا العميل مرفوض.','This customer request was rejected.')};
+  const miss=clMissing(c);if(miss.length)return {msg:L('بيانات العميل ناقصة: ','Customer data missing: ')+miss.join('، ')+L(' — كمّلها من بطاقة العميل.',' — complete them in the customer card.'),edit:c.id};
+  const rid=['rep','sup'].includes(role())?me().id:null;
+  if(rid&&first&&!inCoverage(rid,c)&&!(c.lat&&c.lng))return {msg:L('العميل خارج منطقة تغطيتك، ولازم تسجل موقعه قبل أول عرض سعر.','Customer outside your coverage: record the location before the first quotation.'),geo:c.id};
+  return null}
+function clGateHtml(g){return `${esc(g.msg)}${g.edit?` <button type="button" class="btn s" data-act="clGateEdit" data-id="${g.edit}">${L('فتح بطاقة العميل','Open customer')}</button>`:''}${g.geo?` <button type="button" class="btn p" data-act="clGeo" data-id="${g.geo}">📍 ${L('سجّل موقع العميل (موقعي الحالي)','Record location (my position)')}</button>`:''}`}
+{const _q=editQuote;editQuote=function(id,preset){_q(id,preset);if(!FORM||FORM._gate)return;FORM._gate=1;const _s=FORM.onSave;
+  FORM.onSave=v=>{const c=byId('clients',v.clientId);const first=!vis(S.quotes).some(q=>q.clientId===v.clientId&&q.id!==id);const g=clGate(c,first);
+    if(g){const e=document.getElementById('ferr');if(e)e.innerHTML=clGateHtml(g);throw new Error('form')}return _s(v)}}}
+Object.assign(ACT,{
+  clGateEdit:d=>{closeModal();setTimeout(()=>editClient(d.id),60)},
+  clGeo:d=>{const c=byId('clients',d.id);if(!c)return;if(!navigator.geolocation)return toast(L('الجهاز ما يدعم تحديد الموقع','Location not supported'));
+    toast(L('جاري تحديد الموقع…','Locating…'));navigator.geolocation.getCurrentPosition(async p=>{const lat=+p.coords.latitude.toFixed(6),lng=+p.coords.longitude.toFixed(6);
+      await save('clients',{...c,lat,lng,locAt:new Date().toISOString(),locBy:me().id,locAcc:Math.round(p.coords.accuracy||0)});const e=document.getElementById('ferr');if(e)e.innerHTML=`<span style="color:var(--ok,#1E7B3C)">✓ ${L('انحفظ موقع العميل، اضغط حفظ مرة ثانية','Location saved — press Save again')}</span>`},
+      er=>toast(L('ما قدرنا نحدد الموقع: ','Could not get location: ')+(er.message||'')),{enableHighAccuracy:true,timeout:15000})},
+  clApprove:async d=>{const c=byId('clients',d.id);if(!c||!canOpenClient())return;await save('clients',{...c,reqStatus:'approved',approvedBy:me().id,approvedAt:new Date().toISOString()});toast(L('تم اعتماد العميل','Customer approved'));closeModal()},
+  clReject:async d=>{const c=byId('clients',d.id);if(!c||!canOpenClient())return;const why=prompt(L('سبب الرفض','Reason'))||'';await save('clients',{...c,reqStatus:'rejected',status:'inactive',rejectNote:why,approvedBy:me().id,approvedAt:new Date().toISOString()});toast(L('تم رفض الطلب','Request rejected'));closeModal()}});
+// new sales order: same checks on the customer
+if(typeof ACT.soFromQ==='function'){const _f=ACT.soFromQ;ACT.soFromQ=d=>{const q=byId('quotes',d.id);const c=q&&byId('clients',q.clientId);const g=clGate(c,false);if(g){toast(g.msg);return}return _f(d)}}
+// customer card: request status and the approver's buttons
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||!c.reqStatus||c.reqStatus==='approved'||mb.querySelector('.clreq'))return;
+  mb.insertAdjacentHTML('afterbegin',`<div class="banner ${c.reqStatus==='pending'?'warn':'bad'} clreq"><span class="sp">${c.reqStatus==='pending'?L('طلب فتح عميل بانتظار الاعتماد','Customer request awaiting approval'):L('طلب مرفوض','Request rejected')+(c.rejectNote?': '+esc(c.rejectNote):'')} · ${L('مقدم الطلب','By')}: ${esc(tName(c.requestedBy))} · ${fdate(c.requestedAt)}</span>
+    ${c.reqStatus==='pending'&&canOpenClient()?`<button class="btn p" data-act="clApprove" data-id="${id}">${L('اعتماد','Approve')}</button><button class="btn d" data-act="clReject" data-id="${id}">${L('رفض','Reject')}</button>`:''}</div>`)}}
+
+/* ---- customers page: indicators (new / active / dormant / lost) and the approval queue ---- */
+{const _v=V.clients;V.clients=function(){let h=_v.apply(this,arguments);const t=TODAY();const base=vis(S.clients);const seg={};base.forEach(c=>{const s=segmentOf(c.id,t);seg[s]=(seg[s]||0)+1});
+  const pend=base.filter(c=>c.reqStatus==='pending');const m0=t.slice(0,7);const newM=base.filter(c=>String(c.createdAt||'').slice(0,7)===m0&&c.reqStatus!=='rejected').length;
+  const kp=`<div class="kpis k5">${kpiTile(L('العملاء النشطون','Active customers'),num((seg.active||0)+(seg.strategic||0)),`${num(seg.strategic||0)} ${L('استراتيجي','strategic')}`)}
+   ${kpiTile(L('العملاء الجدد','New customers'),num(seg.new||0),`${num(newM)} ${L('أضيفوا هذا الشهر','added this month')}`)}${kpiTile(L('خاملون','Dormant'),num(seg.dormant||0),L('انقطع تعاملهم مؤخراً','recently inactive'))}
+   ${kpiTile(L('المفقودون','Lost'),num(seg.lost||0),L('توقف التعامل','stopped'))}${kpiTile(L('محتملون','Potential'),num(seg.potential||0),L('بدون عمليات بعد','no transactions yet'))}</div>
+   <div class="small muted" style="margin:-6px 0 10px">${L('التصنيف حسب آخر عملية وإعدادات المؤشرات، والأرقام لعملائك حسب صلاحيتك. اضغط على شريحة «النشاط» تحت للتصفية.','By last transaction and KPI settings, within your scope. Use the Activity chips below to filter.')}</div>
+   ${pend.length?`<div class="card"><h2>${L('طلبات فتح عملاء','Customer requests')} (${pend.length})<span class="sub">${canOpenClient()?L('اضغط للاعتماد أو الرفض','Tap to approve or reject'):L('بانتظار الاعتماد','Awaiting approval')}</span></h2>${pend.slice(0,20).map(c=>`<div class="li" data-open="client" data-id="${c.id}"><div class="main"><div class="t">${esc(c.name)}</div><div class="m">${esc(tName(c.requestedBy))} · ${fdate(c.requestedAt)} · ${esc(c.district||'')}</div></div><div class="end">${pill(L('بانتظار الاعتماد','Pending'),'warn')}</div></div>`).join('')}</div>`:''}`;
+  h=kp+h;if(!canOpenClient())h=h.replace(`>+ ${L('عميل','Customer')}</button>`,`>+ ${L('طلب فتح عميل','Customer request')}</button>`);return h}}
+
+/* ---- settings page: district lists and each rep's coverage (manager) ---- */
+{const at=NAV.findIndex(n=>n[0]==='team');NAV.splice(at>=0?at+1:NAV.length,0,['areas','areas',()=>L('الأحياء ومناطق التغطية','Districts & coverage'),()=>isMgr()])}
+V.areas=()=>{if(!isMgr())return `<div class="card empty">${L('للمدير فقط','Managers only')}</div>`;const all=distAll();const reps=S.team.filter(t=>t.role==='rep'||t.role==='sup');const sel=fv('arRep',reps[0]?.id||'');const cov=new Set(repCov(sel));const q=normTxt(fv('arQ',''));
+  return `<div class="banner info"><span class="sp">${L('القائمة مبدئية من مصادر عامة (أمانات المدن تغيّر المسميات وما تنشرها في ملف واحد) — راجعها وعدّلها. المندوب اللي ما له تغطية محددة ما يتقيد.','Starting list from public sources — review and edit. A rep with no coverage is not limited.')}</span></div>
+  <div class="grid g2"><div class="card"><h2>${L('مناطق تغطية المندوب','Rep coverage')}</h2>
+   <div class="fbar"><label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="arRep">${opt(reps.map(r=>[r.id,r.name]),sel)}</select></label><label class="fl">${L('بحث عن حي','Find district')}<input type="search" value="${esc(fv('arQ',''))}" data-act="filtIn" data-k="arQ"></label></div>
+   <div class="small muted">${L('محدد','Selected')}: <b>${cov.size}</b> ${L('حي','districts')}</div>
+   <div id="arCov" style="max-height:52vh;overflow:auto;margin-top:6px">${Object.entries(all).map(([c,ds])=>{const list=ds.filter(d=>!q||normTxt(d).includes(q));if(!list.length)return '';
+     return `<details ${q||[...cov].some(k=>k.startsWith(c+'|'))?'open':''}><summary><b>${esc(c)}</b> <span class="small muted">(${ds.filter(d=>cov.has(distKey(c,d))).length}/${ds.length})</span> <a href="#" data-act="arAll" data-c="${esc(c)}" class="small">${L('الكل','all')}</a> · <a href="#" data-act="arNone" data-c="${esc(c)}" class="small">${L('لا شيء','none')}</a></summary>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 0">${list.map(d=>`<label class="chip ${cov.has(distKey(c,d))?'on':''}" style="cursor:pointer"><input type="checkbox" class="arChk" data-k="${esc(distKey(c,d))}" ${cov.has(distKey(c,d))?'checked':''} style="display:none">${esc(d)}</label>`).join('')}</div></details>`}).join('')}</div>
+   <div class="formbar"><span class="grow"></span><button class="btn p" data-act="arSaveCov" data-id="${sel}">${L('حفظ التغطية','Save coverage')}</button></div></div>
+  <div class="card"><h2>${L('قوائم الأحياء','District lists')}</h2><div class="small muted">${L('كل حي في سطر.','One district per line.')}</div>
+   ${Object.entries(all).map(([c,ds])=>`<label class="fl" style="display:block;margin-top:8px"><b>${esc(c)}</b> (${ds.length})<textarea class="arList" data-c="${esc(c)}" rows="6" style="width:100%">${esc(ds.join('\n'))}</textarea></label>`).join('')}
+   <div class="formbar"><span class="grow"></span><button class="btn p" data-act="arSaveList">${L('حفظ القوائم','Save lists')}</button></div></div></div>`};
+document.addEventListener('change',e=>{const x=e.target;if(x.classList&&x.classList.contains('arChk')){x.closest('label').classList.toggle('on',x.checked)}});
+Object.assign(ACT,{
+  arAll:d=>{document.querySelectorAll('.arChk').forEach(x=>{if(x.dataset.k.startsWith(d.c+'|')){x.checked=true;x.closest('label').classList.add('on')}})},
+  arNone:d=>{document.querySelectorAll('.arChk').forEach(x=>{if(x.dataset.k.startsWith(d.c+'|')){x.checked=false;x.closest('label').classList.remove('on')}})},
+  arSaveCov:async d=>{const t=byId('team',d.id);if(!t)return;const on=new Set(repCov(d.id));document.querySelectorAll('.arChk').forEach(x=>{if(x.checked)on.add(x.dataset.k);else on.delete(x.dataset.k)});
+    await save('team',{...t,coverage:[...on]});toast(L('انحفظت مناطق التغطية','Coverage saved'))},
+  arSaveList:async()=>{const cities={};document.querySelectorAll('.arList').forEach(x=>{cities[x.dataset.c]=[...new Set(x.value.split('\n').map(s=>s.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'))});
+    const cur=(S.settings||[]).find(x=>x.id==='districts')||{id:'districts'};await save('settings',{...cur,id:'districts',cities});toast(L('انحفظت قوائم الأحياء','District lists saved'))}});
 </script>
 <script src="wady-back.js"></script></body></html>
