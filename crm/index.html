@@ -8577,13 +8577,18 @@ const repCov=rid=>{const t=byId('team',rid);return (t&&Array.isArray(t.coverage)
 // a rep with no coverage set is not limited; otherwise the customer's city|district must be in it
 const inCoverage=(rid,c)=>{const cov=repCov(rid);if(!cov.length)return true;if(!c.district)return false;return cov.includes(distKey(clCity(c),c.district))};
 const canOpenClient=()=>isMgr()||(typeof wadyLvl==='function'&&wadyLvl('crm','clnew')>=3);
-const CL_REQ=[['phone',['الجوال','Phone']],['contact',['اسم المسؤول','Contact person']],['type',['النشاط','Business type']],['region',['المنطقة','Region']],['district',['الحي','District']]];
-const clMissing=c=>CL_REQ.filter(([k])=>!String(c[k]??'').trim()).map(([,l])=>L(l[0],l[1]));
-IC.areas='<path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>';
+// customer fields that may be made required (the manager picks them in «خانات العميل الإلزامية»)
+const CL_FIELDS=[['phone',['الجوال','Phone']],['contact',['اسم المسؤول','Contact person']],['type',['النشاط','Business type']],['category',['تصنيف العميل','Category']],
+  ['region',['المنطقة','Region']],['district',['الحي','District']],['email',['البريد','Email']],['loc',['موقع العميل على الخريطة','Location on map']],['notes',['ملاحظات','Notes']]];
+const CL_REQ_DEF={fields:['phone','contact','type','region','district'],onQuote:true,onOrder:true,onSave:false};
+const clReqCfg=()=>{const s=(S.settings||[]).find(x=>x.id==='clreq');return s?{...CL_REQ_DEF,...s}:CL_REQ_DEF};
+const clHas=(c,k)=>k==='loc'?!!(c.lat&&c.lng):!!String(c[k]??'').trim();
+const clMissing=c=>{const on=new Set(clReqCfg().fields||[]);return CL_FIELDS.filter(([k])=>on.has(k)&&!clHas(c,k)).map(([,l])=>L(l[0],l[1]))};
+IC.check='<path d="M4 12l5 5L20 6"/>';IC.areas='<path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>';
 
 /* ---- customer form: district suggestions, required fields, requests ---- */
 {const _e=editClient;editClient=function(id,preset){_e(id,preset);if(!FORM)return;const isNew=!id;
-  const req=new Set(CL_REQ.map(x=>x[0]));FORM.fields.forEach(f=>{if(req.has(f.k)&&!f.req){f.req=1;const lb=document.querySelector(`label[for="f_${f.k}"]`)||document.getElementById('f_'+f.k)?.closest('.fld')?.querySelector('label');if(lb&&!lb.querySelector('.req'))lb.insertAdjacentHTML('beforeend',' <span class="req">*</span>')}});
+  const cf=clReqCfg();const req=new Set(cf.onSave?(cf.fields||[]).flatMap(k=>k==='loc'?['lat','lng']:[k]):[]);FORM.fields.forEach(f=>{if(req.has(f.k)&&!f.req){f.req=1;const lb=document.querySelector(`label[for="f_${f.k}"]`)||document.getElementById('f_'+f.k)?.closest('.fld')?.querySelector('label');if(lb&&!lb.querySelector('.req'))lb.insertAdjacentHTML('beforeend',' <span class="req">*</span>')}});
   const di=document.getElementById('f_district');
   if(di){const all=distAll();di.setAttribute('list','dl_district');di.setAttribute('autocomplete','off');di.insertAdjacentHTML('afterend',`<datalist id="dl_district">${Object.entries(all).flatMap(([c,ds])=>ds.map(d=>`<option value="${esc(d)}">${esc(c)}</option>`)).join('')}</datalist>`)}
   if(isNew&&!canOpenClient()){const t=document.querySelector('#modal .mh h2, #modal h2, .modal h2');if(t)t.textContent=L('طلب فتح عميل جديد','New customer request');
@@ -8591,16 +8596,16 @@ IC.areas='<path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/><circle 
     const _s=FORM.onSave;FORM.onSave=v=>{const r=_s(v);toast(L('تم إرسال طلب فتح العميل للاعتماد','Customer request sent for approval'));return r}}}}
 
 /* ---- quotation (and new sales order): the customer must be approved, complete, and — outside the rep's coverage — located ---- */
-function clGate(c,first){if(!c)return null;
+function clGate(c,first,kind){if(!c)return null;const cf=clReqCfg();
   if(c.reqStatus==='pending')return {msg:L('العميل لسا بانتظار اعتماد فتحه، ما يصير عليه عرض سعر أو أمر بيع قبل الاعتماد.','Customer awaiting approval.')};
   if(c.reqStatus==='rejected')return {msg:L('طلب فتح هذا العميل مرفوض.','This customer request was rejected.')};
-  const miss=clMissing(c);if(miss.length)return {msg:L('بيانات العميل ناقصة: ','Customer data missing: ')+miss.join('، ')+L(' — كمّلها من بطاقة العميل.',' — complete them in the customer card.'),edit:c.id};
+  const miss=(kind==='order'?cf.onOrder:cf.onQuote)?clMissing(c):[];if(miss.length)return {msg:L('بيانات العميل ناقصة: ','Customer data missing: ')+miss.join('، ')+L(' — كمّلها من بطاقة العميل.',' — complete them in the customer card.'),edit:c.id};
   const rid=['rep','sup'].includes(role())?me().id:null;
   if(rid&&first&&!inCoverage(rid,c)&&!(c.lat&&c.lng))return {msg:L('العميل خارج منطقة تغطيتك، ولازم تسجل موقعه قبل أول عرض سعر.','Customer outside your coverage: record the location before the first quotation.'),geo:c.id};
   return null}
 function clGateHtml(g){return `${esc(g.msg)}${g.edit?` <button type="button" class="btn s" data-act="clGateEdit" data-id="${g.edit}">${L('فتح بطاقة العميل','Open customer')}</button>`:''}${g.geo?` <button type="button" class="btn p" data-act="clGeo" data-id="${g.geo}">📍 ${L('سجّل موقع العميل (موقعي الحالي)','Record location (my position)')}</button>`:''}`}
 {const _q=editQuote;editQuote=function(id,preset){_q(id,preset);if(!FORM||FORM._gate)return;FORM._gate=1;const _s=FORM.onSave;
-  FORM.onSave=v=>{const c=byId('clients',v.clientId);const first=!vis(S.quotes).some(q=>q.clientId===v.clientId&&q.id!==id);const g=clGate(c,first);
+  FORM.onSave=v=>{const c=byId('clients',v.clientId);const first=!vis(S.quotes).some(q=>q.clientId===v.clientId&&q.id!==id);const g=clGate(c,first,'quote');
     if(g){const e=document.getElementById('ferr');if(e)e.innerHTML=clGateHtml(g);throw new Error('form')}return _s(v)}}}
 Object.assign(ACT,{
   clGateEdit:d=>{closeModal();setTimeout(()=>editClient(d.id),60)},
@@ -8611,7 +8616,7 @@ Object.assign(ACT,{
   clApprove:async d=>{const c=byId('clients',d.id);if(!c||!canOpenClient())return;await save('clients',{...c,reqStatus:'approved',approvedBy:me().id,approvedAt:new Date().toISOString()});toast(L('تم اعتماد العميل','Customer approved'));closeModal()},
   clReject:async d=>{const c=byId('clients',d.id);if(!c||!canOpenClient())return;const why=prompt(L('سبب الرفض','Reason'))||'';await save('clients',{...c,reqStatus:'rejected',status:'inactive',rejectNote:why,approvedBy:me().id,approvedAt:new Date().toISOString()});toast(L('تم رفض الطلب','Request rejected'));closeModal()}});
 // new sales order: same checks on the customer
-if(typeof ACT.soFromQ==='function'){const _f=ACT.soFromQ;ACT.soFromQ=d=>{const q=byId('quotes',d.id);const c=q&&byId('clients',q.clientId);const g=clGate(c,false);if(g){toast(g.msg);return}return _f(d)}}
+if(typeof ACT.soFromQ==='function'){const _f=ACT.soFromQ;ACT.soFromQ=d=>{const q=byId('quotes',d.id);const c=q&&byId('clients',q.clientId);const g=clGate(c,false,'order');if(g){toast(g.msg);return}return _f(d)}}
 // customer card: request status and the approver's buttons
 {const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||!c.reqStatus||c.reqStatus==='approved'||mb.querySelector('.clreq'))return;
   mb.insertAdjacentHTML('afterbegin',`<div class="banner ${c.reqStatus==='pending'?'warn':'bad'} clreq"><span class="sp">${c.reqStatus==='pending'?L('طلب فتح عميل بانتظار الاعتماد','Customer request awaiting approval'):L('طلب مرفوض','Request rejected')+(c.rejectNote?': '+esc(c.rejectNote):'')} · ${L('مقدم الطلب','By')}: ${esc(tName(c.requestedBy))} · ${fdate(c.requestedAt)}</span>
@@ -8649,6 +8654,24 @@ Object.assign(ACT,{
     await save('team',{...t,coverage:[...on]});toast(L('انحفظت مناطق التغطية','Coverage saved'))},
   arSaveList:async()=>{const cities={};document.querySelectorAll('.arList').forEach(x=>{cities[x.dataset.c]=[...new Set(x.value.split('\n').map(s=>s.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'))});
     const cur=(S.settings||[]).find(x=>x.id==='districts')||{id:'districts'};await save('settings',{...cur,id:'districts',cities});toast(L('انحفظت قوائم الأحياء','District lists saved'))}});
+
+/* ---- settings: which customer fields are required, and when (manager) ---- */
+{const at=NAV.findIndex(n=>n[0]==='areas');NAV.splice(at>=0?at+1:NAV.length,0,['clreqset','check',()=>L('خانات العميل الإلزامية','Required customer fields'),()=>isMgr()])}
+V.clreqset=()=>{if(!isMgr())return `<div class="card empty">${L('للمدير فقط','Managers only')}</div>`;const cf=clReqCfg();const on=new Set(cf.fields||[]);
+  const base=vis(S.clients);const miss=k=>base.filter(c=>!clHas(c,k)).length;
+  return `<div class="card"><h2>${L('الخانات الإلزامية في بطاقة العميل','Required customer fields')}<span class="sub">${L('حدد الخانات اللي لازم تكون معبّاة','Choose the fields that must be filled')}</span></h2>
+   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px">${CL_FIELDS.map(([k,l])=>`<label class="chip crqL ${on.has(k)?'on':''}"><span style="display:flex;align-items:center"><input type="checkbox" class="crqF" value="${k}" ${on.has(k)?'checked':''}> ${L(l[0],l[1])}</span><span class="small muted">${num(miss(k))} ${L('عميل ناقص','missing')}</span></label>`).join('')}</div>
+   <h2 style="margin-top:16px">${L('متى تُطلب','When to enforce')}</h2>
+   <div class="chk" style="display:flex;flex-direction:column;gap:8px">
+    <label><input type="checkbox" id="crqQ" ${cf.onQuote?'checked':''}> ${L('قبل إصدار عرض السعر','Before a quotation')}</label>
+    <label><input type="checkbox" id="crqO" ${cf.onOrder?'checked':''}> ${L('قبل إصدار أمر البيع','Before a sales order')}</label>
+    <label><input type="checkbox" id="crqS" ${cf.onSave?'checked':''}> ${L('عند حفظ بطاقة العميل نفسها (إضافة أو تعديل)','When saving the customer card itself')}</label></div>
+   <div class="small muted" style="margin-top:8px">${L('العدد جنب كل خانة = عملاؤك اللي الخانة ناقصة عندهم الحين. «الموقع» يتعبّى من زر «موقعي الحالي» في بطاقة العميل. شرط تسجيل الموقع للعميل خارج منطقة التغطية يبقى شغال حتى لو ما اخترت الموقع هنا.','The count is how many of your customers miss that field now.')}</div>
+   <div class="formbar"><span class="grow"></span><button class="btn p" data-act="crqSave">${L('حفظ','Save')}</button></div></div>`};
+(()=>{const st=document.createElement('style');st.textContent='.crqF,#crqQ,#crqO,#crqS{width:20px!important;height:20px!important;min-height:0!important;padding:0!important;margin:0 0 0 8px!important;flex:none;accent-color:#38AC57;vertical-align:middle}.crqL{display:flex!important;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;cursor:pointer;border-radius:12px}';document.head.appendChild(st)})();
+document.addEventListener('change',e=>{const x=e.target;if(x.classList&&x.classList.contains('crqF'))x.closest('label').classList.toggle('on',x.checked)});
+ACT.crqSave=async()=>{if(!isMgr())return;const fields=[...document.querySelectorAll('.crqF')].filter(x=>x.checked).map(x=>x.value);const g=id=>!!(document.getElementById(id)||{}).checked;
+  const cur=(S.settings||[]).find(x=>x.id==='clreq')||{id:'clreq'};await save('settings',{...cur,id:'clreq',fields,onQuote:g('crqQ'),onOrder:g('crqO'),onSave:g('crqS')});toast(L('انحفظت الإعدادات','Saved'))};
 
 /* ============ Sales reports by item and discount rates by rep (24/11) ============
    Source: SAP sales order lines (not cancelled), by order date — the A/R invoices come from SAP without lines.
