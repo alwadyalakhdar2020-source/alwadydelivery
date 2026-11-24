@@ -8468,7 +8468,7 @@ ACT.soFromQ=d=>{const q=byId('quotes',d.id);if(!q)return;const card=q.clientCode
 if(typeof sdPaint==='function'){const _p=sdPaint;sdPaint=function(){const r=_p.apply(this,arguments);try{if(typeof wadyLvl==='function'&&wadyLvl('crm','sapdocs')<3)document.querySelectorAll('[data-sdl][data-f="price"],[data-sdl][data-f="disc"],#sd_disc,#sw_disc').forEach(x=>{x.readOnly=true;x.classList.add('q-ro');x.title=L('السعر والخصم من ساب','Price and discount from SAP')})}catch(e){}return r}}
 
 /* ---------- print any report page in the brand frame (24/11) ---------- */
-const REPORT_ROUTES=['regions','reps','kpis','reports','decline','aging','collections','orders','sinv','scn','credex','samples','clients','mkreport','mkroi','commdash','pipeline','opps','stmt','dashboard','mydash'];
+window.REPORT_ROUTES=['regions','reps','kpis','reports','decline','aging','collections','orders','sinv','scn','credex','samples','clients','mkreport','mkroi','commdash','pipeline','opps','stmt','dashboard','mydash'];
 function brandReport(title){const v=document.getElementById('view');if(!v)return;const w=docWin();if(!w){toast(L('اسمح بالنوافذ المنبثقة للطباعة','Allow pop-ups to print'));return}
   const k=coInfo();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';const c=v.cloneNode(true);
   // filters → a line of what is applied; controls and buttons are not printed
@@ -8649,5 +8649,67 @@ Object.assign(ACT,{
     await save('team',{...t,coverage:[...on]});toast(L('انحفظت مناطق التغطية','Coverage saved'))},
   arSaveList:async()=>{const cities={};document.querySelectorAll('.arList').forEach(x=>{cities[x.dataset.c]=[...new Set(x.value.split('\n').map(s=>s.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'))});
     const cur=(S.settings||[]).find(x=>x.id==='districts')||{id:'districts'};await save('settings',{...cur,id:'districts',cities});toast(L('انحفظت قوائم الأحياء','District lists saved'))}});
+
+/* ============ Sales reports by item and discount rates by rep (24/11) ============
+   Source: SAP sales order lines (not cancelled), by order date — the A/R invoices come from SAP without lines.
+   Line value = SAP LineTotal (after line discount, before document discount and VAT).
+   Base price = the item's price in SAP's «Base price» list as synced today (not the price on the order date). */
+IC.itemrep='<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>';IC.discrep='<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/>';
+{const at=NAV.findIndex(n=>n[0]==='decline');const ok=()=>typeof wadyLvl!=='function'||wadyLvl('crm','reports')>=1||isLead();
+ NAV.splice(at>=0?at+1:NAV.length,0,['itemrep','itemrep',()=>L('مبيعات الأصناف','Sales by item'),ok],['discrep','discrep',()=>L('معدلات الخصم للمندوبين','Discount rates by rep'),ok])}
+if(window.REPORT_ROUTES)window.REPORT_ROUTES.push('itemrep','discrep');
+const irItem=code=>(S.items||[]).find(x=>x.code===code)||null;
+function irPeriod(){const t=TODAY();const f=fv('irF',t.slice(0,8)+'01'),to=fv('irT',t);const days=Math.max(1,daysBetween(f,to)+1);return {f,to,pf:addDays(f,-days),pt:addDays(f,-1),days}}
+// order lines in the period, within the user's scope and the page filters
+function irLines(f,to){const rp=fv('irRep',''),rg=fv('irReg',''),gp=fv('irGrp','');const out=[];
+  vis(S.orders).forEach(o=>{if(o.status==='cancelled'||!o.date||o.date<f||o.date>to)return;if(rp&&o.repId!==rp)return;if(rg&&o.region!==rg)return;
+    (o.lines||[]).forEach(l=>{if(!l.item)return;const it=irItem(l.item);if(gp&&String(it?.group||'')!==gp)return;
+      const q=+l.qty||0,v=+l.value||0,bp=it&&it.price!=null?+it.price:null;out.push({o,item:l.item,name:it?.name||l.name||l.item,unit:l.unit||it?.unit||'',q,v,bp,base:bp!=null?bp*q:null})})});return out}
+function irGroup(rows,key){const m=new Map();rows.forEach(r=>{const k=key(r);let g=m.get(k);if(!g){g={k,q:0,v:0,base:0,vb:0,qb:0,n:0,free:0,nob:0,orders:new Set(),name:r.name,unit:r.unit};m.set(k,g)}
+  g.q+=r.q;g.v+=r.v;g.n++;g.orders.add(r.o.id);if(r.v===0&&r.q>0)g.free++;if(r.base!=null){g.base+=r.base;g.vb+=r.v;g.qb+=r.q}else g.nob++});return [...m.values()]}
+const irM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const irPct=(a,b)=>b?((a/b)*100):null;const irP=x=>x==null?'—':(Math.round(x*10)/10).toFixed(1)+'%';
+const irFilters=()=>{const reps=visibleReps();const grps=[...new Set((S.items||[]).map(x=>x.group).filter(Boolean))].sort();const {f,to}=irPeriod();
+  return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${f}" data-act="filtIn" data-k="irF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${to}" data-act="filtIn" data-k="irT"></label>
+   ${isLead()?`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="irRep">${opt(reps.map(r=>[r.id,r.name]),fv('irRep',''),L('الكل','All'))}</select></label><label class="fl">${L('المنطقة','Region')}<select data-act="filtSel" data-k="irReg">${opt(REGIONS.map(r=>[r.id,L(r.ar,r.en)]),fv('irReg',''),L('الكل','All'))}</select></label>`:''}
+   ${grps.length?`<label class="fl">${L('مجموعة الأصناف','Item group')}<select data-act="filtSel" data-k="irGrp">${opt(grps.map(g=>[g,g]),fv('irGrp',''),L('الكل','All'))}</select></label>`:''}</div>`};
+const irNote=()=>`<div class="small muted" style="margin-top:6px">${L('المصدر: بنود أوامر البيع من ساب (بدون الملغاة) حسب تاريخ الأمر. القيمة بعد خصم السطر وقبل خصم المستند والضريبة. السعر الأساسي من قائمة «Base price» في ساب كما هي اليوم، مو سعر يوم البيع.','Source: SAP sales-order lines (not cancelled) by order date; value after line discount, before document discount and VAT. Base price: SAP «Base price» list as of today.')}</div>`;
+
+/* ---- sales by item: KPI cards per item and a full table, compared with the previous period of the same length ---- */
+V.itemrep=()=>{const P=irPeriod();const cur=irLines(P.f,P.to),prev=irLines(P.pf,P.pt);const g=irGroup(cur,r=>r.item).sort((a,b)=>b.v-a.v);const pm_=new Map(irGroup(prev,r=>r.item).map(x=>[x.k,x]));
+  const tot=g.reduce((s,x)=>s+x.v,0),ptot=prev.reduce((s,r)=>s+r.v,0),nOrd=new Set(cur.map(r=>r.o.id)).size;const ch=(a,b)=>b?((a-b)/b*100):null;
+  const arrow=x=>x==null?`<span class="muted">${L('جديد','new')}</span>`:`<b style="color:${x>=0?'#1E7B3C':'#B42318'}">${x>=0?'▲':'▼'} ${irP(Math.abs(x))}</b>`;
+  const top=g.slice(0,12);
+  return `${irFilters()}
+  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),`${arrow(ch(tot,ptot))} ${L('عن الفترة السابقة','vs previous')}`)}${kpiTile(L('عدد الأصناف المباعة','Items sold'),num(g.length),'')}
+   ${kpiTile(L('أوامر البيع','Sales orders'),num(nOrd),'')}${kpiTile(L('أعلى صنف','Top item'),g[0]?esc(g[0].name):'—',g[0]?`${smoney(g[0].v)} · ${irP(irPct(g[0].v,tot))}`:'')}</div>
+  ${top.length?`<div class="card"><h2>${L('مؤشرات أعلى الأصناف','Top items')}<span class="sub">${fdate(P.f)} — ${fdate(P.to)} · ${L('مقارنة بـ','vs')} ${fdate(P.pf)} — ${fdate(P.pt)}</span></h2>
+   <div class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">${top.map(x=>{const p=pm_.get(x.k);const sh=irPct(x.v,tot)||0;return `<div class="kpi"><span class="l">${esc(x.name)} <bdi class="muted" dir="ltr">${esc(x.k)}</bdi></span><span class="v">${smoney(x.v)}</span>
+     <span class="s">${num(Math.round(x.q))} ${esc(x.unit)} · ${L('متوسط','avg')} ${irM(x.q?x.v/x.q:0)} · ${arrow(p?ch(x.v,p.v):null)}</span>
+     <div style="height:6px;background:var(--line,#DDE4EE);border-radius:4px;margin-top:6px"><i style="display:block;height:6px;border-radius:4px;background:#38AC57;width:${Math.min(100,sh).toFixed(1)}%"></i></div><span class="s">${irP(sh)} ${L('من المبيعات','of sales')}</span></div>`}).join('')}</div></div>`:''}
+  <div class="card"><h2>${L('كل الأصناف','All items')} (${g.length})</h2>${table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.k)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)+' '+esc(x.unit)},
+    {l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},{l:L('النسبة','Share'),c:'n',f:x=>irP(irPct(x.v,tot))},{l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>x.q?irM(x.v/x.q):'—'},
+    {l:L('أوامر','Orders'),c:'n',f:x=>num(x.orders.size)},{l:L('الفترة السابقة','Previous'),c:'n',f:x=>{const p=pm_.get(x.k);return p?num(Math.round(p.v)):'—'}},{l:L('التغير','Change'),c:'n',f:x=>{const p=pm_.get(x.k);return arrow(p?ch(x.v,p.v):null)}}],g.map(x=>({...x,id:null})),null,{empty:L('ما فيه مبيعات في هذه الفترة','No sales in this period')})}${irNote()}</div>`};
+
+/* ---- discount rates: actual average price vs base price, per rep and item; discount as a share of the period's sales ---- */
+V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.reduce((s,r)=>s+r.v,0);
+  const withB=rows.filter(r=>r.base!=null);const B=withB.reduce((s,r)=>s+r.base,0),VB=withB.reduce((s,r)=>s+r.v,0),D=B-VB;const nob=rows.filter(r=>r.base==null);const free=rows.filter(r=>r.v===0&&r.q>0);
+  const reps=irGroup(rows,r=>r.o.repId||'').map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);const sel=fv('drRep','');
+  const items=irGroup(sel?rows.filter(r=>(r.o.repId||'')===sel):rows,r=>r.item).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);
+  const dcol=x=>`<b style="color:${x>0?'#B42318':x<0?'#1E7B3C':'inherit'}">${irP(x)}</b>`;
+  return `${irFilters()}
+  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),L('قبل الضريبة','before VAT'))}${kpiTile(L('قيمتها بالأسعار الأساسية','At base prices'),smoney(B),nob.length?`${num(nob.length)} ${L('سطر بدون سعر أساسي (مستبعد)','lines without base price (excluded)')}`:'')}
+   ${kpiTile(L('إجمالي الفرق (الخصم)','Total discount'),smoney(D),`${irP(irPct(D,B))} ${L('من السعر الأساسي','of base')}`)}${kpiTile(L('الخصم من مبيعات الفترة','Discount vs period sales'),irP(irPct(D,tot)),free.length?`${num(free.length)} ${L('سطر مجاني بسعر صفر محسوب ضمن الخصم','zero-price lines included')}`:'')}</div>
+  <div class="card"><h2>${L('حسب المندوب','By rep')}<span class="sub">${L('اضغط على المندوب لتفاصيل أصنافه','Tap a rep for item details')}</span></h2>${table([
+    {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filt" data-k="drRep" data-v="${esc(x.k)}"><b>${esc(x.k?tName(x.k):L('غير محدد','Unassigned'))}</b></a>`},
+    {l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},{l:L('بالسعر الأساسي','At base'),c:'n',f:x=>num(Math.round(x.base))},{l:L('الفرق','Difference'),c:'n',f:x=>num(Math.round(x.d))},
+    {l:L('نسبة الخصم','Discount %'),c:'n',f:x=>dcol(irPct(x.d,x.base))},{l:L('من مبيعات المندوب','of rep sales'),c:'n',f:x=>irP(irPct(x.d,x.v))},{l:L('من إجمالي مبيعات الفترة','of all period sales'),c:'n',f:x=>irP(irPct(x.d,tot))}],
+    reps.map(x=>({...x,id:null})),null,{empty:L('ما فيه مبيعات في هذه الفترة','No sales in this period')})}</div>
+  <div class="card"><h2>${L('حسب الصنف','By item')} ${sel?`— ${esc(tName(sel))} <a href="#" class="small" data-act="filt" data-k="drRep" data-v="">${L('(كل المندوبين)','(all reps)')}</a>`:''}</h2>${table([
+    {l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.k)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)+' '+esc(x.unit)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},
+    {l:L('متوسط سعر البيع','Avg selling price'),c:'n',f:x=>x.qb?irM(x.vb/x.qb):'—'},{l:L('السعر الأساسي','Base price'),c:'n',f:x=>{const it=irItem(x.k);return it&&it.price!=null?irM(it.price):'—'}},
+    {l:L('الفرق للوحدة','Diff / unit'),c:'n',f:x=>x.qb?irM((x.base-x.vb)/x.qb):'—'},{l:L('إجمالي الفرق','Total diff'),c:'n',f:x=>x.nob===x.n?'—':num(Math.round(x.d))},
+    {l:L('نسبة الخصم','Discount %'),c:'n',f:x=>x.base?dcol(irPct(x.d,x.base)):'—'},{l:L('من مبيعات الفترة','of period sales'),c:'n',f:x=>x.base?irP(irPct(x.d,tot)):'—'}],items.map(x=>({...x,id:null})),null,{empty:'—'})}
+   <div class="small muted" style="margin-top:6px">${L('الفرق الموجب = بيع أقل من السعر الأساسي (خصم)، والسالب = بيع أعلى منه.','Positive = sold below base price (discount); negative = above it.')}</div>${irNote()}</div>`};
 </script>
 <script src="wady-back.js"></script></body></html>
