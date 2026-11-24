@@ -943,7 +943,9 @@ function loginView(){
   const first=AUTH.adminExists===false;
   return `<div class="portal"><div class="pwrap">
    <div class="brand" style="color:var(--ink);margin-bottom:6px"><span class="mark">و</span><div><b>الوادي الأخضر المميز</b><small class="muted">منصة الأعمال الموحدة</small></div></div>
-   ${first?'':`<h2 class="ph">اختر التطبيق</h2><div class="apps">${APPS.filter(a=>a.id!=='admin').map(a=>appCard(a,'login')).join('')}</div>`}
+   ${first?'':`<h2 class="ph">اختر التطبيق</h2><div class="apps">${(()=>{let mine=null;try{mine=JSON.parse(localStorage.getItem('wady.myapps')||'null')}catch(e){}
+     // on a device someone already signed in from, show only the apps that account can open; a new device shows them all until the first sign-in
+     const L=APPS.filter(a=>a.id!=='admin'&&(!Array.isArray(mine)||!mine.length||mine.includes(a.id)));if(AUTH.pick&&!L.some(a=>a.id===AUTH.pick))AUTH.pick=null;return L.map(a=>appCard(a,'login')).join('')})()}</div>`}
    <div class="card" style="padding:20px;margin-top:14px">
    ${first?`<div class="banner info"><span class="sp">لا يوجد مدير نظام بعد. أنشئ حسابك الآن وسيصبح حساب مدير النظام، ثم أضف بقية المستخدمين من داخل النظام.</span></div>`:''}
    <form id="authForm" class="list" novalidate>
@@ -965,7 +967,8 @@ function pickerView(){
    ${AUTH.denied?`<div class="banner bad"><span class="sp">ليس لديك صلاحية على «${esc(appById(AUTH.denied)?.name||'')}». اختر من التطبيقات المتاحة لك، أو تواصل مع مدير النظام.</span></div>`:''}
    ${!mine.length?`<div class="banner"><span class="sp">حسابك مفعّل لكن لم تُحدد له تطبيقات بعد. تواصل مع مدير النظام.</span></div>`:''}
    ${tasksPanel()}
-   <div class="apps">${APPS.filter(a=>!a.hidden||!a.hidden()).map(a=>appCard(a,'pick')).join('')}</div>
+   ${(()=>{const L=APPS.filter(a=>(!a.hidden||!a.hidden())&&canApp(a.id));try{localStorage.setItem('wady.myapps',JSON.stringify(L.map(a=>a.id)))}catch(e){}
+     return L.length?`<div class="apps">${L.map(a=>appCard(a,'pick')).join('')}</div>`:`<div class="card empty">ما عندك صلاحية على أي تطبيق حالياً. تواصل مع مدير النظام.</div>`})()}
    <p class="small muted" style="margin-top:12px">التطبيقات الملوّنة هي المتاحة لك. البيانات المشتركة (الموظفون، الفروع، العملاء) واحدة في كل التطبيقات.</p></div></div>`;
 }
 function pendingView(){return `<div style="min-height:100%;display:grid;place-items:center;padding:24px"><div class="card" style="width:min(460px,100%);padding:24px;text-align:center"><h2 style="justify-content:center">حسابك بانتظار التفعيل</h2><p class="muted">${S.me&&!S.me.active?'هذا الحساب موقوف.':'سجّلت الدخول بنجاح، لكن مدير النظام لم يحدد صلاحياتك بعد. تواصل معه ليربط حسابك.'}</p><button class="btn" data-act="logout">تسجيل الخروج</button></div></div>`}

@@ -32,7 +32,7 @@ const COLS = {
   settings: {}, orgunits: {}, employees: {}, access: {}, empsecure: {}, salaries: {}, emphistory: { order: ['at', 'desc'], limit: 1000 }, emphistory_s: { order: ['at', 'desc'], limit: 1000 }, requestTypes: {}, requests: {},
   notifications: { order: ['at', 'desc'], limit: 800 }, leaveTypes: {}, leaveBalances: {}, shifts: {}, attmonths: { order: ['month', 'desc'], limit: 1000 },
   assets: {}, handovers: {}, forms: {}, acks: {}, templates: {}, requisitions: {}, candidates: {}, courses: {}, enrollments: {}, reviews: {},
-  loans: {}, adjustments: {}, roster: {}, shipments: {}, brokers: {}, records: {}, announcements: { order: ['at', 'desc'], limit: 200 }, tasks: {}, linkreqs: {}, creds: {}, logins: {}, kpiTemplates: {}, kpiPlans: {}, audit: { order: ['at', 'desc'], limit: 600 }
+  loans: {}, adjustments: {}, roster: {}, shipments: {}, brokers: {}, records: {}, announcements: { order: ['at', 'desc'], limit: 200 }, tasks: {}, linkreqs: {}, creds: {}, logins: {}, kpiTemplates: {}, kpiPlans: {}, photos: {}, audit: { order: ['at', 'desc'], limit: 600 }
 };
 /* Server-enforced protection (db access rules, by sharing level). RESTRICTED: read+write need Editor ("admin").
    ADMIN_WRITE: everyone reads, only Editors write. Must match the rules declared at publish. */

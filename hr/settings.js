@@ -58,12 +58,12 @@ ACT['set-open'] = el => { S.tabs.set = el.dataset.k || null; renderView(); windo
 /* ---- general ---- */
 function generalHtml() {
   const s = SET();
-  return `<form class="form card" data-form="general2">${fld('company', 'اسم المنشأة', { value: s.company, required: true })}${fld('contractAlertDays', 'التنبيه قبل انتهاء العقود والوثائق (أيام)', { type: 'number', value: s.contractAlertDays ?? 60, min: 1 })}${fld('defaultSla', 'المدة المستهدفة الافتراضية لكل مرحلة اعتماد (ساعات)', { type: 'number', value: s.defaultSla ?? 48, min: 1 })}
+  return `<form class="form card" data-form="general2">${fld('company', 'اسم المنشأة', { value: s.company, required: true })}${fld('companyCR', 'السجل التجاري (للعقود)', { value: s.companyCR || '' })}${fld('companyAddress', 'عنوان المنشأة (للعقود)', { value: s.companyAddress || '' })}${fld('companySigner', 'اسم من يوقّع العقود عن المنشأة', { value: s.companySigner || '' })}${fld('companySignerTitle', 'صفته', { value: s.companySignerTitle || '' })}${fld('contractAlertDays', 'التنبيه قبل انتهاء العقود والوثائق (أيام)', { type: 'number', value: s.contractAlertDays ?? 60, min: 1 })}${fld('defaultSla', 'المدة المستهدفة الافتراضية لكل مرحلة اعتماد (ساعات)', { type: 'number', value: s.defaultSla ?? 48, min: 1 })}
     <div class="fld"><label for="f-logo">شعار المنشأة (PNG أو JPG)</label>${s.logo?.id ? `<div class="row"><img src="/_blob/${esc(s.logo.id)}" alt="الشعار الحالي" style="height:40px;border-radius:6px;background:#fff;padding:2px"><label class="checks small"><input type="checkbox" name="removeLogo"> إزالة الشعار</label></div>` : ''}<input type="file" id="f-logo" name="logo" accept=".png,.jpg,.jpeg,.svg"></div>
     ${fld('demoMode', 'شريط التنبيه أعلى الصفحات', { type: 'checkbox', value: s.demoMode !== false, cbLabel: 'إظهار أن المنصة في مرحلة التجربة' })}<div class="fld full"><button class="btn pri" style="align-self:flex-start">حفظ</button></div></form>`;
 }
 FORM.general2 = async f => {
-  const v = readForm(f); const up = { company: v.company, contractAlertDays: Number(v.contractAlertDays || 60), defaultSla: Number(v.defaultSla || 48), demoMode: !!v.demoMode };
+  const v = readForm(f); const up = { company: v.company, companyCR: v.companyCR || '', companyAddress: v.companyAddress || '', companySigner: v.companySigner || '', companySignerTitle: v.companySignerTitle || '', contractAlertDays: Number(v.contractAlertDays || 60), defaultSla: Number(v.defaultSla || 48), demoMode: !!v.demoMode };
   const files = await uploadFiles(f.elements.logo); if (files.length) up.logo = files[0]; else if (v.removeLogo) up.logo = null;
   await patch('settings', 'main', up); await audit('تعديل بيانات المنشأة', 'settings', 'main', v.company); toast('تم الحفظ'); renderAll(true);
 };
