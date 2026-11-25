@@ -8687,12 +8687,14 @@ IC.itemrep='<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>';IC.discrep='<path d="
 {const at=NAV.findIndex(n=>n[0]==='decline');const ok=()=>typeof wadyLvl!=='function'||wadyLvl('crm','reports')>=1||isLead();
  NAV.splice(at>=0?at+1:NAV.length,0,['itemrep','itemrep',()=>L('مبيعات الأصناف','Sales by item'),ok],['discrep','discrep',()=>L('معدلات الخصم للمندوبين','Discount rates by rep'),ok])}
 if(window.REPORT_ROUTES)window.REPORT_ROUTES.push('itemrep','discrep');
+// wooden pallets (PAL-xx / «طبليات») are given with the goods, often at zero: kept out of every discount figure (25/11)
+const isPallet=(code,name)=>/^PAL-/i.test(String(code||''))||/طب(لي|الي)/.test(String(name||''));
 const irItem=code=>(S.items||[]).find(x=>x.code===code)||null;
 function irPeriod(){const t=TODAY();const f=fv('irF',t.slice(0,8)+'01'),to=fv('irT',t);const days=Math.max(1,daysBetween(f,to)+1);return {f,to,pf:addDays(f,-days),pt:addDays(f,-1),days}}
 // order lines in the period, within the user's scope and the page filters
-function irLines(f,to){const rp=fv('irRep',''),rg=fv('irReg',''),gp=fv('irGrp','');const out=[];
+function irLines(f,to,noPal){const rp=fv('irRep',''),rg=fv('irReg',''),gp=fv('irGrp','');const out=[];
   vis(S.orders).forEach(o=>{if(o.status==='cancelled'||!o.date||o.date<f||o.date>to)return;if(rp&&o.repId!==rp)return;if(rg&&o.region!==rg)return;
-    (o.lines||[]).forEach(l=>{if(!l.item)return;const it=irItem(l.item);if(gp&&String(it?.group||'')!==gp)return;
+    (o.lines||[]).forEach(l=>{if(!l.item)return;const it=irItem(l.item);if(noPal&&isPallet(l.item,it?.name||l.name))return;if(gp&&String(it?.group||'')!==gp)return;
       const q=+l.qty||0,v=+l.value||0,bp=it&&it.price!=null?+it.price:null;out.push({o,item:l.item,name:it?.name||l.name||l.item,unit:l.unit||it?.unit||'',q,v,bp,base:bp!=null?bp*q:null})})});return out}
 function irGroup(rows,key){const m=new Map();rows.forEach(r=>{const k=key(r);let g=m.get(k);if(!g){g={k,q:0,v:0,base:0,vb:0,qb:0,n:0,free:0,nob:0,orders:new Set(),name:r.name,unit:r.unit};m.set(k,g)}
   g.q+=r.q;g.v+=r.v;g.n++;g.orders.add(r.o.id);if(r.v===0&&r.q>0)g.free++;if(r.base!=null){g.base+=r.base;g.vb+=r.v;g.qb+=r.q}else g.nob++});return [...m.values()]}
@@ -8733,7 +8735,7 @@ function drOdd(free,nob){if(!free.length&&!nob.length)return '';
    ${free.length?`<h3 style="margin:4px 0 6px">${L('بنود بسعر صفر (مجانية)','Zero-price (free) lines')} <span class="small muted">${num(free.length)} ${L('سطر','lines')}${gv?` · ${L('قيمتها بالسعر الأساسي','worth at base')} ${num(Math.round(gv))} ${L('ريال — محسوبة ضمن الخصم','SAR — counted as discount')}`:''}</span></h3>${table(cols(true),sort(free).map(r=>({...r,id:null})))}`:''}
    ${nob.length?`<h3 style="margin:14px 0 6px">${L('بنود أصنافها بدون سعر أساسي','Lines whose item has no base price')} <span class="small muted">${num(nob.length)} ${L('سطر — مستبعدة من نسبة الخصم. حدّث سعرها في قائمة «Base price» في ساب','lines — left out of the discount rate; set the item price in SAP «Base price»')}</span></h3>${table(cols(false),sort(nob).map(r=>({...r,id:null})))}`:''}</div>`}
 /* ---- discount rates: actual average price vs base price, per rep and item; discount as a share of the period's sales ---- */
-V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.reduce((s,r)=>s+r.v,0);
+V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to,true);const tot=rows.reduce((s,r)=>s+r.v,0);
   const withB=rows.filter(r=>r.base!=null);const B=withB.reduce((s,r)=>s+r.base,0),VB=withB.reduce((s,r)=>s+r.v,0),D=B-VB;const nob=rows.filter(r=>r.base==null);const free=rows.filter(r=>r.v===0&&r.q>0);
   const reps=irGroup(rows,r=>r.o.repId||'').map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);const sel=fv('drRep','');
   const items=irGroup(sel?rows.filter(r=>(r.o.repId||'')===sel):rows,r=>r.item).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);
@@ -8752,7 +8754,7 @@ V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.re
     {l:L('متوسط سعر البيع','Avg selling price'),c:'n',f:x=>x.qb?irM(x.vb/x.qb):'—'},{l:L('السعر الأساسي','Base price'),c:'n',f:x=>{const it=irItem(x.k);return it&&it.price!=null?irM(it.price):'—'}},
     {l:L('الفرق للوحدة','Diff / unit'),c:'n',f:x=>x.qb?irM((x.base-x.vb)/x.qb):'—'},{l:L('إجمالي الفرق','Total diff'),c:'n',f:x=>x.nob===x.n?'—':num(Math.round(x.d))},
     {l:L('نسبة الخصم','Discount %'),c:'n',f:x=>x.base?dcol(irPct(x.d,x.base)):'—'},{l:L('من مبيعات الفترة','of period sales'),c:'n',f:x=>x.base?irP(irPct(x.d,tot)):'—'}],items.map(x=>({...x,id:null})),null,{empty:'—'})}
-   <div class="small muted" style="margin-top:6px">${L('الفرق الموجب = بيع أقل من السعر الأساسي (خصم)، والسالب = بيع أعلى منه.','Positive = sold below base price (discount); negative = above it.')}</div>${irNote()}</div>`};
+   <div class="small muted" style="margin-top:6px">${L('الفرق الموجب = بيع أقل من السعر الأساسي (خصم)، والسالب = بيع أعلى منه. الطبليات الخشب مستبعدة من هذا التقرير.','Positive = sold below base price (discount); negative = above it. Wooden pallets are left out of this report.')}</div>${irNote()}</div>`};
 
 /* ============ Visit plan discipline on screen (25/11) ============
    The server sends phone notifications (20:00 missing plan, 17:00 daily summary — see 024). Most phones have not enabled
@@ -8909,10 +8911,10 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
   const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const inv=docs.filter(o=>o.kind!=='credit'),cn=docs.filter(o=>o.kind==='credit');
   const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
   // 1) prices
-  let lv=0,bv=0,lvAll=0,noB=0,noLines=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
+  let lv=0,bv=0,lvAll=0,noB=0,noLines=0,nPal=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
   inv.forEach(o=>{if(!(o.lines||[]).length){noLines++;return}o.lines.forEach(([code,q,v])=>{q=+q||0;v=+v||0;lvAll+=v;const it=items.get(normCode(code));
     if(sp.has(code)){spV+=v;spQ+=q;const s=spBy.get(code)||{code,name:it?.name||code,q:0,v:0};s.q+=q;s.v+=v;spBy.set(code,s)}
-    if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
+    if(isPallet(code,it?.name)){nPal++;return}if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
   // 2) liquidity (both including VAT)
   const salesInc=inv.reduce((s,o)=>s+(+o.total||0),0)-cn.reduce((s,o)=>s+(+o.total||0),0);
   const CR=kxCollRep();const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(CR(r.code,r.d,r.rep)));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
@@ -8921,7 +8923,7 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
   const fresh=Object.entries(fp).filter(([cc,d])=>d>=f&&d<=to).map(([cc,d])=>{const c=byCode.get(normCode(cc));const pays=I().coll.filter(r=>normCode(r.code)===normCode(cc));
     const rep=CR(cc,d,c?.repId||(pays[0]&&pays[0].rep)||'');return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
-  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
+  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
 // who the report covers — printed too (the filter bar is not), 25/11
 function kxWho(D){const v=role()==='rep'?'r:'+me().id:fv('kxS','all');const ids=[...D.sc.ids];
   let k,who,list='';if(v.startsWith('r:')){k=L('المندوب','Rep');who=tName(v.slice(2))}
@@ -8965,7 +8967,7 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
     ${kpiTile(L('إجمالي الخصم','Total discount'),kxAmt(disc),'')}${kpiTile(L('متوسط الخصم الإجمالي','Average discount'),kxP(dp),L('من السعر الأساسي','of base price'))}</div>
     ${D.byItem.length?table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.code)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},
      {l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>kxM(x.v/x.q)},{l:L('السعر الأساسي','Base'),c:'n',f:x=>kxM(x.base)},{l:L('الخصم','Discount'),c:'n',f:x=>`<b style="color:${x.b-x.v>0?'#B42318':'#1E7B3C'}">${kxP((x.b-x.v)/x.b*100)}</b>`}],D.byItem.slice(0,15).map(x=>({...x,id:null}))):''}
-    <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. الإشعارات الدائنة غير داخلة في هذا المؤشر.','Base price = SAP list today. Credit notes not included here.')}</div>`,'#34BEF0')}
+    <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.nPal?`${num(D.nPal)} ${L('سطر طبليات خشب — مستبعدة من الخصم. ','wooden pallet lines — left out of the discount. ')}`:''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. الإشعارات الدائنة غير داخلة في هذا المؤشر.','Base price = SAP list today. Credit notes not included here.')}</div>`,'#34BEF0')}
   ${box(L('2) مؤشر السيولة','2) Liquidity'),L('التحصيل مقابل المبيعات — الاثنين شاملين الضريبة','Collections vs sales — both including VAT'),
    `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length)} ${L('فاتورة','invoices')} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
     ${kpiTile(L('التحصيل شامل الضريبة','Collections incl. VAT'),kxAmt(D.collV),`${num(D.nColl)} ${L('سند قبض','receipts')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
