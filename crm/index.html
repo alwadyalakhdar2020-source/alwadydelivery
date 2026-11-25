@@ -8879,6 +8879,15 @@ function kxScope(){const reps=visibleReps();if(role()==='rep')return {ids:new Se
   const v=fv('kxS','all');if(v.startsWith('r:'))return {ids:new Set([v.slice(2)]),label:tName(v.slice(2))};
   if(v.startsWith('g:')){const sid=v.slice(2);return {ids:new Set([sid,...S.team.filter(t=>t.supId===sid).map(t=>t.id)]),label:L('مجموعة ','Group ')+tName(sid)}}
   return {ids:new Set(reps.map(r=>r.id)),label:L('الكل','All'),all:true}}
+// Receipts carry no sales person from SAP, so the engine credits them to the customer's rep in the CRM card, while sales come from the
+// SAP sales person on each invoice — the two did not match (Ahmed: ~2M sales a month, almost no collections). Here a receipt goes to the rep
+// of the customer's latest invoice on or before the receipt date (else the customer's first invoice after it, else the customer card). 25/11
+let _kxRM=null;
+function kxCollRep(){const key=(S.sinv||[]).length+'|'+I().coll.length;if(_kxRM&&_kxRM.key===key)return _kxRM.f;
+  const by=new Map();(S.sinv||[]).forEach(o=>{if(o.kind==='credit'||o.status==='cancelled'||!o.repId||!o.clientCode)return;const k=normCode(o.clientCode);(by.get(k)||by.set(k,[]).get(k)).push([o.date,o.repId])});
+  by.forEach(a=>a.sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:0));
+  const f=(code,d,fb)=>{const a=by.get(normCode(code));if(!a||!a.length)return fb||'';let lo=0,hi=a.length-1,at=-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m][0]<=d){at=m;lo=m+1}else hi=m-1}return (at>=0?a[at]:a[0])[1]};
+  _kxRM={key,f};return f}
 function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
   const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const inv=docs.filter(o=>o.kind!=='credit'),cn=docs.filter(o=>o.kind==='credit');
   const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
@@ -8889,11 +8898,11 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
     if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
   // 2) liquidity (both including VAT)
   const salesInc=inv.reduce((s,o)=>s+(+o.total||0),0)-cn.reduce((s,o)=>s+(+o.total||0),0);
-  const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(r.rep));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
+  const CR=kxCollRep();const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(CR(r.code,r.d,r.rep)));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
   // 3) first-time payers: first payment ever (SAP) within the period, customer in scope
   const fp=((S.firstpay||[]).find(x=>x.id==='all')||{}).map||{};const byCode=new Map(S.clients.map(c=>[normCode(c.code),c]));
   const fresh=Object.entries(fp).filter(([cc,d])=>d>=f&&d<=to).map(([cc,d])=>{const c=byCode.get(normCode(cc));const pays=I().coll.filter(r=>normCode(r.code)===normCode(cc));
-    const rep=c?.repId||(pays[0]&&pays[0].rep)||'';return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
+    const rep=CR(cc,d,c?.repId||(pays[0]&&pays[0].rep)||'');return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
   return {f,to,sc,inv,cn,lv,bv,lvAll,noB,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
 // who the report covers — printed too (the filter bar is not), 25/11
@@ -8944,7 +8953,7 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
    `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length)} ${L('فاتورة','invoices')} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
     ${kpiTile(L('التحصيل شامل الضريبة','Collections incl. VAT'),kxAmt(D.collV),`${num(D.nColl)} ${L('سند قبض','receipts')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
     ${kpiTile(L('الفرق','Gap'),kxAmt(D.collV-D.salesInc),D.collV>=D.salesInc?L('تحصيل أكثر من المبيعات','collected more than sold'):L('مبيعات ما تحصلت بعد','sales not yet collected'))}</div>
-    <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب. النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
+    <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب، وكل سند يتنسب لمندوب آخر فاتورة للعميل قبل تاريخ السند (لأن السند في ساب ما عليه مندوب). النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts, each credited to the rep of the customer\'s latest invoice before it. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
   ${box(L('3) العملاء الجدد','3) New paying customers'),L('عملاء سددوا لأول مرة في تاريخهم خلال الفترة','First payment ever within the period'),
    `<div class="kpis k4">${kpiTile(L('عدد العملاء المسددين لأول مرة','First-time payers'),num(D.fresh.length),'')}${kpiTile(L('قيمة أول سداد','First payment value'),kxAmt(D.fresh.reduce((s,x)=>s+x.first,0)),'')}
     ${kpiTile(L('إجمالي سدادهم في الفترة','Their payments in period'),kxAmt(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}${kpiTile(L('نسبتهم من إجمالي التحصيل','Share of all collections'),kxP(D.collV?D.fresh.reduce((s,x)=>s+x.inPer,0)/D.collV*100:null),L('سداد العملاء الجدد ÷ تحصيل الفترة','new customers ÷ period collections'))}</div>
