@@ -2195,10 +2195,10 @@ V.visits=()=>{
 };
 function visitRow(v){
   const c=byId('clients',v.clientId);const fl=visitFlags(v);
-  const st=v.status==='done'?pill(L('منفذة','Done'),'ok'):v.checkIn?pill(L('جارية','In progress'),'warn'):v.status==='cancelled'?pill(L('ملغاة','Cancelled')):pill(L('مخططة','Planned'),'info');
+  const st=v.status==='done'?pill(L('منفذة','Done'),'ok'):v.checkIn&&v.checkOut?pill(L('معلقة — بانتظار الصور والنتيجة','Pending photos & result'),'warn'):v.checkIn?pill(L('جارية','In progress'),'warn'):v.status==='cancelled'?pill(L('ملغاة','Cancelled')):pill(L('مخططة','Planned'),'info');
   const mine=v.repId===me().id;let act='';
   if(v.status==='planned'&&!v.checkIn&&mine)act=`<button class="btn s p" data-act="checkin" data-id="${v.id}">${L('بدء الزيارة','Check in')}</button>`;
-  else if(v.checkIn&&v.status!=='done'&&mine)act=`<button class="btn s p" data-act="checkout" data-id="${v.id}">${L('إنهاء الزيارة','Check out')}</button>`;
+  else if(v.checkIn&&v.status!=='done'&&mine)act=`<button class="btn s p" data-act="checkout" data-id="${v.id}">${v.checkOut?L('إكمال الزيارة','Complete visit'):L('إنهاء الزيارة','Check out')}</button>`;
   const tm=x=>new Date(x).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'});
   return `<div class="li ${fl.length?'sev-bad':''}" data-open="visit" data-id="${v.id}"><div class="main"><div class="t">${esc(c?.name||'—')}</div>
    <div class="m">${fdate(v.date)} · ${esc(tName(v.repId))}${v.projectId?' · '+esc(pName(v.projectId)):''}${v.checkIn?` · ${L('دخول','in')} ${tm(v.checkIn.t)}`:''}${v.checkOut?` · ${L('خروج','out')} ${tm(v.checkOut.t)}`:''}</div>
@@ -2684,7 +2684,7 @@ const ACT={
   checkin:d=>{const v=byId('visits',d.id);if(v)checkinForm(v)},
   checkout:d=>{const v=byId('visits',d.id);if(v)checkoutForm(v)},
   unplanned:()=>{if(role()!=='rep'){toast(L('اختر مندوباً من «الدخول بصفة» لتسجيل زيارة ميدانية.','Switch to a rep in “Signed in as” to log a field visit.'));return}
-    openForm({title:L('زيارة غير مخططة','Unplanned visit'),data:{},fields:[{k:'clientId',l:L('العميل','Client'),t:'sel',req:1,opts:clientOpts()},{k:'projectId',l:L('المشروع','Project'),t:'sel',opts:projOpts()}],onSave:async v=>{const o=await save('visits',{...v,repId:me().id,date:TODAY(),status:'planned',planned:false,seq:99,photos:[],checkIn:null,checkOut:null});setTimeout(()=>checkinForm(byId('visits',o.id)||o),50)}})},
+    openForm({title:L('زيارة غير مخططة','Unplanned visit'),data:{},fields:[{k:'clientId',l:L('العميل','Client'),t:'sel',req:1,opts:clientOpts()},{k:'projectId',l:L('المشروع','Project'),t:'sel',opts:projOpts()},{k:'vtype',l:L('نوع الزيارة','Visit type'),t:'sel',req:1,opts:VISIT_TYPES.map(x=>[x[0],L(x[1],x[2])])}],onSave:async v=>{const o=await save('visits',{...v,repId:me().id,date:TODAY(),status:'planned',planned:false,seq:99,photos:[],checkIn:null,checkOut:null});setTimeout(()=>checkinForm(byId('visits',o.id)||o),50)}})},
   editResult:d=>{const v=byId('visits',d.id);reasonForm(L('تعديل نتيجة الزيارة','Edit visit result'),x=>{const r=x.reason;delete x.reason;return save('visits',{...v,...x},{reason:r})},[{k:'result',l:L('النتيجة','Result'),t:'sel',opts:Object.entries(VISIT_RESULTS).map(([k,x])=>[k,L(x[0],x[1])])},{k:'effective',l:L('فعّالة','Effective'),t:'check',cl:L('نعم','Yes')},{k:'notes',l:L('الملاحظات','Notes'),t:'area'},{k:'nextStep',l:L('الخطوة القادمة','Next step')}]);FORM.data={...v};document.getElementById('mbody').querySelectorAll('[name]').forEach(el=>{const k=el.name;if(k in v){if(el.type==='checkbox')el.checked=!!v[k];else if(k!=='reason')el.value=v[k]??''}})},
   reschedule:d=>{const v=byId('visits',d.id);reasonForm(L('إعادة جدولة الزيارة','Reschedule visit'),x=>save('visits',{...v,date:x.date},{reason:x.reason}),[{k:'date',l:L('التاريخ الجديد','New date'),t:'date',req:1}])},
   cancelVisit:d=>{const v=byId('visits',d.id);reasonForm(L('إلغاء الزيارة','Cancel visit'),x=>save('visits',{...v,status:'cancelled'},{action:'cancel',reason:x.reason}))},
@@ -3161,8 +3161,8 @@ V.mtoday=()=>{
   const done=mine.filter(v=>v.status==='done').length;const u=routeMapUrl(mine.filter(v=>v.status==='planned'));
   const card=v=>{const c=byId('clients',v.clientId)||{};const live=v.checkIn&&v.status!=='done';const fl=visitFlags(v);
     return `<div class="mcard"><h3><span class="mseq">${v.seq||'·'}</span>${esc(c.name||'—')}</h3><div class="small muted">${esc([c.district,regName(c.region)].filter(Boolean).join(' · '))}${v._pending?' · '+L('بانتظار الإرسال','pending'):''}</div>
-     <div style="margin-top:6px">${v.status==='done'?pill(L('منفذة','Done'),'ok'):live?pill(L('جارية — بدأت ','In progress — since ')+new Date(v.checkIn.t).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'}),'warn'):pill(L('مخططة','Planned'),'info')} ${fl.filter(f=>f[0]!=='missed').map(f=>pill(f[1],'bad')).join(' ')}</div>
-     <div class="mrow">${v.status==='done'?`<button class="btn" data-open="visit" data-id="${v.id}">${L('التفاصيل','Details')}</button>`:live?`<button class="btn p" data-act="mOut" data-id="${v.id}">${L('إنهاء الزيارة','End visit')}</button>`:`<button class="btn p" data-act="mIn" data-id="${v.id}">${L('ابدأ الزيارة','Start visit')}</button>`}
+     <div style="margin-top:6px">${v.status==='done'?pill(L('منفذة','Done'),'ok'):live&&v.checkOut?pill(L('معلقة — صوّر واكتب النتيجة','Pending — photo & result'),'bad'):live?pill(L('جارية — بدأت ','In progress — since ')+new Date(v.checkIn.t).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'}),'warn'):pill(L('مخططة','Planned'),'info')} ${fl.filter(f=>f[0]!=='missed').map(f=>pill(f[1],'bad')).join(' ')}</div>
+     <div class="mrow">${v.status==='done'?`<button class="btn" data-open="visit" data-id="${v.id}">${L('التفاصيل','Details')}</button>`:live?`<button class="btn p" data-act="mOut" data-id="${v.id}">${v.checkOut?L('إكمال الزيارة','Complete visit'):L('إنهاء الزيارة','End visit')}</button>`:`<button class="btn p" data-act="mIn" data-id="${v.id}">${L('ابدأ الزيارة','Start visit')}</button>`}
       ${c.phone?`<a class="btn" href="tel:${esc(c.phone)}">${L('اتصال','Call')}</a>`:''}${c.lat!=null&&c.lat!==''?`<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}" target="_blank" rel="noopener">${L('الطريق','Directions')}</a>`:''}</div></div>`};
   return mStatus()+mInstallBox()+`<div class="mhead"><h2>${L('زيارات اليوم','Today')} <span class="small muted">${fdate(t)}</span></h2><span class="pill ${done===mine.length&&mine.length?'ok':'info'}">${done}/${mine.length}</span></div>
    <div class="mrow" style="margin:0 0 10px">${mine.filter(v=>v.status==='planned').length>1?`<button class="btn" data-act="optimize" data-d="${t}" data-r="${me().id}">${L('رتّب حسب المسافة','Order by distance')}</button>`:''}${u?`<a class="btn" href="${u}" target="_blank" rel="noopener">${L('المسار في الخرائط','Route in Maps')}</a>`:''}<button class="btn" data-act="mNew">+ ${L('زيارة غير مخططة','Unplanned visit')}</button></div>
@@ -8760,5 +8760,97 @@ function pdBanner(){const now=pdNow(),h=now.getHours(),t=TODAY(),nd=pdNextWork(t
   return out}
 {const _r=render;render=function(){const o=_r.apply(this,arguments);try{if(['mhome','dashboard','mydash','visits','mtoday'].includes(route)){const v=document.getElementById('view');
   if(v&&!v.querySelector('.pd-box')){const h=pdBanner();if(h)v.insertAdjacentHTML('afterbegin',`<div class="pd-box">${h}</div>`)}}}catch(e){}return o}}
+
+/* ============ Automatic visits by distance, camera-only photos, result titles and visit types (25/11) ============
+   - While the app is open on the rep's phone, his position is followed. Within the visit radius (300 m by default) of a customer
+     he has a planned visit with today, the visit starts by itself. When he moves out beyond the radius it ends by itself and
+     stays «pending» until he takes a photo with the camera and writes the result.
+   - Phones do not let a web app follow the location with the screen off or the app closed: then the manual buttons remain.
+   - Photos come only from the live camera inside the app (no gallery); each is stamped with time, GPS and customer. */
+// result titles and visit types
+{const R=[['done','تمت الزيارة','Visit done'],['noperson','لا يوجد شخص مسؤول','No responsible person'],['resched','تم تحديد موعد آخر','Another appointment set'],['followup','متابعة','Follow-up'],
+  ['sample','طلب عينات جديدة','New samples requested'],['quote','طلب عرض سعر','Quotation requested'],['order','طلب توريد','Supply order'],['complaint','شكوى / مشكلة','Complaint / issue'],
+  ['collection','تحصيل','Collection'],['closed','الموقع مغلق','Site closed'],['interested','مهتم','Interested'],['none','لا يوجد اهتمام','No interest']];
+ Object.keys(VISIT_RESULTS).forEach(k=>delete VISIT_RESULTS[k]);R.forEach(([k,a,e])=>VISIT_RESULTS[k]=[a,e]);
+ VISIT_TYPES.splice(0,VISIT_TYPES.length,['newcust','عميل جديد — أول زيارة','New customer — first visit'],['quotefu','متابعة عرض سعر','Quotation follow-up'],['supplyfu','متابعة توريد','Supply follow-up'],
+  ['problem','مناقشة مشكلة','Discuss an issue'],['coverage','تغطية منطقة','Area coverage'],['collection','تحصيل','Collection'],['other','أخرى','Other'])}
+/* ---- in-app camera (live camera only) ---- */
+function camShot(){return new Promise((res,rej)=>{
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return rej(new Error(L('الجهاز لا يدعم الكاميرا من المتصفح','Camera not available in this browser')));
+  const o=document.createElement('div');o.id='camov';o.innerHTML=`<video playsinline autoplay muted></video><div class="cam-bar"><button type="button" class="btn" data-c="x">✕ ${L('إلغاء','Cancel')}</button><button type="button" class="cam-snap" data-c="s" aria-label="${L('التقط','Capture')}"></button><button type="button" class="btn" data-c="f">⟲</button></div>`;
+  document.body.appendChild(o);const vd=o.querySelector('video');let st=null,face='environment';
+  const stop=()=>{try{st&&st.getTracks().forEach(t=>t.stop())}catch(e){}};
+  const start=async()=>{stop();try{st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:face},width:{ideal:1280},height:{ideal:960}},audio:false});vd.srcObject=st}
+    catch(e){o.remove();rej(new Error(e.name==='NotAllowedError'?L('رفضت إذن الكاميرا — فعّله من إعدادات المتصفح','Camera permission denied'):L('تعذّر فتح الكاميرا','Could not open the camera')))}};
+  o.addEventListener('click',e=>{const b=e.target.closest('[data-c]');if(!b)return;const c=b.dataset.c;
+    if(c==='x'){stop();o.remove();rej(new Error('cancel'))}
+    else if(c==='f'){face=face==='environment'?'user':'environment';start()}
+    else if(c==='s'&&vd.videoWidth){const cv=document.createElement('canvas');cv.width=vd.videoWidth;cv.height=vd.videoHeight;cv.getContext('2d').drawImage(vd,0,0);stop();o.remove();cv.toBlob(b=>b?res(b):rej(new Error('capture')),'image/jpeg',0.9)}});
+  start()})}
+{const st=document.createElement('style');st.textContent=`#camov{position:fixed;inset:0;z-index:20000;background:#000;display:flex;flex-direction:column}#camov video{flex:1;width:100%;object-fit:cover;min-height:0}
+ #camov .cam-bar{display:flex;align-items:center;justify-content:space-around;padding:14px 10px calc(14px + env(safe-area-inset-bottom,0px));background:#000}#camov .btn{background:#222;color:#fff;border-color:#444}
+ #camov .cam-snap{width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:#38AC57}.gv-on{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;background:#E6F4EA;color:#14532D;font-size:13px;margin:0 0 10px}
+ [data-theme=dark] .gv-on{background:#15382A;color:#BFF0CF}.gv-on i{width:9px;height:9px;border-radius:50%;background:#38AC57;box-shadow:0 0 0 4px rgba(56,172,87,.25);flex:none}`;document.head.appendChild(st)}
+
+// a position for the photo stamp without waiting long: the latest automatic reading if fresh, else a quick GPS read (8 s at most)
+async function gpsQuick(){if(GV.last&&Date.now()-new Date(GV.last.t)<60000)return GV.last;try{return await Promise.race([getGPS(),new Promise(r=>setTimeout(()=>r(null),8000))])}catch(e){return null}}
+/* ---- completing a visit: camera photos + result title + notes (also after an automatic end) ---- */
+checkoutForm=function(v){
+  const c=byId('clients',v.clientId);let blobs=[],g=null;const auto=!!v.checkOut;
+  openModal(auto?L('إكمال الزيارة','Complete the visit'):L('إنهاء الزيارة','End the visit'),`<form id="coform">
+  ${auto?`<div class="banner warn"><span class="sp">${L('الزيارة انتهت تلقائياً لما خرجت من نطاق العميل الساعة','Ended automatically when you left at')} ${new Date(v.checkOut.t).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'})}. ${L('صوّر واكتب النتيجة عشان تنحسب منفذة.','Add a photo and the result so it counts as done.')}</span></div>`:`<div id="co_gps" class="small muted">${L('جاري تحديد موقعك…','Getting your location…')}</div>`}
+  <div class="fld"><label>${L('صور من الموقع بالكاميرا (إلزامي، حتى 3)','Photos from the camera (required, up to 3)')} <span class="req">*</span></label>
+   <button type="button" class="btn p" id="co_cam" style="min-height:52px;width:100%">📷 ${L('افتح الكاميرا وصوّر','Open the camera')}</button>
+   <span class="small muted">${L('الصور من الكاميرا مباشرة فقط (مو من الاستوديو)، وتنختم بالوقت والموقع واسم العميل.','Live camera only (no gallery); stamped with time, location and customer.')}</span><div id="co_prev" class="photos"></div></div>
+  <div class="fld"><label for="co_res">${L('عنوان الزيارة (النتيجة)','Visit result')} <span class="req">*</span></label><div class="chips" id="co_chips" style="display:flex;flex-wrap:wrap;gap:6px">${Object.entries(VISIT_RESULTS).map(([k,x])=>`<button type="button" class="chip" data-r="${k}">${L(x[0],x[1])}</button>`).join('')}</div><input type="hidden" id="co_res"></div>
+  <div class="fld"><div class="chk"><label><input type="checkbox" id="co_eff"> ${L('زيارة فعّالة (نتج عنها فرصة أو طلب أو تقدم واضح)','Effective visit')}</label></div></div>
+  <div class="fld full"><label for="co_notes">${L('نتائج الزيارة','Visit notes')} <span class="req">*</span></label><textarea id="co_notes" rows="3" placeholder="${L('وش صار في الزيارة؟ مع مين قابلت؟ وش المطلوب؟','What happened? Who did you meet? What is needed?')}"></textarea></div>
+  <div class="fgrid"><div class="fld"><label for="co_next">${L('الخطوة القادمة','Next step')}</label><input id="co_next"></div><div class="fld"><label for="co_nd">${L('موعدها','When')}</label><input id="co_nd" type="date"></div></div>
+  <div id="co_err" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">${L('لاحقاً','Later')}</button><button type="submit" class="btn p">${L('حفظ الزيارة','Save visit')}</button></div></form>`,{mount:b=>{
+    if(!auto){const gb=b.querySelector('#co_gps');gpsQuick().then(x=>{if(!x)throw new Error(L('تعذّر تحديد الموقع','Could not get the location'));return x}).then(x=>{g=x;const d=distM(g,c);gb.innerHTML=`${L('موقعك','Location')}: <span dir="ltr">${g.lat}, ${g.lng}</span> · ±${g.acc} ${L('م','m')}${d!=null?` · ${L('يبعد عن العميل','from site')} ${fmtDist(d)}`:''}`}).catch(e=>{gb.innerHTML=`<span class="flag">${esc(e.message)}</span>`})}
+    const prev=()=>{b.querySelector('#co_prev').innerHTML=blobs.map((x,i)=>`<span style="position:relative;display:inline-block"><img src="${URL.createObjectURL(x)}" alt=""><button type="button" class="btn s" data-del="${i}" style="position:absolute;top:2px;inset-inline-start:2px;padding:0 6px">✕</button></span>`).join('');b.querySelector('#co_cam').disabled=blobs.length>=3};
+    b.querySelector('#co_prev').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){blobs.splice(+d.dataset.del,1);prev()}});
+    b.querySelector('#co_cam').addEventListener('click',async()=>{try{const raw=await camShot();let pos=g;if(!pos){pos=await gpsQuick();if(pos)g=pos}
+      const lbl=`${new Date().toLocaleString('en-GB')} · ${(c?.name||'').slice(0,40)}\n${pos?`GPS ${pos.lat}, ${pos.lng} ±${pos.acc}m`:'GPS —'}`;blobs.push(await stampPhoto2(raw,lbl));prev()}catch(e){if(e.message!=='cancel')b.querySelector('#co_err').textContent=e.message}});
+    b.querySelector('#co_chips').addEventListener('click',e=>{const x=e.target.closest('[data-r]');if(!x)return;b.querySelectorAll('#co_chips .chip').forEach(y=>y.classList.toggle('on',y===x));b.querySelector('#co_res').value=x.dataset.r});
+    b.querySelector('#coform').addEventListener('submit',async e=>{e.preventDefault();const res=b.querySelector('#co_res').value;const notes=b.querySelector('#co_notes').value.trim();const er=b.querySelector('#co_err');
+      if(!blobs.length){er.textContent=L('صوّر صورة واحدة على الأقل من الموقع بالكاميرا','Take at least one photo with the camera');return}
+      if(!res){er.textContent=L('اختر عنوان الزيارة','Choose the visit result');return}if(notes.length<5){er.textContent=L('اكتب نتائج الزيارة','Write the visit notes');return}
+      const btn=e.submitter||b.querySelector('#coform .p');btn.disabled=true;er.textContent='';
+      try{const photos=[];for(const x of blobs)photos.push(await storePhoto(x));
+        const co=auto?v.checkOut:{t:new Date().toISOString(),lat:g?g.lat:'',lng:g?g.lng:'',acc:g?g.acc:null,src:g?'gps':'none',dist:g?distM(g,c):null};
+        await save('visits',{...v,photos,photoSrc:'camera',result:res,effective:b.querySelector('#co_eff').checked,notes,nextStep:b.querySelector('#co_next').value.trim(),nextDate:b.querySelector('#co_nd').value,checkOut:co,completedAt:new Date().toISOString(),status:'done'},{action:'checkout'});
+        closeModal();toast(L('تم تسجيل الزيارة','Visit saved'))}catch(err){btn.disabled=false;er.textContent=err.message||String(err)}});
+  }});
+};
+
+/* ---- automatic start / end by distance while the app is open ---- */
+const GV={watch:null,out:{},busy:false,last:null,err:''};
+const gvMine=()=>role()==='rep'?S.visits.filter(v=>v.repId===me().id&&v.date===TODAY()&&v.status!=='done'&&v.status!=='cancelled'):[];
+const gvSite=v=>{const c=byId('clients',v.clientId);return c&&c.lat!=null&&c.lat!==''?c:null};
+async function gvTick(p){if(GV.busy)return;const acc=Math.round(p.coords.accuracy||0);const g={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc,t:new Date().toISOString(),src:'geofence'};GV.last=g;
+  if(acc>Math.max(GPS_MAX_ACC(),120))return;const R=VISIT_RADIUS();GV.busy=true;
+  try{const vs=gvMine();const live=vs.filter(v=>v.checkIn&&!v.checkOut);
+    // leaving: beyond the radius (+50 m margin) on two readings in a row → ended, pending photo and result
+    for(const v of live){const c=gvSite(v);if(!c)continue;const d=distM(g,c);
+      if(d!=null&&d>R+50){GV.out[v.id]=(GV.out[v.id]||0)+1;if(GV.out[v.id]>=2){delete GV.out[v.id];
+        await save('visits',{...v,checkOut:{...g,dist:d},autoEnd:true},{action:'auto_checkout'});gvNotify(L('انتهت الزيارة','Visit ended'),`${c.name} — ${L('صوّر واكتب النتيجة لإكمالها','add photo and result')}`);render()}}else delete GV.out[v.id]}
+    // arriving: inside the radius of a planned visit, and no other visit running
+    if(!gvMine().some(v=>v.checkIn&&!v.checkOut)){let best=null,bd=1e9;for(const v of vs){if(v.checkIn)continue;const c=gvSite(v);if(!c)continue;const d=distM(g,c);if(d!=null&&d<=R&&d<bd){bd=d;best=v}}
+      if(best){const c=gvSite(best);await save('visits',{...best,checkIn:{...g,dist:bd},autoStart:true},{action:'auto_checkin'});gvNotify(L('بدأت الزيارة','Visit started'),`${c.name} (${fmtDist(bd)})`);render()}}
+  }catch(e){console.warn('geovisit',e)}finally{GV.busy=false}}
+function gvNotify(t,b){toast(`${t}: ${b}`);try{navigator.vibrate&&navigator.vibrate([120,60,120])}catch(e){}
+  try{if('Notification' in window&&Notification.permission==='granted'&&document.hidden)new Notification(t,{body:b,tag:'geovisit'})}catch(e){}}
+function gvSync(){const need=gvMine().some(v=>gvSite(v));
+  if(need&&GV.watch==null&&navigator.geolocation){GV.watch=navigator.geolocation.watchPosition(gvTick,e=>{GV.err=e.code===1?L('إذن الموقع مرفوض — البدء التلقائي متوقف','Location denied — automatic start is off'):''},{enableHighAccuracy:true,maximumAge:15000,timeout:30000})}
+  else if(!need&&GV.watch!=null){navigator.geolocation.clearWatch(GV.watch);GV.watch=null}}
+setInterval(gvSync,20000);setTimeout(gvSync,4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)gvSync()});
+// status line on the rep's visits screens
+{const _r=render;render=function(){const o=_r.apply(this,arguments);try{if(['mtoday','visits','mhome'].includes(route)&&role()==='rep'){const v=document.getElementById('view');
+  if(v&&!v.querySelector('.gv-on')){const vs=gvMine();const pend=vs.filter(x=>x.checkIn&&x.checkOut).length;const noLoc=vs.filter(x=>!x.checkIn&&!gvSite(x)).length;
+    const h=GV.err?`<div class="banner bad gv-on"><span class="sp">${esc(GV.err)}</span></div>`:GV.watch!=null?`<div class="gv-on"><i></i><span>${L(`بدء وإنهاء الزيارة تلقائي داخل ${VISIT_RADIUS()} م من العميل — خلّ التطبيق مفتوح أثناء الجولة.`,`Visits start and end automatically within ${VISIT_RADIUS()} m — keep the app open.`)}${noLoc?` ${L(`(${noLoc} عميل بدون موقع مسجل: ابدأ زيارته يدوياً)`,`(${noLoc} without a site location: start manually)`)}`:''}</span></div>`:'';
+    const ph=pend?`<div class="banner warn"><span class="sp">${L(`عندك ${pend} زيارة معلقة: صوّر واكتب النتيجة عشان تنحسب.`,`${pend} visits pending photo and result.`)}</span></div>`:'';
+    if(h||ph)v.insertAdjacentHTML('afterbegin',h+ph)}}}catch(e){}return o}}
+{const _vf=visitFlags;visitFlags=function(v){const f=_vf(v);if(v.checkIn&&v.checkOut&&v.status!=='done'&&v.date<TODAY())f.push(['pendingold',L('معلقة بدون صور أو نتيجة','Left pending')]);return f}}
 </script>
 <script src="wady-back.js"></script></body></html>
