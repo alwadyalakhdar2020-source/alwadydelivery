@@ -8475,8 +8475,10 @@ function brandReport(title){const v=document.getElementById('view');if(!v)return
   const applied=[];v.querySelectorAll('.fbar label.fl,.fbar label').forEach(lb=>{const x=lb.querySelector('select,input');if(!x||x.type==='date'&&!x.value)return;let val=x.tagName==='SELECT'?(x.selectedOptions[0]||{}).text:x.value;if(!val||/^(الكل|All|—)/.test(val))return;applied.push(`${(lb.childNodes[0]&&lb.childNodes[0].textContent||'').trim()}: ${val}`)});
   c.querySelectorAll('button,.btn,input,select,textarea,.fbar,.toolbar,.tabs .tab:not(.on),iframe,.th-btn,[data-noprint]').forEach(x=>x.remove());
   c.querySelectorAll('a').forEach(a=>{const sp=document.createElement('span');sp.innerHTML=a.innerHTML;a.replaceWith(sp)});
+  // on a phone the preview scrolls wide tables sideways instead of cutting them (25/11)
+  c.querySelectorAll('table').forEach(t=>{if(t.parentElement&&t.parentElement.classList.contains('rwrap'))return;const d=document.createElement('div');d.className='rwrap';d.style.cssText='overflow-x:auto;-webkit-overflow-scrolling:touch';t.replaceWith(d);d.appendChild(t)});
   const html=c.innerHTML;const wide=[...c.querySelectorAll('table')].some(t=>(t.rows[0]||{cells:[]}).cells.length>7);
-  w.document.open();w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title>
+  w.document.open();w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap"><style>
 @page{size:A4 ${wide?'landscape':'portrait'};margin:9mm}*{box-sizing:border-box}body{font-family:Tajawal,Tahoma,sans-serif;color:#0B1B33;font-size:11px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .top{display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(120deg,#051D48 0%,#0B2A5E 70%,#123d6e 100%);color:#fff;border-radius:14px 14px 0 0;padding:10px 16px;min-height:60px}
@@ -8903,13 +8905,13 @@ function kxPeriods(f,to,g){const out=[];if(!g||!f||!to||f>to)return out;let y=+f
   return out}
 function kxBreak(D,g){const P=kxPeriods(D.f,D.to,g);if(!P.length)return '';
   const row=(lab,d,part)=>{const disc=d.bv-d.lv;return {lab,part,sales:d.salesInc,coll:d.collV,liq:d.salesInc?d.collV/d.salesInc*100:null,lv:d.lv,bv:d.bv,dp:d.bv?disc/d.bv*100:null,
-    nNew:d.fresh.length,first:d.fresh.reduce((s,x)=>s+x.first,0),sp:d.spV,spSh:d.lvAll?d.spV/d.lvAll*100:null}};
+    nNew:d.fresh.length,paid:d.fresh.reduce((s,x)=>s+x.inPer,0),shNew:d.collV?d.fresh.reduce((s,x)=>s+x.inPer,0)/d.collV*100:null,sp:d.spV,spSh:d.lvAll?d.spV/d.lvAll*100:null}};
   const rows=P.map(p=>row(p.lab,kxData(p.f,p.to),p.part));rows.push({...row(L('الإجمالي','Total'),D),tot:true});
   const n0=v=>num(Math.round(v||0));const B=(x,v)=>x.tot?`<b>${v}</b>`:v;
   const cols=[{l:L('الفترة','Period'),c:'nw',f:x=>B(x,esc(x.lab))+(x.part?` <span class="small muted">(${L('جزئي','partial')})</span>`:'')},
     {l:L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),c:'n',f:x=>B(x,n0(x.sales))},{l:L('التحصيل','Collections'),c:'n',f:x=>B(x,n0(x.coll))},{l:L('السيولة','Liquidity'),c:'n',f:x=>B(x,kxP(x.liq))},
     {l:L('مبيعات البنود','Line sales'),c:'n',f:x=>B(x,n0(x.lv))},{l:L('بالسعر الأساسي','At base'),c:'n',f:x=>B(x,n0(x.bv))},{l:L('متوسط الخصم','Avg discount'),c:'n',f:x=>B(x,kxP(x.dp))},
-    {l:L('عملاء جدد','New payers'),c:'n',f:x=>B(x,num(x.nNew))},{l:L('قيمة أول سداد','First payments'),c:'n',f:x=>B(x,n0(x.first))},
+    {l:L('عملاء جدد','New payers'),c:'n',f:x=>B(x,num(x.nNew))},{l:L('سدادهم في الفترة','Their payments'),c:'n',f:x=>B(x,n0(x.paid))},{l:L('نسبتهم من التحصيل','Share of collections'),c:'n',f:x=>B(x,kxP(x.shNew))},
     ...(D.nSp?[{l:L('المبيعات الخاصة','Special sales'),c:'n',f:x=>B(x,n0(x.sp))},{l:L('نسبتها','Share'),c:'n',f:x=>B(x,kxP(x.spSh))}]:[])];
   const t=L({m:'شهري',q:'ربع سنوي',y:'سنوي'}[g],{m:'Monthly',q:'Quarterly',y:'Yearly'}[g]);
   return `<div class="card" style="border-top:4px solid #051D48"><h2>${L('التفصيل ','Breakdown ')}${t}<span class="sub">${L('كل فترة محسوبة بنفس طريقة الإجمالي — المبالغ بالريال','Each period computed like the totals — SAR')}</span></h2>
@@ -8937,8 +8939,8 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
     ${kpiTile(L('الفرق','Gap'),kxAmt(D.collV-D.salesInc),D.collV>=D.salesInc?L('تحصيل أكثر من المبيعات','collected more than sold'):L('مبيعات ما تحصلت بعد','sales not yet collected'))}</div>
     <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب. النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
   ${box(L('3) العملاء الجدد','3) New paying customers'),L('عملاء سددوا لأول مرة في تاريخهم خلال الفترة','First payment ever within the period'),
-   `<div class="kpis k3">${kpiTile(L('عدد العملاء المسددين لأول مرة','First-time payers'),num(D.fresh.length),'')}${kpiTile(L('قيمة أول سداد','First payment value'),kxAmt(D.fresh.reduce((s,x)=>s+x.first,0)),'')}
-    ${kpiTile(L('إجمالي سدادهم في الفترة','Their payments in period'),kxAmt(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}</div>
+   `<div class="kpis k4">${kpiTile(L('عدد العملاء المسددين لأول مرة','First-time payers'),num(D.fresh.length),'')}${kpiTile(L('قيمة أول سداد','First payment value'),kxAmt(D.fresh.reduce((s,x)=>s+x.first,0)),'')}
+    ${kpiTile(L('إجمالي سدادهم في الفترة','Their payments in period'),kxAmt(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}${kpiTile(L('نسبتهم من إجمالي التحصيل','Share of all collections'),kxP(D.collV?D.fresh.reduce((s,x)=>s+x.inPer,0)/D.collV*100:null),L('سداد العملاء الجدد ÷ تحصيل الفترة','new customers ÷ period collections'))}</div>
     ${D.fresh.length?table([{l:L('العميل','Customer'),f:x=>`<b>${esc(x.c?.name||x.cc)}</b> <bdi class="small muted" dir="ltr">${esc(x.cc)}</bdi>`},{l:L('المندوب','Rep'),f:x=>esc(x.rep?tName(x.rep):'—')},{l:L('أول سداد','First payment'),c:'nw',f:x=>fdate(x.d)},
      {l:L('قيمته','Amount'),c:'n',f:x=>num(Math.round(x.first))},{l:L('سداده في الفترة','In period'),c:'n',f:x=>num(Math.round(x.inPer))}],D.fresh.map(x=>({...x,id:null}))):''}
     <div class="small muted">${D.fpAt?`${L('أول سداد لكل عميل من كامل سجل ساب، آخر تحديث','First payment per customer from all SAP history, updated')} ${fdate(D.fpAt)}.`:L('بيانات أول سداد لسا ما وصلت من ساب (تتحدث يومياً).','First-payment data not received from SAP yet (refreshed daily).')}</div>`,'#F39235')}
