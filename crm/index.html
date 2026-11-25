@@ -8877,7 +8877,7 @@ function kxScope(){const reps=visibleReps();if(role()==='rep')return {ids:new Se
   const v=fv('kxS','all');if(v.startsWith('r:'))return {ids:new Set([v.slice(2)]),label:tName(v.slice(2))};
   if(v.startsWith('g:')){const sid=v.slice(2);return {ids:new Set([sid,...S.team.filter(t=>t.supId===sid).map(t=>t.id)]),label:L('مجموعة ','Group ')+tName(sid)}}
   return {ids:new Set(reps.map(r=>r.id)),label:L('الكل','All'),all:true}}
-function kxData(){const t=TODAY();const f=fv('kxF',t.slice(0,8)+'01'),to=fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
+function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
   const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const inv=docs.filter(o=>o.kind!=='credit'),cn=docs.filter(o=>o.kind==='credit');
   const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
   // 1) prices
@@ -8894,15 +8894,37 @@ function kxData(){const t=TODAY();const f=fv('kxF',t.slice(0,8)+'01'),to=fv('kxT
     const rep=c?.repId||(pays[0]&&pays[0].rep)||'';return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
   return {f,to,sc,inv,cn,lv,bv,lvAll,noB,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
+// period breakdown (25/11): monthly / quarterly / yearly slices of the chosen range, each computed exactly like the totals
+function kxPeriods(f,to,g){const out=[];if(!g||!f||!to||f>to)return out;let y=+f.slice(0,4),m=+f.slice(5,7);
+  const step=g==='y'?12:g==='q'?3:1;if(g==='q')m=Math.floor((m-1)/3)*3+1;if(g==='y')m=1;
+  while(true){const a=`${y}-${String(m).padStart(2,'0')}-01`;if(a>to)break;const b=addDays(addMonths(a,step),-1);
+    const lab=g==='y'?String(y):g==='q'?`${L('الربع','Q')} ${Math.floor((m-1)/3)+1} · ${y}`:new Date(a+'T12:00:00').toLocaleDateString(loc(),{month:'long',year:'numeric'});
+    out.push({lab,f:a<f?f:a,to:b>to?to:b,part:a<f||b>to});m+=step;while(m>12){m-=12;y++}if(out.length>60)break}
+  return out}
+function kxBreak(D,g){const P=kxPeriods(D.f,D.to,g);if(!P.length)return '';
+  const row=(lab,d,part)=>{const disc=d.bv-d.lv;return {lab,part,sales:d.salesInc,coll:d.collV,liq:d.salesInc?d.collV/d.salesInc*100:null,lv:d.lv,bv:d.bv,dp:d.bv?disc/d.bv*100:null,
+    nNew:d.fresh.length,first:d.fresh.reduce((s,x)=>s+x.first,0),sp:d.spV,spSh:d.lvAll?d.spV/d.lvAll*100:null}};
+  const rows=P.map(p=>row(p.lab,kxData(p.f,p.to),p.part));rows.push({...row(L('الإجمالي','Total'),D),tot:true});
+  const n0=v=>num(Math.round(v||0));const B=(x,v)=>x.tot?`<b>${v}</b>`:v;
+  const cols=[{l:L('الفترة','Period'),c:'nw',f:x=>B(x,esc(x.lab))+(x.part?` <span class="small muted">(${L('جزئي','partial')})</span>`:'')},
+    {l:L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),c:'n',f:x=>B(x,n0(x.sales))},{l:L('التحصيل','Collections'),c:'n',f:x=>B(x,n0(x.coll))},{l:L('السيولة','Liquidity'),c:'n',f:x=>B(x,kxP(x.liq))},
+    {l:L('مبيعات البنود','Line sales'),c:'n',f:x=>B(x,n0(x.lv))},{l:L('بالسعر الأساسي','At base'),c:'n',f:x=>B(x,n0(x.bv))},{l:L('متوسط الخصم','Avg discount'),c:'n',f:x=>B(x,kxP(x.dp))},
+    {l:L('عملاء جدد','New payers'),c:'n',f:x=>B(x,num(x.nNew))},{l:L('قيمة أول سداد','First payments'),c:'n',f:x=>B(x,n0(x.first))},
+    ...(D.nSp?[{l:L('المبيعات الخاصة','Special sales'),c:'n',f:x=>B(x,n0(x.sp))},{l:L('نسبتها','Share'),c:'n',f:x=>B(x,kxP(x.spSh))}]:[])];
+  const t=L({m:'شهري',q:'ربع سنوي',y:'سنوي'}[g],{m:'Monthly',q:'Quarterly',y:'Yearly'}[g]);
+  return `<div class="card" style="border-top:4px solid #051D48"><h2>${L('التفصيل ','Breakdown ')}${t}<span class="sub">${L('كل فترة محسوبة بنفس طريقة الإجمالي — المبالغ بالريال','Each period computed like the totals — SAR')}</span></h2>
+    ${table(cols,rows.map(x=>({...x,id:null})))}
+    <div class="small muted" style="margin-top:6px">${L('«جزئي» يعني إن الفترة مقطوعة بتاريخ البداية أو النهاية اللي اخترته. السيولة والمبيعات شامل الضريبة، ومبيعات البنود والمبيعات الخاصة قبل الضريبة.','«Partial» = period cut by your from/to dates. Liquidity and net sales incl. VAT; line and special sales before VAT.')}</div></div>`}
 // abbreviated amount + the full figure in small type under it (25/11)
-const kxAmt=n=>{n=n||0;const sh=smoney(n),full=num(Math.round(n))+' '+L('ر.س','SAR');return Math.abs(n)>=1e3?`${sh}<span class="kxfull" style="display:block;font-size:11.5px;font-weight:600;color:#5b6475;margin-top:3px;letter-spacing:.2px"><bdi dir="ltr">${num(Math.round(n))}</bdi> ${L('ر.س','SAR')}</span>`:full};
+const kxAmt=n=>{n=n||0;const sh=smoney(n),full=num(Math.round(n))+' '+L('ر.س','SAR');return Math.abs(n)>=1e3?`${sh}<span class="kxfull" style="display:block;font-size:11.5px;font-weight:600;opacity:.62;margin-top:3px;letter-spacing:.2px"><bdi dir="ltr">${num(Math.round(n))}</bdi> ${L('ر.س','SAR')}</span>`:full};
 const kxP=x=>x==null||!isFinite(x)?'—':(Math.round(x*10)/10).toFixed(1)+'%';
 const kxM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t=>t.role==='sup'&&reps.some(r=>r.supId===t.id||r.id===t.id));
   const disc=D.bv-D.lv,dp=D.bv?disc/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;
   const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${L('الكل','All')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${reps.map(r=>`<option value="r:${r.id}" ${fv('kxS','')==='r:'+r.id?'selected':''}>${esc(r.name)}</option>`).join('')}</optgroup></select></label>`;
   const box=(t,sub,body,c)=>`<div class="card" style="border-top:4px solid ${c}"><h2>${t}<span class="sub">${sub}</span></h2>${body}</div>`;
-  return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<span class="per">${esc(D.sc.label)}</span></div>
+  return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<label class="fl">${L('التقسيم','Breakdown')}<select data-act="filtSel" data-k="kxG">${[['',L('إجمالي فقط','Totals only')],['m',L('شهري','Monthly')],['q',L('ربع سنوي','Quarterly')],['y',L('سنوي','Yearly')]].map(([v,l])=>`<option value="${v}" ${fv('kxG','')===v?'selected':''}>${l}</option>`).join('')}</select></label><span class="per">${esc(D.sc.label)}</span></div>
+  ${kxBreak(D,fv('kxG',''))}
   ${box(L('1) أسعار البيع','1) Selling prices'),L('متوسط سعر البيع من الفواتير مقابل السعر الأساسي (Base price)','Invoice average price vs base price'),
    `<div class="kpis k4">${kpiTile(L('مبيعات البنود','Line sales'),kxAmt(D.lv),L('بعد خصم الفاتورة، قبل الضريبة','after document discount, before VAT'))}${kpiTile(L('بالسعر الأساسي','At base price'),kxAmt(D.bv),'')}
     ${kpiTile(L('إجمالي الخصم','Total discount'),kxAmt(disc),'')}${kpiTile(L('متوسط الخصم الإجمالي','Average discount'),kxP(dp),L('من السعر الأساسي','of base price'))}</div>
