@@ -339,7 +339,7 @@ const stageName=id=>{const s=OPP_STAGES.find(x=>x[0]===id);return s?L(s[1],s[2])
 const projStage=id=>{const s=PROJ_STAGES.find(x=>x[0]===id);return s?L(s[1],PROJ_EN[id]):id};
 
 /* ============ Store ============ */
-const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets','tasks','sinv'];
+const COLS=['team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets','tasks','sinv','firstpay'];
 const S={impUndo:[]};COLS.forEach(c=>S[c]=[]);
 let db=null,downloads=null,mode='init',loaded=new Set(),dataVer=0;
 let viewAs=ls('viewAs')||'';
@@ -8852,5 +8852,75 @@ setInterval(gvSync,20000);setTimeout(gvSync,4000);document.addEventListener('vis
     const ph=pend?`<div class="banner warn"><span class="sp">${L(`عندك ${pend} زيارة معلقة: صوّر واكتب النتيجة عشان تنحسب.`,`${pend} visits pending photo and result.`)}</span></div>`:'';
     if(h||ph)v.insertAdjacentHTML('afterbegin',h+ph)}}}catch(e){}return o}}
 {const _vf=visitFlags;visitFlags=function(v){const f=_vf(v);if(v.checkIn&&v.checkOut&&v.status!=='done'&&v.date<TODAY())f.push(['pendingold',L('معلقة بدون صور أو نتيجة','Left pending')]);return f}}
+
+/* ============ Sales KPIs by rep / group / all (25/11) ============
+   1) Selling prices: invoice lines vs SAP «Base price» → average discount.
+   2) Liquidity: collections vs net sales, both including VAT (invoices − credit notes).
+   3) New paying customers: customers whose first payment ever (SAP history) falls in the period, with the amounts.
+   4) Special products: sales of the items marked «منتج خاص» in the item card.
+   Sources: SAP invoices / credit notes with their lines (col sinv), SAP incoming payments (collections), first payment per customer
+   (col firstpay, refreshed daily), item base prices as synced today. */
+if(!S.firstpay)S.firstpay=[];
+IC.kpix='<path d="M3 20h18"/><path d="M6 16l4-5 3 3 5-7"/><circle cx="18" cy="7" r="1.6"/>';
+{const at=NAV.findIndex(n=>n[0]==='itemrep');NAV.splice(at>=0?at:NAV.length,0,['kpix','kpix',()=>L('مؤشرات الأداء البيعية','Sales KPIs'),()=>typeof wadyLvl!=='function'||wadyLvl('crm','reports')>=1||isLead()||role()==='rep'])}
+if(window.REPORT_ROUTES)window.REPORT_ROUTES.push('kpix');
+const spSet=()=>{const s=(S.settings||[]).find(x=>x.id==='specialItems');return new Set((s&&s.codes)||[])};
+// item card: «منتج خاص» flag (kept in settings so the SAP item sync never overwrites it)
+{const _e=editItem;editItem=function(id){_e(id);if(!FORM||!id)return;const it=byId('items',id);const on=spSet().has(it&&it.code);
+  const f=document.getElementById('theform');const bar=f&&f.querySelector('.formbar');if(bar)bar.insertAdjacentHTML('beforebegin',`<div class="fld full"><div class="chk"><label><input type="checkbox" id="f_special" ${on?'checked':''}> ${L('منتج خاص (يدخل في مؤشر المبيعات الخاصة)','Special product (counted in the special sales KPI)')}</label></div></div>`);
+  const _s=FORM.onSave;FORM.onSave=async v=>{const chk=document.getElementById('f_special');const want=!!(chk&&chk.checked);const set=spSet();const code=(v.code||it.code);
+    if(want!==set.has(code)){if(want)set.add(code);else set.delete(code);const cur=(S.settings||[]).find(x=>x.id==='specialItems')||{id:'specialItems'};await save('settings',{...cur,id:'specialItems',codes:[...set].sort()})}
+    return _s(v)}}}
+{const _v=V.items;V.items=function(){let h=_v.apply(this,arguments);const n=spSet().size;return n?h.replace('</span>',` · ${n} ${L('منتج خاص','special')}</span>`):h}}
+
+function kxScope(){const reps=visibleReps();if(role()==='rep')return {ids:new Set([me().id]),label:tName(me().id)};
+  const v=fv('kxS','all');if(v.startsWith('r:'))return {ids:new Set([v.slice(2)]),label:tName(v.slice(2))};
+  if(v.startsWith('g:')){const sid=v.slice(2);return {ids:new Set([sid,...S.team.filter(t=>t.supId===sid).map(t=>t.id)]),label:L('مجموعة ','Group ')+tName(sid)}}
+  return {ids:new Set(reps.map(r=>r.id)),label:L('الكل','All'),all:true}}
+function kxData(){const t=TODAY();const f=fv('kxF',t.slice(0,8)+'01'),to=fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
+  const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const inv=docs.filter(o=>o.kind!=='credit'),cn=docs.filter(o=>o.kind==='credit');
+  const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
+  // 1) prices
+  let lv=0,bv=0,lvAll=0,noB=0,noLines=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
+  inv.forEach(o=>{if(!(o.lines||[]).length){noLines++;return}o.lines.forEach(([code,q,v])=>{q=+q||0;v=+v||0;lvAll+=v;const it=items.get(normCode(code));
+    if(sp.has(code)){spV+=v;spQ+=q;const s=spBy.get(code)||{code,name:it?.name||code,q:0,v:0};s.q+=q;s.v+=v;spBy.set(code,s)}
+    if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
+  // 2) liquidity (both including VAT)
+  const salesInc=inv.reduce((s,o)=>s+(+o.total||0),0)-cn.reduce((s,o)=>s+(+o.total||0),0);
+  const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(r.rep));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
+  // 3) first-time payers: first payment ever (SAP) within the period, customer in scope
+  const fp=((S.firstpay||[]).find(x=>x.id==='all')||{}).map||{};const byCode=new Map(S.clients.map(c=>[normCode(c.code),c]));
+  const fresh=Object.entries(fp).filter(([cc,d])=>d>=f&&d<=to).map(([cc,d])=>{const c=byCode.get(normCode(cc));const pays=I().coll.filter(r=>normCode(r.code)===normCode(cc));
+    const rep=c?.repId||(pays[0]&&pays[0].rep)||'';return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
+    .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
+  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
+const kxP=x=>x==null||!isFinite(x)?'—':(Math.round(x*10)/10).toFixed(1)+'%';
+const kxM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t=>t.role==='sup'&&reps.some(r=>r.supId===t.id||r.id===t.id));
+  const disc=D.bv-D.lv,dp=D.bv?disc/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;
+  const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${L('الكل','All')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${reps.map(r=>`<option value="r:${r.id}" ${fv('kxS','')==='r:'+r.id?'selected':''}>${esc(r.name)}</option>`).join('')}</optgroup></select></label>`;
+  const box=(t,sub,body,c)=>`<div class="card" style="border-top:4px solid ${c}"><h2>${t}<span class="sub">${sub}</span></h2>${body}</div>`;
+  return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<span class="per">${esc(D.sc.label)}</span></div>
+  ${box(L('1) أسعار البيع','1) Selling prices'),L('متوسط سعر البيع من الفواتير مقابل السعر الأساسي (Base price)','Invoice average price vs base price'),
+   `<div class="kpis k4">${kpiTile(L('مبيعات البنود','Line sales'),smoney(D.lv),L('بعد خصم الفاتورة، قبل الضريبة','after document discount, before VAT'))}${kpiTile(L('بالسعر الأساسي','At base price'),smoney(D.bv),'')}
+    ${kpiTile(L('إجمالي الخصم','Total discount'),smoney(disc),'')}${kpiTile(L('متوسط الخصم الإجمالي','Average discount'),kxP(dp),L('من السعر الأساسي','of base price'))}</div>
+    ${D.byItem.length?table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.code)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},
+     {l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>kxM(x.v/x.q)},{l:L('السعر الأساسي','Base'),c:'n',f:x=>kxM(x.base)},{l:L('الخصم','Discount'),c:'n',f:x=>`<b style="color:${x.b-x.v>0?'#B42318':'#1E7B3C'}">${kxP((x.b-x.v)/x.b*100)}</b>`}],D.byItem.slice(0,15).map(x=>({...x,id:null}))):''}
+    <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. الإشعارات الدائنة غير داخلة في هذا المؤشر.','Base price = SAP list today. Credit notes not included here.')}</div>`,'#34BEF0')}
+  ${box(L('2) مؤشر السيولة','2) Liquidity'),L('التحصيل مقابل المبيعات — الاثنين شاملين الضريبة','Collections vs sales — both including VAT'),
+   `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),smoney(D.salesInc),`${num(D.inv.length)} ${L('فاتورة','invoices')} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
+    ${kpiTile(L('التحصيل شامل الضريبة','Collections incl. VAT'),smoney(D.collV),`${num(D.nColl)} ${L('سند قبض','receipts')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
+    ${kpiTile(L('الفرق','Gap'),smoney(D.collV-D.salesInc),D.collV>=D.salesInc?L('تحصيل أكثر من المبيعات','collected more than sold'):L('مبيعات ما تحصلت بعد','sales not yet collected'))}</div>
+    <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب. النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
+  ${box(L('3) العملاء الجدد','3) New paying customers'),L('عملاء سددوا لأول مرة في تاريخهم خلال الفترة','First payment ever within the period'),
+   `<div class="kpis k3">${kpiTile(L('عدد العملاء المسددين لأول مرة','First-time payers'),num(D.fresh.length),'')}${kpiTile(L('قيمة أول سداد','First payment value'),smoney(D.fresh.reduce((s,x)=>s+x.first,0)),'')}
+    ${kpiTile(L('إجمالي سدادهم في الفترة','Their payments in period'),smoney(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}</div>
+    ${D.fresh.length?table([{l:L('العميل','Customer'),f:x=>`<b>${esc(x.c?.name||x.cc)}</b> <bdi class="small muted" dir="ltr">${esc(x.cc)}</bdi>`},{l:L('المندوب','Rep'),f:x=>esc(x.rep?tName(x.rep):'—')},{l:L('أول سداد','First payment'),c:'nw',f:x=>fdate(x.d)},
+     {l:L('قيمته','Amount'),c:'n',f:x=>num(Math.round(x.first))},{l:L('سداده في الفترة','In period'),c:'n',f:x=>num(Math.round(x.inPer))}],D.fresh.map(x=>({...x,id:null}))):''}
+    <div class="small muted">${D.fpAt?`${L('أول سداد لكل عميل من كامل سجل ساب، آخر تحديث','First payment per customer from all SAP history, updated')} ${fdate(D.fpAt)}.`:L('بيانات أول سداد لسا ما وصلت من ساب (تتحدث يومياً).','First-payment data not received from SAP yet (refreshed daily).')}</div>`,'#F39235')}
+  ${box(L('4) المبيعات الخاصة','4) Special products'),L('مبيعات الأصناف المحددة «منتج خاص» في بطاقة الصنف','Sales of items flagged as special'),
+   D.nSp?`<div class="kpis k3">${kpiTile(L('قيمة المبيعات الخاصة','Special sales'),smoney(D.spV),L('قبل الضريبة','before VAT'))}${kpiTile(L('نسبتها من المبيعات','Share of sales'),kxP(D.lvAll?D.spV/D.lvAll*100:null),'')}${kpiTile(L('الأصناف الخاصة','Special items'),num(D.nSp),'')}</div>
+    ${D.spBy.length?table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.code)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))}],D.spBy.map(x=>({...x,id:null}))):''}`
+   :`<div class="empty">${L('ما فيه أصناف محددة كمنتج خاص. افتح الصنف من «الأصناف» وعلّم «منتج خاص».','No special items yet. Open an item in «Items» and tick «Special product».')}</div>`,'#8FC153')}`};
 </script>
 <script src="wady-back.js"></script></body></html>
