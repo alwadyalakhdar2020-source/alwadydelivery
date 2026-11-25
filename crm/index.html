@@ -8734,5 +8734,31 @@ V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.re
     {l:L('الفرق للوحدة','Diff / unit'),c:'n',f:x=>x.qb?irM((x.base-x.vb)/x.qb):'—'},{l:L('إجمالي الفرق','Total diff'),c:'n',f:x=>x.nob===x.n?'—':num(Math.round(x.d))},
     {l:L('نسبة الخصم','Discount %'),c:'n',f:x=>x.base?dcol(irPct(x.d,x.base)):'—'},{l:L('من مبيعات الفترة','of period sales'),c:'n',f:x=>x.base?irP(irPct(x.d,tot)):'—'}],items.map(x=>({...x,id:null})),null,{empty:'—'})}
    <div class="small muted" style="margin-top:6px">${L('الفرق الموجب = بيع أقل من السعر الأساسي (خصم)، والسالب = بيع أعلى منه.','Positive = sold below base price (discount); negative = above it.')}</div>${irNote()}</div>`};
+
+/* ============ Visit plan discipline on screen (25/11) ============
+   The server sends phone notifications (20:00 missing plan, 17:00 daily summary — see 024). Most phones have not enabled
+   notifications yet, so the same information shows inside the app: on the home screens and the visits page.
+   Working days Saturday–Thursday. A visit with planned=false is an unplanned visit (off the plan). */
+const pdNow=()=>{const d=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Riyadh'}));return d};
+const pdNextWork=t=>{let d=addDays(t,1);if(new Date(d+'T12:00:00').getDay()===5)d=addDays(d,1);return d};
+const pdHasPlan=(rid,d)=>S.visits.some(v=>v.repId===rid&&v.date===d);
+function pdDay(rid,d){const vs=S.visits.filter(v=>v.repId===rid&&v.date===d);const pl=vs.filter(v=>v.planned!==false);
+  return {pl:pl.length,dn:pl.filter(v=>v.status==='done').length,un:vs.filter(v=>v.planned===false&&v.status==='done').length,ms:pl.filter(v=>v.status!=='done').length}}
+const pdPct=x=>x.pl?Math.round(x.dn/x.pl*100)+'%':'—';
+function pdBanner(){const now=pdNow(),h=now.getHours(),t=TODAY(),nd=pdNextWork(t);const fri=new Date(t+'T12:00:00').getDay()===5;let out='';
+  const reps=role()==='rep'?[byId('team',me().id)].filter(Boolean):visibleReps();if(!reps.length)return '';
+  // tomorrow's plan: reminder from 15:00, overdue after 20:00
+  if(h>=15){const miss=reps.filter(r=>!pdHasPlan(r.id,nd));
+    if(role()==='rep'){if(miss.length)out+=`<div class="banner ${h>=20?'bad':'warn'}"><span class="sp">${h>=20?L('تأخرت: ','Late: '):''}${L('خطة زيارات','Visit plan for')} ${fdate(nd)} ${L('لسا ما تسجلت — آخر موعد الساعة 8 مساءً.','is not recorded yet — deadline 8 pm.')}</span><button class="btn p" data-go="visits">${L('سجّل الخطة','Plan visits')}</button></div>`}
+    else if(miss.length&&h>=20)out+=`<div class="banner bad"><span class="sp"><b>${miss.length}</b> ${L('مندوب بدون خطة زيارات لـ','reps without a plan for')} ${fdate(nd)}: ${miss.map(r=>esc(r.name)).join('، ')}</span></div>`}
+  // today's summary from 17:00
+  if(h>=17&&!fri){const rows=reps.map(r=>({r,...pdDay(r.id,t)}));const T=rows.reduce((s,x)=>({pl:s.pl+x.pl,dn:s.dn+x.dn,un:s.un+x.un,ms:s.ms+x.ms}),{pl:0,dn:0,un:0,ms:0});
+    out+=`<div class="card"><h2>${role()==='rep'?L('ملخص زياراتك اليوم','Your visits today'):L('ملخص زيارات المناديب اليوم','Reps visits today')}<span class="sub">${fdate(t)}</span></h2>
+     <div class="kpis k4">${kpiTile(L('الالتزام بالخطة','Plan adherence'),pdPct(T),`${T.dn} ${L('من','of')} ${T.pl} ${L('مخطط','planned')}`)}${kpiTile(L('غير منفذ','Not done'),num(T.ms),L('زيارات مخططة ما تمت','planned, not done'))}
+      ${kpiTile(L('خارج الخطة','Off plan'),num(T.un),L('زيارات تمت بدون تخطيط','done without a plan'))}${kpiTile(L('بدون أي زيارة','No visits'),num(rows.filter(x=>!x.pl&&!x.un).length),L('مندوب','reps'))}</div>
+     ${role()!=='rep'?table([{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.r.name)}</b>`},{l:L('مخطط','Planned'),c:'n',f:x=>x.pl},{l:L('منفذ','Done'),c:'n',f:x=>x.dn},{l:L('الالتزام','Adherence'),c:'n',f:x=>pdPct(x)},{l:L('غير منفذ','Not done'),c:'n',f:x=>x.ms},{l:L('خارج الخطة','Off plan'),c:'n',f:x=>x.un}],rows.sort((a,b)=>(a.pl?a.dn/a.pl:-1)-(b.pl?b.dn/b.pl:-1)).map(x=>({...x,id:null})),null,{empty:'—'}):''}</div>`}
+  return out}
+{const _r=render;render=function(){const o=_r.apply(this,arguments);try{if(['mhome','dashboard','mydash','visits','mtoday'].includes(route)){const v=document.getElementById('view');
+  if(v&&!v.querySelector('.pd-box')){const h=pdBanner();if(h)v.insertAdjacentHTML('afterbegin',`<div class="pd-box">${h}</div>`)}}}catch(e){}return o}}
 </script>
 <script src="wady-back.js"></script></body></html>
