@@ -3685,15 +3685,19 @@ function invCloseMissing(items,seen,warnings){if(!IMP.map.bal)return; // only a 
 /* --- aging engine --- */
 const AG_B=[['cur',()=>L('غير مستحق','Not due')],['b30',()=>L('1–30 يوم','1–30 d')],['b60',()=>L('31–60','31–60')],['b90',()=>L('61–90','61–90')],['b90p',()=>L('+90 يوم','90+ d')]];
 const agBucket=d=>d<=0?'cur':d<=30?'b30':d<=60?'b60':d<=90?'b90':'b90p';
-function agData(){
+// opt.min (25/11): the aging report lists only customers whose balance is at least this much (100 SAR), largest balance first;
+// the customer statement and recommendations still use every balance
+const AG_MIN=100;
+function agData(opt){const MIN=opt&&opt.min||0;
   const t=TODAY();const cl=new Map();
   const AC=arAlloc();vis(S.invoices).forEach(i=>{if(i.kind==='cn')return;const b=invBal(i);if(!b)return;const key=i.clientId||('code:'+normCode(i.clientCode));
     let o=cl.get(key);if(!o){const c=i.clientId?byId('clients',i.clientId):null;o={key,c,id:i.clientId||'',code:c?.code||i.clientCode,name:c?.name||i.cname||'—',repId:c?.repId||i.repId||'',lim:+(c?.creditLimit||i.lim||0),tot:0,od:0,max:0,inv:[],cur:0,b30:0,b60:0,b90:0,b90p:0};cl.set(key,o)}
     const d=daysBetween(i.dueDate||i.date,t);o[agBucket(d)]+=b;o.tot+=b;if(d>0){o.od+=b;o.max=Math.max(o.max,d)}o.inv.push({...i,b,d})});
-  const rows=[...cl.values()].map(o=>{const cr=AC.credit.get(normCode(o.code))||0;return {...o,cr,over:o.lim>0&&o.tot>o.lim,use:o.lim>0?o.tot/o.lim:null}}).sort((a,b)=>b.od-a.od||b.tot-a.tot);
+  const rows=[...cl.values()].map(o=>{const cr=AC.credit.get(normCode(o.code))||0;return {...o,cr,over:o.lim>0&&o.tot>o.lim,use:o.lim>0?o.tot/o.lim:null}}).sort((a,b)=>MIN?b.tot-a.tot:(b.od-a.od||b.tot-a.tot));
+  const small=MIN?rows.filter(o=>o.tot<MIN):[];if(MIN){const keep=rows.filter(o=>o.tot>=MIN);rows.length=0;rows.push(...keep)}
   const sum=k=>rows.reduce((s,o)=>s+o[k],0);
   const reps=new Map();rows.forEach(o=>{let r=reps.get(o.repId);if(!r){r={id:o.repId,name:o.repId?tName(o.repId):L('بدون مندوب','Unassigned'),n:0,tot:0,od:0,b90p:0,over:0};reps.set(o.repId,r)}r.n++;r.tot+=o.tot;r.od+=o.od;r.b90p+=o.b90p;if(o.over)r.over++});
-  return {rows,reps:[...reps.values()].sort((a,b)=>b.od-a.od),tot:sum('tot'),od:sum('od'),b:Object.fromEntries(AG_B.map(([k])=>[k,sum(k)])),over:rows.filter(o=>o.over).length,sap:arSap(),last:S.imports.filter(i=>i.type==='invoices'&&i.status==='active'&&(!arSap()||i.source==='sap')).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]};
+  return {rows,reps:[...reps.values()].sort((a,b)=>b.od-a.od),tot:sum('tot'),od:sum('od'),b:Object.fromEntries(AG_B.map(([k])=>[k,sum(k)])),over:rows.filter(o=>o.over).length,small:{n:small.length,tot:small.reduce((x,o)=>x+o.tot,0)},min:MIN,sap:arSap(),last:S.imports.filter(i=>i.type==='invoices'&&i.status==='active'&&(!arSap()||i.source==='sap')).sort((a,b)=>(b.at||'').localeCompare(a.at||''))[0]};
 }
 function clientAR(id){const t=TODAY();let tot=0,od=0,max=0;S.invoices.forEach(i=>{if(i.clientId!==id||i.kind==='cn')return;const b=invBal(i);if(!b)return;tot+=b;const d=daysBetween(i.dueDate||i.date,t);if(d>0){od+=b;max=Math.max(max,d)}});
   const c=byId('clients',id);const lim=+(c?.creditLimit||(S.invoices.find(i=>i.clientId===id&&i.lim)||{}).lim||0);return {tot,od,max,lim,over:lim>0&&tot>lim}}
@@ -3709,17 +3713,17 @@ function remindText(o){const nm=o.c?.contact||o.name;const inv=o.inv.filter(i=>i
   return `السلام عليكم ورحمة الله ${nm}،\nنود تذكيركم بوجود مبالغ مستحقة السداد لصالح مصنع الوادي الأخضر المميز بقيمة ${num(Math.round(o.od))} ريال`+
     (inv.length?` على ${inv.length===1?'الفاتورة':'الفواتير'} ${inv.slice(0,5).map(i=>i.no).join('، ')}${inv.length>5?' وغيرها':''}، وأقدمها مستحقة منذ ${inv[0].d} يوم`:'')+
     `.\nنأمل التكرم بالسداد أو التواصل معنا لأي استفسار.\nشاكرين ومقدرين تعاونكم${r?`\n${r.name}${r.phone?' — '+r.phone:''}`:''}`}
-function arRemind(key){const o=agData().rows.find(x=>x.key===key);if(!o)return;const ph=waPhone(o.c?.phone);const msg=remindText(o);
+function arRemind(key){const o=agData({min:AG_MIN}).rows.find(x=>x.key===key);if(!o)return;const ph=waPhone(o.c?.phone);const msg=remindText(o);
   openModal(L('تذكير بالسداد','Payment reminder')+' — '+o.name,`<div class="small muted" style="margin-bottom:6px">${ph?L('يفتح واتساب برسالة جاهزة وتراجعها قبل الإرسال.','Opens WhatsApp with the message ready to review.'):L('العميل ما له رقم جوال صالح — انسخ الرسالة وأرسلها يدوياً.','No valid mobile on file — copy the message.')}</div>
    <textarea id="ar_msg" rows="9" style="width:100%">${esc(msg)}</textarea>
    <div class="formbar"><button class="btn" data-act="arCopy">${L('نسخ الرسالة','Copy')}</button>${ph?`<button class="btn p" data-act="arWa" data-p="${ph}" data-k="${esc(key)}">${L('فتح واتساب','Open WhatsApp')}</button>`:''}</div>`)}
-async function arLog(key,msg){const o=agData().rows.find(x=>x.key===key);if(!o||!o.id)return;
+async function arLog(key,msg){const o=agData({min:AG_MIN}).rows.find(x=>x.key===key);if(!o||!o.id)return;
   try{await save('comms',{id:uid('cm-'),clientId:o.id,repId:o.repId||me().id,channel:'whatsapp',dir:'out',at:new Date().toISOString(),summary:L('تذكير بالسداد: ','Payment reminder: ')+money(o.od),remind:true,needsReply:false},{silent:true})}catch(e){console.warn(e)}}
 const lastRemind=id=>S.comms.filter(c=>c.clientId===id&&c.remind).map(c=>c.at).sort().pop();
 
 /* --- the aging page --- */
 V.aging=()=>{
-  const D=agData();const rid=fv('agRep','');const fl=fv('agF','od');const q=normTxt(fv('agQ',''));
+  const D=agData({min:AG_MIN});const rid=fv('agRep','');const fl=fv('agF','od');const q=normTxt(fv('agQ',''));
   let rows=D.rows.filter(o=>(!rid||o.repId===rid)&&(fl==='all'||fl==='od'&&o.od>0||fl==='b90p'&&o.b90p>0||fl==='over'&&o.over)&&(!q||normTxt(o.name+' '+o.code).includes(q)));
   if(!D.rows.length&&!S.invoices.length)return `<div class="card empty"><h2>${L('أعمار الديون','AR aging')}</h2><p>${L('ما فيه فواتير للحين. ارفع ملف الفواتير (المفتوحة والمغلقة) من «مركز استيراد Excel» ← «الفواتير»: رقم الفاتورة، كود العميل، تاريخ الفاتورة، تاريخ الاستحقاق، قيمة الفاتورة. وبعدها ملف الإشعارات الدائنة. النظام يطرح التحصيل والإشعارات ويطلع الرصيد.','No invoices yet. Import all invoices, then credit notes; collections and credit notes are subtracted automatically.')}</p>${canImport()?`<button class="btn p" data-act="arGoImp">${L('رفع ملف الأرصدة','Import open invoices')}</button>`:''}</div>`;
   const reps=visibleReps();const t=TODAY();
@@ -3734,7 +3738,7 @@ V.aging=()=>{
   <div class="card"><h2>${L('توزيع المديونية حسب العمر','Aging distribution')}</h2><div class="ag-bar">${bar}</div><div class="ag-leg">${AG_B.map(([k,l])=>`<span><i class="ag-${k}"></i>${l()} <b>${smoney(D.b[k])}</b></span>`).join('')}</div></div>`;
   if(isLead()&&!rid)h+=`<div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:r=>r.id?`<a href="#" data-act="filtSel2" data-k="agRep" data-v="${r.id}">${esc(r.name)}</a>`:esc(r.name)},{l:L('العملاء','Customers'),c:'n',f:r=>num(r.n)},{l:L('المديونية','Receivable'),c:'n',f:r=>money(r.tot)},{l:L('المتأخر','Overdue'),c:'n',f:r=>`<b>${money(r.od)}</b>`},{l:L('+90 يوم','90+'),c:'n',f:r=>r.b90p?`<span class="flag">${money(r.b90p)}</span>`:'—'},{l:L('تجاوز الحد','Over limit'),c:'n',f:r=>r.over||'—'}],D.reps.map(r=>({...r,id:r.id})))}</div>`;
   const lim=fv('agLim',150);
-  h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)}</span></h2>${table([
+  h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)} · ${L('من الأكبر رصيداً للأصغر','largest balance first')}</span></h2>${D.small.n?`<div class="small muted" style="margin:-4px 0 8px">${L(`ما يظهر ${num(D.small.n)} عميل رصيدهم أقل من ${D.min} ريال (إجماليهم ${num(Math.round(D.small.tot))} ريال)، وما هم محسوبين في الأرقام فوق.`,`${num(D.small.n)} customers with balances under ${D.min} SAR (${num(Math.round(D.small.tot))} SAR in all) are left out of this report and its totals.`)}</div>`:''}${table([
     {l:L('العميل','Customer'),f:o=>`${o.id?`<a href="#" data-open="client" data-id="${o.id}"><b>${esc(o.name)}</b></a>`:`<b>${esc(o.name)}</b> ${pill(L('غير مطابق','Unmatched'),'warn')}`}<div class="small muted">${esc(o.code||'')} · ${esc(o.repId?tName(o.repId):'—')}</div>`},
     ...AG_B.map(([k,l])=>({l:l(),c:'n',f:o=>o[k]?`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`:'<span class="muted">—</span>'})),
     {l:L('الإجمالي','Total'),c:'n',f:o=>`<b>${num(Math.round(o.tot))}</b>${o.cr?`<div class="small muted">${L('دائن غير مخصص','unapplied credit')} ${num(Math.round(o.cr))}</div>`:''}`},
@@ -3746,16 +3750,16 @@ V.aging=()=>{
    ${(()=>{const A=arAlloc();return A.start?`<div style="margin-top:6px">${L('الدفعات والإشعارات المحسوبة من تاريخ','Payments and credit notes counted from')} <b>${fdate(A.start)}</b>${isLead()?` <input type="date" value="${A.start}" data-act="arStart" aria-label="${L('بداية الحساب','Start date')}" style="width:auto"> <span class="muted">${L('(تلقائياً أقدم فاتورة في الملف — غيّره لو ملف الفواتير يبدأ بعد أول الدفعات)','(defaults to the oldest invoice)')}</span>`:''}</div>`:''})()}</div>`}`;
   return h;
 };
-function arXlsx(){if(!xlsxOk())return;const D=agData();const H=[L('كود العميل','Code'),L('العميل','Customer'),L('المندوب','Rep'),...AG_B.map(([,l])=>l()),L('الإجمالي','Total'),L('حد الائتمان','Limit'),L('أقدم تأخير (يوم)','Oldest days')];
+function arXlsx(){if(!xlsxOk())return;const D=agData({min:AG_MIN});const H=[L('كود العميل','Code'),L('العميل','Customer'),L('المندوب','Rep'),...AG_B.map(([,l])=>l()),L('الإجمالي','Total'),L('حد الائتمان','Limit'),L('أقدم تأخير (يوم)','Oldest days')];
   const aoa=[H,...D.rows.map(o=>[o.code,o.name,o.repId?tName(o.repId):'',...AG_B.map(([k])=>Math.round(o[k])),Math.round(o.tot),o.lim||'',o.max||''])];
   const det=[[L('رقم الفاتورة','Invoice'),L('كود العميل','Code'),L('العميل','Customer'),L('تاريخ الفاتورة','Date'),L('الاستحقاق','Due'),L('القيمة','Amount'),L('المتبقي','Balance'),L('أيام التأخير','Days late')]];
   D.rows.forEach(o=>o.inv.forEach(i=>det.push([i.no,o.code,o.name,i.date,i.dueDate,+i.amount||'',Math.round(i.b),Math.max(0,i.d)])));
   xlsxBlob(aoa,L('أعمار الديون','Aging'),[[L('الفواتير','Invoices'),det]]).then(b=>saveFile(`${L('أعمار الديون','AR aging')}-${TODAY()}.xlsx`,b))}
-function arPrint(){const D=agData();const rid=fv('agRep','');const rows=D.rows.filter(o=>!rid||o.repId===rid);
+function arPrint(){const D=agData({min:AG_MIN});const rid=fv('agRep','');const rows=D.rows.filter(o=>!rid||o.repId===rid);
   const th=`<tr><th>${L('العميل','Customer')}</th><th>${L('المندوب','Rep')}</th>${AG_B.map(([,l])=>`<th>${l()}</th>`).join('')}<th>${L('الإجمالي','Total')}</th><th>${L('الحد','Limit')}</th></tr>`;
   const tr=rows.map(o=>`<tr><td>${esc(o.name)} <small>${esc(o.code||'')}</small></td><td>${esc(o.repId?tName(o.repId):'')}</td>${AG_B.map(([k])=>`<td class="n">${o[k]?num(Math.round(o[k])):''}</td>`).join('')}<td class="n"><b>${num(Math.round(o.tot))}</b></td><td class="n">${o.lim?num(o.lim):''}</td></tr>`).join('');
   const sum=`<tr class="tot"><td colspan="2">${L('الإجمالي','Total')}</td>${AG_B.map(([k])=>`<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o[k],0)))}</td>`).join('')}<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o.tot,0)))}</td><td></td></tr>`;
-  printHtmlDoc(L('أعمار الديون','AR aging'),`${rid?tName(rid)+' · ':''}${fdate(TODAY())}`,`<table>${th}${tr}${sum}</table>`)}
+  printHtmlDoc(L('أعمار الديون','AR aging'),`${rid?tName(rid)+' · ':''}${fdate(TODAY())} · ${L(`أرصدة ${D.min} ريال فأكثر، من الأكبر للأصغر`,`Balances of ${D.min} SAR and over, largest first`)}`,`<table>${th}${tr}${sum}</table>`)}
 
 /* --- quotation print (A4 portrait, brand header, VAT) --- */
 function qCfg(){return {vat:15,vatOn:true,...((S.settings.find(x=>x.id==='qcfg')||{}))}}
@@ -8716,6 +8720,18 @@ V.itemrep=()=>{const P=irPeriod();const cur=irLines(P.f,P.to),prev=irLines(P.pf,
     {l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},{l:L('النسبة','Share'),c:'n',f:x=>irP(irPct(x.v,tot))},{l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>x.q?irM(x.v/x.q):'—'},
     {l:L('أوامر','Orders'),c:'n',f:x=>num(x.orders.size)},{l:L('الفترة السابقة','Previous'),c:'n',f:x=>{const p=pm_.get(x.k);return p?num(Math.round(p.v)):'—'}},{l:L('التغير','Change'),c:'n',f:x=>{const p=pm_.get(x.k);return arrow(p?ch(x.v,p.v):null)}}],g.map(x=>({...x,id:null})),null,{empty:L('ما فيه مبيعات في هذه الفترة','No sales in this period')})}${irNote()}</div>`};
 
+// zero-price and no-base-price lines, line by line (25/11) — so a «5 free lines» note can be checked order by order
+function drOdd(free,nob){if(!free.length&&!nob.length)return '';
+  const cl=o=>{const c=o.clientId?byId('clients',o.clientId):null;return c?.name||o.cname||o.clientName||o.clientCode||'—'};
+  const cols=gift=>[{l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.o.date)},{l:L('أمر البيع','Order'),c:'nw',f:r=>`<a href="#" data-open="order" data-id="${esc(r.o.id)}"><bdi dir="ltr">${esc(r.o.no||r.o.id)}</bdi></a>`},
+    {l:L('العميل','Customer'),f:r=>esc(cl(r.o))},{l:L('المندوب','Rep'),f:r=>esc(r.o.repId?tName(r.o.repId):'—')},
+    {l:L('الصنف','Item'),f:r=>`<b>${esc(r.name)}</b> <bdi class="small muted" dir="ltr">${esc(r.item)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:r=>num(Math.round(r.q*100)/100)+' '+esc(r.unit)},
+    ...(gift?[{l:L('السعر الأساسي','Base price'),c:'n',f:r=>r.bp!=null?irM(r.bp):'—'},{l:L('قيمته بالسعر الأساسي','Value at base'),c:'n',f:r=>r.base!=null?`<b>${num(Math.round(r.base))}</b>`:'—'}]
+      :[{l:L('قيمة البيع','Sales value'),c:'n',f:r=>num(Math.round(r.v))},{l:L('متوسط سعر البيع','Unit price'),c:'n',f:r=>r.q?irM(r.v/r.q):'—'}])];
+  const sort=a=>a.slice().sort((x,y)=>(y.o.date||'').localeCompare(x.o.date||''));const gv=free.reduce((s,r)=>s+(r.base||0),0);
+  return `<div class="card"><h2>${L('بنود تحتاج مراجعة','Lines to review')}</h2>
+   ${free.length?`<h3 style="margin:4px 0 6px">${L('بنود بسعر صفر (مجانية)','Zero-price (free) lines')} <span class="small muted">${num(free.length)} ${L('سطر','lines')}${gv?` · ${L('قيمتها بالسعر الأساسي','worth at base')} ${num(Math.round(gv))} ${L('ريال — محسوبة ضمن الخصم','SAR — counted as discount')}`:''}</span></h3>${table(cols(true),sort(free).map(r=>({...r,id:null})))}`:''}
+   ${nob.length?`<h3 style="margin:14px 0 6px">${L('بنود أصنافها بدون سعر أساسي','Lines whose item has no base price')} <span class="small muted">${num(nob.length)} ${L('سطر — مستبعدة من نسبة الخصم. حدّث سعرها في قائمة «Base price» في ساب','lines — left out of the discount rate; set the item price in SAP «Base price»')}</span></h3>${table(cols(false),sort(nob).map(r=>({...r,id:null})))}`:''}</div>`}
 /* ---- discount rates: actual average price vs base price, per rep and item; discount as a share of the period's sales ---- */
 V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.reduce((s,r)=>s+r.v,0);
   const withB=rows.filter(r=>r.base!=null);const B=withB.reduce((s,r)=>s+r.base,0),VB=withB.reduce((s,r)=>s+r.v,0),D=B-VB;const nob=rows.filter(r=>r.base==null);const free=rows.filter(r=>r.v===0&&r.q>0);
@@ -8725,6 +8741,7 @@ V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to);const tot=rows.re
   return `${irFilters()}
   <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),L('قبل الضريبة','before VAT'))}${kpiTile(L('قيمتها بالأسعار الأساسية','At base prices'),smoney(B),nob.length?`${num(nob.length)} ${L('سطر بدون سعر أساسي (مستبعد)','lines without base price (excluded)')}`:'')}
    ${kpiTile(L('إجمالي الفرق (الخصم)','Total discount'),smoney(D),`${irP(irPct(D,B))} ${L('من السعر الأساسي','of base')}`)}${kpiTile(L('الخصم من مبيعات الفترة','Discount vs period sales'),irP(irPct(D,tot)),free.length?`${num(free.length)} ${L('سطر مجاني بسعر صفر محسوب ضمن الخصم','zero-price lines included')}`:'')}</div>
+  ${drOdd(free,nob)}
   <div class="card"><h2>${L('حسب المندوب','By rep')}<span class="sub">${L('اضغط على المندوب لتفاصيل أصنافه','Tap a rep for item details')}</span></h2>${table([
     {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filt" data-k="drRep" data-v="${esc(x.k)}"><b>${esc(x.k?tName(x.k):L('غير محدد','Unassigned'))}</b></a>`},
     {l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},{l:L('بالسعر الأساسي','At base'),c:'n',f:x=>num(Math.round(x.base))},{l:L('الفرق','Difference'),c:'n',f:x=>num(Math.round(x.d))},
