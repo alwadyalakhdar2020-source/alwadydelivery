@@ -1339,7 +1339,12 @@ function go(r){route=r;TBLN={};try{history.replaceState(null,'','#'+r)}catch(e){
 /* ============ UI helpers ============ */
 const pill=(t,tone)=>`<span class="pill ${tone||''}">${esc(t)}</span>`;
 const pillOf=(m,k)=>m[k]?pill(L(m[k][0],m[k][1]),m[k][2]):pill(k||'—');
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,3600)}
+/* 27/11: technical database or network errors are shown as plain Arabic; the original goes to the console */
+function safeMsg(m){m=String(m??'');if(!m||/[؀-ۿ]/.test(m))return m;
+  const map=[[/row-level security|permission denied|not allowed|42501|forbidden|\b403\b/i,'ما عندك صلاحية لهذا الإجراء'],[/duplicate key|23505|already exists/i,'السجل موجود من قبل'],[/JWT|refresh token|session (?:expired|missing|not found)|\b401\b/i,'انتهت الجلسة، سجّل دخولك من جديد'],
+    [/Failed to fetch|NetworkError|network error|timed? ?out|ECONN|Load failed/i,'تعذّر الاتصال، تأكد من الإنترنت وحاول مرة ثانية'],[/violates|constraint|null value|invalid input|syntax error|relation "|column "|function .*does not exist|PGRST|SQLSTATE|stack|at [\w.]+ \(/i,'تعذّر تنفيذ العملية، راجع المدخلات أو بلّغ مسؤول النظام']];
+  for(const [r,t] of map)if(r.test(m)){try{console.warn('[wady]',m)}catch(e){}return t}return m}
+function toast(msg){const t=document.getElementById('toast');t.textContent=safeMsg(msg);t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,3600)}
 const F={};
 const fv=(k,d)=>F[k]??d;
 function opt(list,sel,empty){return (empty!=null?`<option value="">${esc(empty)}</option>`:'')+list.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(sel??'')?'selected':''}>${esc(l)}</option>`).join('')}

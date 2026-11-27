@@ -366,7 +366,12 @@ function fnv(str){let h=0x811c9dc5;for(let i=0;i<str.length;i++){h^=str.charCode
 const clone=o=>JSON.parse(JSON.stringify(o));
 const pill=(t,tone)=>`<span class="pill ${tone||''}">${esc(t)}</span>`;
 function opt(list,sel,empty){return (empty!=null?`<option value="">${esc(empty)}</option>`:'')+list.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(sel??'')?'selected':''}>${esc(l)}</option>`).join('')}
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,4200)}
+/* 27/11: technical database or network errors are shown as plain Arabic; the original goes to the console */
+function safeMsg(m){m=String(m??'');if(!m||/[؀-ۿ]/.test(m))return m;
+  const map=[[/row-level security|permission denied|not allowed|42501|forbidden|\b403\b/i,'ما عندك صلاحية لهذا الإجراء'],[/duplicate key|23505|already exists/i,'السجل موجود من قبل'],[/JWT|refresh token|session (?:expired|missing|not found)|\b401\b/i,'انتهت الجلسة، سجّل دخولك من جديد'],
+    [/Failed to fetch|NetworkError|network error|timed? ?out|ECONN|Load failed/i,'تعذّر الاتصال، تأكد من الإنترنت وحاول مرة ثانية'],[/violates|constraint|null value|invalid input|syntax error|relation "|column "|function .*does not exist|PGRST|SQLSTATE|stack|at [\w.]+ \(/i,'تعذّر تنفيذ العملية، راجع المدخلات أو بلّغ مسؤول النظام']];
+  for(const [r,t] of map)if(r.test(m)){try{console.warn('[wady]',m)}catch(e){}return t}return m}
+function toast(msg){const t=document.getElementById('toast');t.textContent=safeMsg(msg);t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,4200)}
 const meter=(p,cls)=>`<div class="meter ${cls||''}"><i style="width:${Math.min(100,Math.max(0,p||0))}%"></i></div>`;
 const achCls=a=>a==null?'':a>=1?'':a>=0.8?'w':'b';
 const kpiTile=(l,v,s,extra)=>`<div class="kpi"><span class="l">${l}</span><span class="v">${v}</span>${s?`<span class="s">${s}</span>`:''}${extra||''}</div>`;
