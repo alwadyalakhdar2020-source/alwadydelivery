@@ -64,13 +64,15 @@
   /* pages of 1000 rows fetched several at a time instead of one after another */
   async function pages(sel, col, extra) {
     const step = 1000, par = 6; const out = [];
-    const first = await (extra ? extra(sb.from(TABLE).select(sel, { count: 'exact' }).eq('col', col)) : sb.from(TABLE).select(sel, { count: 'exact' }).eq('col', col)).order('id').range(0, step - 1);
+    // the same filter (extra) on every page — 27/11: it used to apply to the first page only
+    const q = (opts) => { const b = sb.from(TABLE).select(sel, opts).eq('col', col); return extra ? extra(b) : b; };
+    const first = await q({ count: 'exact' }).order('id').range(0, step - 1);
     if (first.error) throw mapErr(first.error); out.push(...(first.data || []));
     const total = first.count == null ? null : first.count;
-    if (total == null) { let from = step; while ((first.data || []).length === step) { const r = await sb.from(TABLE).select(sel).eq('col', col).order('id').range(from, from + step - 1); if (r.error) throw mapErr(r.error); out.push(...(r.data || [])); if ((r.data || []).length < step) break; from += step; } return out; }
+    if (total == null) { let from = step; while ((first.data || []).length === step) { const r = await q().order('id').range(from, from + step - 1); if (r.error) throw mapErr(r.error); out.push(...(r.data || [])); if ((r.data || []).length < step) break; from += step; } return out; }
     const starts = []; for (let f = step; f < total; f += step) starts.push(f);
     for (let i = 0; i < starts.length; i += par) {
-      const rs = await Promise.all(starts.slice(i, i + par).map(f => sb.from(TABLE).select(sel).eq('col', col).order('id').range(f, f + step - 1)));
+      const rs = await Promise.all(starts.slice(i, i + par).map(f => q().order('id').range(f, f + step - 1)));
       for (const r of rs) { if (r.error) throw mapErr(r.error); out.push(...(r.data || [])); }
     }
     return out;
@@ -83,7 +85,10 @@
   async function idbGet(k) { try { const db = await idb(); return await new Promise(ok => { const q = db.transaction('c').objectStore('c').get(k); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); } catch (e) { return null; } }
   async function idbPut(k, v) { try { const db = await idb(); await new Promise(ok => { const t = db.transaction('c', 'readwrite'); t.objectStore('c').put(v, k); t.oncomplete = ok; t.onerror = ok; }); } catch (e) { } }
   window.wadyCacheClear = () => { try { indexedDB.deleteDatabase('wady-cache'); } catch (e) { } };
-  async function syncCached(col, local) {
+  /* 27/11: opening the app asks only for rows changed since the last sync (plus 5 minutes of overlap), instead of the date of every row.
+     A row count check catches deletions and rows that left or entered this user's scope; a full date check still runs once a day. */
+  const maxU = L => { let m = ''; for (const id in L.rows) { const u = L.rows[id].u || ''; if (u && (!m || Date.parse(u) > Date.parse(m))) m = u; } return m; };
+  async function fullStamps(col, local) {
     const stamps = await pages('id,updated_at', col);
     const seen = new Set(); const need = [];
     stamps.forEach(r => { seen.add(r.id); const l = local.rows[r.id]; if (!l || l.u !== r.updated_at) need.push(r.id); });
@@ -94,7 +99,17 @@
       (data || []).forEach(r => { local.rows[r.id] = { d: r.data, u: r.updated_at }; });
     }
     gone.forEach(id => delete local.rows[id]);
-    return { changed: need.length + gone.length };
+    local.fullAt = Date.now(); return need.length + gone.length;
+  }
+  async function syncCached(col, local) {
+    let changed = 0;
+    if (!local.last || !local.fullAt || Date.now() - local.fullAt > 24 * 3600e3) { changed = await fullStamps(col, local); local.last = maxU(local); return { changed }; }
+    const since = new Date(Date.parse(local.last) - 5 * 60e3).toISOString();
+    const rows = await pages('id,data,updated_at', col, b => b.gt('updated_at', since));
+    rows.forEach(r => { const l = local.rows[r.id]; if (!l || l.u !== r.updated_at) { local.rows[r.id] = { d: r.data, u: r.updated_at }; changed++; } });
+    const { count, error } = await sb.from(TABLE).select('id', { count: 'exact', head: true }).eq('col', col); if (error) throw mapErr(error);
+    if (count != null && count !== Object.keys(local.rows).length) changed += await fullStamps(col, local);
+    local.last = maxU(local) || local.last; return { changed };
   }
   async function fetchCol(col) {
     if (CACHE_COLS.has(col) && window.indexedDB) {
@@ -107,6 +122,7 @@
       }
       const rows = await pages('id,data,updated_at', col); const L = { rows: {} };
       rows.forEach(r => { L.rows[r.id] = { d: r.data, u: r.updated_at }; });
+      L.last = maxU(L); L.fullAt = Date.now();
       idbPut(key, L); cache[col] = toMap(L); return cache[col];
     }
     const out = new Map();
