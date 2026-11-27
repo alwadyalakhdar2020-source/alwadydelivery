@@ -9176,5 +9176,53 @@ V.vquality=()=>{const t=TODAY();const f=fv('vqF',t.slice(0,8)+'01'),to=fv('vqT',
    {l:L('موعد المتابعة','Due'),c:'nw',f:v=>`<span class="flag">${fdate(v.nextDate)}</span>`},{l:L('العميل','Customer'),f:v=>esc(byId('clients',v.clientId)?.name||'—')},{l:L('الإجراء','Next step'),f:v=>esc(v.nextStep||'—')},
    {l:L('المسؤول','Owner'),f:v=>esc(tName(v.nextOwner||v.repId))}],fu.sort((a,b)=>a.nextDate.localeCompare(b.nextDate)).slice(0,200),null,{empty:L('ما فيه متابعات متأخرة','None overdue')})}</div>
   <p class="small muted">${L('التقييم من 100 حسب الدليل المعتمد: التحضير 10، التفاعل 10، الاحتياج 20، عرض المنتجات 15، الفرص 20، المتابعة 10، التوثيق 15. اضغط على أي درجة لتفاصيلها.','Scored per the approved guide; tap a score for details.')}</p>`};
+
+/* ===== Company document library (27/11) — the 18 items of an approval checklist (Jeddah Amana file), one place for every
+   certificate with its expiry date; the base for building approval files, compliance sheets and submittals later.
+   Files go to private storage (assets → /_blob/…); the list lives in settings doc «doclib». Upload many at once: a file named
+   «03 - …pdf» lands in item 3. ===== */
+const DOC_SEC=[[1,'ملف الشركة (مورد / مصنع)','Company profile'],[2,'الهيكل التنظيمي للشركة','Organisation chart'],[3,'شهادة تسجيل المنشأة','Commercial registration'],
+ [4,'ترخيص وزارة الصناعة / التجارة والاستثمار','Industrial licence'],[5,'شهادة الغرفة التجارية','Chamber of commerce'],[6,'شهادة الزكاة والدخل','Zakat certificate'],
+ [7,'شهادة التأمينات الاجتماعية','GOSI certificate'],[8,'شهادة السعودة','Saudisation certificate'],[9,'شهادة الالتزام البيئي (رخصة بيئية)','Environmental permit'],
+ [10,'تعهد المورد بالالتزام بالأحكام والشروط','Supplier undertaking'],[11,'ترخيص استثمار صناعي (للجهة الأجنبية)','Foreign investment licence'],
+ [12,'شهادات الجودة (ISO 9001، 14001، 45001)','ISO certificates'],[13,'اعتمادات سابقة (جهات مالكة، استشاريين)','Previous approvals'],[14,'قائمة المواد المعتمدة من جهات رسمية','Approved materials list'],
+ [15,'شهادة المواصفات السعودية','SASO / Saudi standards'],[16,'شهادات الضمان','Warranty certificates'],[17,'شهادات معايرة أجهزة القياس','Calibration certificates'],[18,'قائمة المشاريع المنجزة','Completed projects list']];
+const DOC_NA=new Set([11]);   // marked «لا ينطبق» in the Amana file
+const docLib=()=>(S.settings||[]).find(x=>x.id==='doclib')||{id:'doclib',items:[]};
+const docCanEdit=()=>isLead()||!!(window.wadyIsAppAdmin&&wadyIsAppAdmin('crm'));
+function docExp(d){if(!d)return null;const n=daysBetween(TODAY(),d);return n<0?['bad',L('منتهية','Expired')]:n<=30?['warn',L(`تنتهي خلال ${n} يوم`,`Expires in ${n} d`)]:['ok',L('سارية','Valid')]}
+{const a=NAV.findIndex(n=>n[0]==='legal'||n[0]==='samples');NAV.splice(a<0?NAV.length:a+1,0,['doclib','folder',()=>L('مكتبة المستندات','Document library'),()=>wadyLvl('crm','reports')>=1||isLead()]);
+ if((location.hash||'').slice(1)==='doclib'){route='doclib';setTimeout(render,0)}}
+V.doclib=()=>{const D=docLib();const ed=docCanEdit();const items=D.items||[];
+  const of=n=>items.filter(x=>x.sec===n);const miss=DOC_SEC.filter(([n])=>!DOC_NA.has(n)&&!of(n).length);
+  const soon=items.filter(x=>{const e=docExp(x.expires);return e&&e[0]!=='ok'});
+  return `${soon.length?`<div class="banner warn"><span class="sp">${L('مستندات منتهية أو قربت تنتهي:','Expired or expiring:')} ${soon.map(x=>`${esc(x.name)} (${fdate(x.expires)})`).join('، ')}</span></div>`:''}
+  <div class="kpis k3">${kpiTile(L('البنود المكتملة','Items on file'),`${num(DOC_SEC.length-DOC_NA.size-miss.length)} / ${num(DOC_SEC.length-DOC_NA.size)}`,'')}${kpiTile(L('الملفات','Files'),num(items.length),'')}${kpiTile(L('منتهية / قريبة الانتهاء','Expired / expiring'),num(soon.length),'')}</div>
+  <div class="card"><h2>${L('مستندات الشركة حسب قائمة التحقق','Company documents by checklist item')}<span class="sub">${L('الترتيب نفس قائمة أمانة جدة','Same order as the Jeddah Amana checklist')}</span></h2>
+   ${ed?`<div class="toolbar" style="margin-bottom:8px"><label class="btn p" style="cursor:pointer">⇪ ${L('رفع عدة ملفات مرة وحدة','Upload several files')}<input type="file" accept="application/pdf,image/*" multiple data-act="docBulk" hidden></label><span class="small muted">${L('سمِّ الملف برقم البند أوله، مثل «03 - شهادة تسجيل المنشأة.pdf»، وينحط في بنده تلقائياً. الحد 20 ميجا للملف.','Start each file name with the item number, e.g. «03 - ….pdf». Max 20 MB per file.')}</span></div>`:''}
+   <div class="tw"><table><thead><tr><th class="n">#</th><th>${L('البند','Item')}</th><th>${L('الملفات','Files')}</th><th>${L('الانتهاء','Expiry')}</th>${ed?'<th></th>':''}</tr></thead><tbody>
+   ${DOC_SEC.map(([n,a,e])=>{const fs=of(n);const na=DOC_NA.has(n);return `<tr><td class="n">${n}</td><td><b>${esc(L(a,e))}</b></td>
+     <td>${na&&!fs.length?pill(L('لا ينطبق','N/A'),''):fs.length?fs.map(x=>`<div><a href="${esc(x.file)}" target="_blank" rel="noopener">📄 ${esc(x.name)}</a> <span class="small muted">${x.size?num(Math.round(x.size/1024))+' KB · ':''}${fdate(String(x.at||'').slice(0,10))}</span>${ed?` <button class="btn s d" data-act="docDel" data-id="${esc(x.id)}" aria-label="${L('حذف','Remove')}">✕</button>`:''}</div>`).join(''):`<span class="flag">${L('ناقص','Missing')}</span>`}</td>
+     <td>${fs.map(x=>{const ex=docExp(x.expires);return `<div>${ed?`<input type="date" data-act="docExp" data-id="${esc(x.id)}" value="${esc(x.expires||'')}" style="max-width:150px">`:x.expires?fdate(x.expires):'—'} ${ex?pill(ex[1],ex[0]):''}</div>`}).join('')}</td>
+     ${ed?`<td><label class="btn s" style="cursor:pointer">+ ${L('رفع','Upload')}<input type="file" accept="application/pdf,image/*" multiple data-act="docUp" data-v="${n}" hidden></label></td>`:''}</tr>`}).join('')}
+   </tbody></table></div></div>
+  <p class="small muted">${L('الملفات محفوظة بشكل خاص، وما يفتحها إلا من له دخول على التطبيق. هذي المكتبة هي الأساس لتجهيز ملفات الاعتماد والـ compliance والـ submittal تلقائياً.','Files are private to app users. This library feeds automatic approval files, compliance sheets and submittals.')}</p>`};
+async function docSaveLib(items){const D=docLib();await save('settings',{...D,id:'doclib',items},{action:'doclib'})}
+async function docUpload(files,secOf){const up=window.claude&&await window.claude.use?.('assets');if(!up)return toast(L('رفع الملفات يحتاج تسجيل الدخول للمنصة','Uploading needs the platform sign-in'));
+  const D=docLib();const items=[...(D.items||[])];const bad=[];let ok=0;
+  for(const f of files){const sec=secOf(f);if(!sec){bad.push(f.name+' — '+L('ما عرفت رقم البند','no item number'));continue}
+    if(f.size>20*1024*1024){bad.push(f.name+' — '+L('أكبر من 20 ميجا','over 20 MB'));continue}
+    try{toast(L('جاري رفع ','Uploading ')+f.name);const r=await up.upload(f);items.push({id:uid('dl-'),sec,name:f.name.replace(/\.[a-z0-9]+$/i,'').replace(/^\s*\d{1,2}\s*[-–_.)]\s*/,''),fname:f.name,file:r.url,size:f.size,at:new Date().toISOString(),by:me().id,expires:''});ok++}
+    catch(e){bad.push(f.name+' — '+(e.message||e))}}
+  if(ok)await docSaveLib(items);render();toast(L(`تم رفع ${ok} ملف`,`Uploaded ${ok} files`)+(bad.length?' · '+L('ما انرفع: ','Skipped: ')+bad.join('، '):''))}
+const docSecFromName=f=>{const m=String(f.name||'').match(/^\s*(\d{1,2})\s*[-–_.) ]/);const n=m?+m[1]:0;return DOC_SEC.some(x=>x[0]===n)?n:0};
+Object.assign(ACT,{
+  docBulk:(d,el)=>{const fs=[...(el?.files||[])];if(fs.length)docUpload(fs,docSecFromName)},
+  docUp:(d,el)=>{const fs=[...(el?.files||[])];if(fs.length)docUpload(fs,()=>+d.v)},
+  docDel:async d=>{const D=docLib();const x=(D.items||[]).find(i=>i.id===d.id);if(!x)return;if(!confirm(L('حذف «'+x.name+'» من المكتبة؟','Remove «'+x.name+'»?')))return;await docSaveLib((D.items||[]).filter(i=>i.id!==d.id));render()},
+  docExp:async(d,el)=>{if(!el||el.type!=='date')return;const D=docLib();await docSaveLib((D.items||[]).map(i=>i.id===d.id?{...i,expires:el.value}:i));render()}});
+// file inputs and date fields fire «change», which the shared click dispatcher does not handle
+document.addEventListener('change',e=>{const a=e.target.closest&&e.target.closest('[data-act="docBulk"],[data-act="docUp"],[data-act="docExp"]');if(!a)return;
+  const k=a.dataset.act;ACT[k]({...a.dataset},a);if(a.type==='file')setTimeout(()=>{a.value=''},0)});
 </script>
 <script src="wady-back.js"></script></body></html>
