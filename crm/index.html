@@ -8980,7 +8980,7 @@ function kxCollRep(){const key=(S.sinv||[]).length+'|'+I().coll.length;if(_kxRM&
   by.forEach(a=>a.sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:0));
   const f=(code,d,fb)=>{const a=by.get(normCode(code));if(!a||!a.length)return fb||'';let lo=0,hi=a.length-1,at=-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m][0]<=d){at=m;lo=m+1}else hi=m-1}return (at>=0?a[at]:a[0])[1]};
   _kxRM={key,f};return f}
-function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
+function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=sc0||kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
   const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const cn=docs.filter(o=>o.kind==='credit');
   // 27/11: delivered but not yet invoiced (open delivery-note lines from SAP) count as sales, so prices and liquidity are not understated
   const dnD=(((S.dnopen||[]).find(x=>x.id==='all')||{}).rows||[]).filter(o=>o.d>=f&&o.d<=to&&inR(o.repId)).map(o=>({kind:'invoice',dn:true,no:o.no,date:o.d,clientCode:o.cc,cname:o.cn,repId:o.repId,value:+o.value||0,total:+o.total||0,lines:o.lines||[]}));
@@ -9253,5 +9253,90 @@ Object.assign(ACT,{
 // file inputs and date fields fire «change», which the shared click dispatcher does not handle
 document.addEventListener('change',e=>{const a=e.target.closest&&e.target.closest('[data-act="docBulk"],[data-act="docUp"],[data-act="docExp"]');if(!a)return;
   const k=a.dataset.act;ACT[k]({...a.dataset},a);if(a.type==='file')setTimeout(()=>{a.value=''},0)});
+
+/* ===== 27/11: quote closing reasons · «زُر اليوم» priority list · monthly targets with achievement ===== */
+
+/* ---- 1) a quotation is closed by hand only with a reason (the database refuses a close without one) ---- */
+const Q_CLOSE=[['dup','مكرر','Duplicate'],['lost','خسارة','Lost'],['projend','انتهاء المشروع','Project ended'],['other','أخرى','Other']];
+QUOTE_ST.rejected=['مغلق','Closed','bad'];
+function qCloseForm(id){const q=byId('quotes',id);if(!q)return;
+  openForm({title:L('إغلاق عرض السعر ','Close quotation ')+(q.no||''),data:{},fields:[
+    {k:'closeReason',l:L('سبب الإغلاق','Reason'),t:'sel',req:1,opts:Q_CLOSE.map(([k,a,e])=>[k,L(a,e)])},
+    {k:'closeNote',l:L('توضيح (إلزامي لو «أخرى»)','Note (required for «Other»)'),t:'area'}],
+    onSave:async d=>{if(d.closeReason==='other'&&!String(d.closeNote||'').trim()){document.getElementById('ferr').textContent=L('اكتب التوضيح للسبب «أخرى»','Write a note for «Other»');throw new Error('note')}
+      const lab_=(Q_CLOSE.find(x=>x[0]===d.closeReason)||[])[1]||'';const now=new Date().toISOString();
+      await save('quotes',{...q,status:'rejected',closeReason:d.closeReason,closeNote:String(d.closeNote||'').trim(),closedAt:now,closedBy:me().id,closeDate:now.slice(0,10),
+        reason:lab_+(d.closeNote?' — '+String(d.closeNote).trim():'')},{action:'quote_close'})}})}
+{const _qs=ACT.qStatus;ACT.qStatus=d=>d.s==='rejected'?qCloseForm(d.id):_qs(d)}
+ACT.qClose=d=>qCloseForm(d.id);
+{const _oq=OPEN.quote;OPEN.quote=(id,refresh)=>{_oq(id,refresh);const q=byId('quotes',id);const tb=document.querySelector('#mbody .toolbar');if(!q||!tb)return;
+  tb.querySelectorAll('[data-act="qStatus"][data-s="rejected"]').forEach(b=>{b.textContent=L('إغلاق العرض','Close quotation')});
+  if(['draft','pending','approved','accepted'].includes(q.status)&&!tb.querySelector('[data-act="qClose"]')){const b=document.createElement('button');b.className='btn d';b.dataset.act='qClose';b.dataset.id=id;b.textContent=L('إغلاق العرض','Close quotation');tb.appendChild(b)}
+  if(q.closeReason){const r=(Q_CLOSE.find(x=>x[0]===q.closeReason)||[])[1];const n=document.createElement('div');n.className='banner';n.innerHTML=`<span class="sp">${L('مغلق — السبب:','Closed — reason:')} <b>${esc(L(r||q.closeReason,r||q.closeReason))}</b>${q.closeNote?' · '+esc(q.closeNote):''} · ${esc(tName(q.closedBy)||'')} ${q.closedAt?fdate(q.closedAt.slice(0,10)):''}</span>`;tb.after(n)}}}
+
+/* ---- 2) «زُر اليوم»: the rep's customers ranked by what needs a visit today ---- */
+const VN_W={fu:35,quote:40,ar:25,decl:30};
+function visitNowRows(rid){const t=TODAY();const ix=I();const by=new Map();const mine=c=>c&&rptMatch(c.repId,rid);
+  const get=c=>{let o=by.get(c.id);if(!o){o={c,score:0,why:[],tags:new Set(),val:0};by.set(c.id,o)}return o};
+  // follow-ups past their date with no visit since
+  (S.visits||[]).forEach(v=>{if(!v.nextDate||v.nextDate>=t||!rptMatch(v.repId,rid))return;const c=byId('clients',v.clientId);if(!c)return;
+    if((S.visits||[]).some(x=>x.clientId===v.clientId&&x.id!==v.id&&x.date>=v.nextDate&&x.status!=='cancelled'))return;
+    const o=get(c);if(o.tags.has('fu'))return;const late=daysBetween(v.nextDate,t);o.tags.add('fu');o.score+=VN_W.fu+Math.min(15,late);o.why.push(L(`متابعة فات موعدها ${late} يوم: ${v.nextStep||''}`,`Follow-up ${late} days late: ${v.nextStep||''}`))});
+  // open quotations expiring within 7 days (or expired in the last 7)
+  ix.quotes.forEach(q=>{if(!(q.st==='open'||q.st==='pending'))return;const c=q.cid?byId('clients',q.cid):null;if(!c||!(mine(c)||rptMatch(q.rep,rid)))return;
+    const raw=byId('quotes',q.id)||{};const vu=raw.validUntil||raw.expClose||'';if(!vu)return;const d=daysBetween(t,vu);if(d>7||d<-7)return;
+    const o=get(c);o.tags.add('quote');o.val+=+q.value||0;o.score+=VN_W.quote+(d<=2?10:0)+Math.min(20,Math.round((+q.value||0)/50000));
+    o.why.push(d>=0?L(`عرض سعر ${raw.no||''} ينتهي ${d===0?'اليوم':'بعد '+d+' يوم'} (${smoney(q.value)})`,`Quote ${raw.no||''} expires in ${d} d (${smoney(q.value)})`):L(`عرض سعر ${raw.no||''} انتهى قبل ${-d} يوم (${smoney(q.value)})`,`Quote ${raw.no||''} expired ${-d} d ago`))});
+  // overdue receivables
+  if(typeof clientAR==='function'&&(S.invoices||[]).length)vis(S.clients).forEach(c=>{if(!mine(c))return;const a=clientAR(c.id);if(!(a.od>=1000))return;
+    const o=get(c);o.tags.add('ar');o.score+=VN_W.ar+Math.min(25,Math.round(a.od/20000))+(a.max>90?10:0);o.why.push(L(`متأخرات ${smoney(a.od)} (أقدمها ${a.max} يوم)`,`Overdue ${smoney(a.od)} (oldest ${a.max} d)`))});
+  // declining customers
+  if(typeof declineRows==='function')declineRows({}).forEach(r=>{if(!mine(r.c))return;const o=get(r.c);o.tags.add('decl');o.score+=VN_W.decl+Math.round(Math.min(1,r.drop||0)*15);o.why.push(L('عميل متراجع: ','Declining: ')+r.why.join(' · '))});
+  const planned=new Set((S.visits||[]).filter(v=>v.date===t&&v.status!=='cancelled'&&rptMatch(v.repId,rid)).map(v=>v.clientId));
+  return [...by.values()].map(o=>({...o,planned:planned.has(o.c.id)})).sort((a,b)=>b.score-a.score)}
+const VN_TAG={fu:['⏰',()=>L('متابعة متأخرة','Late follow-up'),'warn'],quote:['📄',()=>L('عرض ينتهي','Quote expiring'),'info'],ar:['💰',()=>L('متأخرات','Overdue'),'bad'],decl:['📉',()=>L('متراجع','Declining'),'warn']};
+function vnList(rows,lim){return rows.slice(0,lim).map((o,i)=>`<div class="li"><div class="main"><div class="t"><span class="muted">${i+1}.</span> <a href="#" data-open="client" data-id="${esc(o.c.id)}">${esc(o.c.name)}</a> ${[...o.tags].map(k=>pill(VN_TAG[k][0]+' '+VN_TAG[k][1](),VN_TAG[k][2])).join(' ')}</div>
+  <div class="m">${o.why.map(esc).join('<br>')}</div></div><div class="side">${o.planned?pill(L('في خطة اليوم','In today’s plan'),'ok'):`<button class="btn s p" data-act="vnPlan" data-id="${esc(o.c.id)}">${L('أضف لخطة اليوم','Add to today')}</button>`}</div></div>`).join('')||`<div class="empty small">${L('ما فيه عملاء يحتاجون زيارة عاجلة اليوم 👍','Nothing urgent today 👍')}</div>`}
+{const a=NAV.findIndex(n=>n[0]==='visits'||n[0]==='plan');NAV.splice(a<0?NAV.length:a,0,['visitnow','pin',()=>L('زُر اليوم','Visit today'),()=>wadyLvl('crm','visits')>=1||true]);
+ if((location.hash||'').slice(1)==='visitnow'){route='visitnow';setTimeout(render,0)}}
+function vnRep(){return role()==='rep'?me().id:fv('vnR',visibleReps().find(r=>r.role==='rep')?.id||'')}
+V.visitnow=()=>{const rid=vnRep();const reps=visibleReps().filter(r=>r.role==='rep'||r.role==='sup');const rows=rid?visitNowRows(rid):[];
+  return `${role()==='rep'?'':`<div class="fbar"><label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="vnR">${opt(rptRepOpts(reps),rid)}</select></label></div>`}
+  <div class="card"><h2>${L('زُر اليوم','Visit today')}<span class="sub">${L('مرتبين حسب الأولوية: متابعة فات موعدها، عرض سعر قرب ينتهي، متأخرات، عميل متراجع','Ranked: late follow-ups, expiring quotes, overdue, declining')}</span></h2><div class="list">${vnList(rows,60)}</div></div>`};
+ACT.vnPlan=async d=>{const c=byId('clients',d.id);if(!c)return;const rid=role()==='rep'?me().id:(c.repId||vnRep());
+  await save('visits',{repId:rid,clientId:c.id,date:TODAY(),status:'planned',planned:true,vtype:''},{action:'plan_from_today'});toast(L('انضاف لخطة اليوم','Added to today’s plan'));render()};
+
+/* ---- 3) monthly targets: sales, collections, new customers, visits — one screen, and achievement on the rep's home ---- */
+function tgActual(rid,m){const f=m+'-01',to=(addDays(addMonths(f,1),-1)<TODAY()?addDays(addMonths(f,1),-1):TODAY());
+  const ids=new Set((S.team||[]).filter(t=>rptMatch(t.id,rid)).map(t=>t.id));const D=kxData(f,to,{ids,label:'',all:false});
+  const visits=(S.visits||[]).filter(v=>v.status==='done'&&v.date>=f&&v.date<=to&&ids.has(v.repId)).length;
+  return {sales:D.salesInc,coll:D.collV,newCust:(D.fresh||[]).length,visits}}
+const TG_F=[['sales',()=>L('المبيعات (ر.س شامل الضريبة)','Sales (SAR incl. VAT)'),true],['coll',()=>L('التحصيل الصافي (ر.س)','Net collections (SAR)'),true],['newCust',()=>L('عملاء جدد مسددين','New paying customers'),false],['visits',()=>L('زيارات منفذة','Visits done'),false]];
+function tgPace(m){const f=m+'-01',end=addDays(addMonths(f,1),-1);const t=TODAY();if(t<f)return 0;if(t>end)return 1;return (daysBetween(f,t)+1)/(daysBetween(f,end)+1)}
+const tgBar=(a,t,pace)=>{if(!(t>0))return '<span class="muted">—</span>';const r=a/t;const tone=r>=pace?'#38AC57':r>=pace*.8?'#E0A100':'#C0392B';
+  return `<div class="rk-bar" style="min-width:110px;position:relative;height:14px;background:rgba(127,140,160,.18);border-radius:4px"><i style="position:absolute;inset-inline-start:0;top:0;bottom:0;width:${Math.min(100,r*100).toFixed(0)}%;background:${tone};border-radius:4px"></i><b style="position:absolute;inset-inline-start:${(pace*100).toFixed(0)}%;top:-2px;bottom:-2px;width:2px;background:#051D48" title="${L('المفروض حتى اليوم','Expected by today')}"></b><span style="position:absolute;inset-inline-end:4px;top:-1px;font-size:10px;font-weight:700">${Math.round(r*100)}%</span></div>`};
+{const a=NAV.findIndex(n=>n[0]==='kpis');NAV.splice(a<0?NAV.length:a,0,['mtargets','gauge',()=>L('الأهداف الشهرية','Monthly targets'),()=>isLead()||role()==='sup']);
+ if((location.hash||'').slice(1)==='mtargets'){route='mtargets';setTimeout(render,0)}}
+V.mtargets=()=>{const m=fv('tgM',TODAY().slice(0,7));const reps=visibleReps().filter(r=>r.role==='rep'||r.role==='sup');const ed=isLead();const pace=tgPace(m);
+  const rows=reps.map(r=>({r,t:tgOf(m,r.id),a:tgActual(r.id,m)}));
+  return `<div class="fbar"><label class="fl">${L('الشهر','Month')}<input type="month" data-act="filtSel" data-k="tgM" value="${m}"></label><span class="per">${L('المفروض يتحقق حتى اليوم','Expected by today')}: <b>${Math.round(pace*100)}%</b></span>${ed?`<button class="btn p" data-act="tgSave">${L('حفظ الأهداف','Save targets')}</button>`:''}</div>
+  <div class="card"><h2>${L('الأهداف الشهرية والتحقيق','Monthly targets and achievement')}<span class="sub">${L('الخط الأسود في الشريط = المفروض يتحقق حتى اليوم','Black mark = pace expected by today')}</span></h2>
+  <div class="tw"><table class="kx-t"><thead><tr><th>${L('المندوب','Rep')}</th>${TG_F.map(([k,l])=>`<th>${l()}<div class="small muted">${L('الهدف / الفعلي','Target / actual')}</div></th>`).join('')}</tr></thead><tbody>
+  ${rows.map(({r,t,a})=>`<tr><td><b>${esc(r.name)}</b></td>${TG_F.map(([k,,money_])=>`<td>${ed?`<input data-tg="${esc(r.id)}" data-f="${k}" inputmode="decimal" style="width:110px" value="${t[k]??''}">`:`<b>${t[k]!=null?num(t[k]):'—'}</b>`}
+     <div class="small">${L('الفعلي','Actual')}: ${money_?num(Math.round(a[k])):num(a[k])}</div>${tgBar(a[k],+t[k]||0,pace)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+  <p class="small muted">${L('المبيعات تشمل التوصيل اللي ما انفوتر، والتحصيل صافي بعد سندات الصرف للعملاء، والعميل الجديد = أول سداد له في الشهر، والزيارات = المنفذة.','Sales include uninvoiced deliveries; collections are net of refunds; new = first payment in the month; visits = done.')}</p></div>`};
+ACT.tgSave=async()=>{const m=fv('tgM',TODAY().slice(0,7));const by={};document.querySelectorAll('[data-tg]').forEach(i=>{const o=by[i.dataset.tg]=by[i.dataset.tg]||{};const v=String(i.value).trim().replace(/,/g,'');o[i.dataset.f]=v===''?null:+v});
+  try{let n=0;for(const [rid,o] of Object.entries(by)){const cur=tgOf(m,rid);if(TG_F.every(([k])=>(cur[k]??null)===(o[k]??null)))continue;await save('targets',{...cur,id:tgId(m,rid),month:m,repId:rid,...o});n++}
+    toast(L(`تم حفظ أهداف ${n} مندوب`,`Saved ${n} reps`));render()}catch(e){toast(e.message||String(e))}};
+// achievement on the rep's home page
+function tgMyCard(){if(!(role()==='rep'||role()==='sup'))return '';const m=TODAY().slice(0,7);const rid=me().id;const t=tgOf(m,rid);if(!TG_F.some(([k])=>+t[k]>0))return '';
+  const a=tgActual(rid,m);const pace=tgPace(m);
+  return `<div class="card" style="border-top:4px solid #051D48"><h2>${L('هدفي هذا الشهر','My target this month')}<span class="sub">${L('المفروض حتى اليوم','Expected by today')} ${Math.round(pace*100)}%</span></h2>
+   ${TG_F.filter(([k])=>+t[k]>0).map(([k,l,mo])=>`<div style="margin:6px 0"><div class="row" style="justify-content:space-between"><span class="small">${l()}</span><span class="small"><b>${mo?smoney(a[k]):num(a[k])}</b> / ${mo?smoney(t[k]):num(t[k])}</span></div>${tgBar(a[k],+t[k],pace)}</div>`).join('')}</div>`}
+function vnMyCard(){if(role()!=='rep')return '';const rows=visitNowRows(me().id);if(!rows.length)return '';
+  return `<div class="card"><h2>${L('زُر اليوم','Visit today')}<span class="sub"><a href="#" data-go="visitnow">${L(`الكل (${rows.length}) ←`,`All (${rows.length}) ←`)}</a></span></h2><div class="list">${vnList(rows,5)}</div></div>`}
+{const _mh=V.mhome;V.mhome=function(){const h=_mh.apply(this,arguments);if(!(role()==='rep'||role()==='sup'))return h;const add=tgMyCard()+vnMyCard();
+  const k=h.indexOf('<div class="mh-h"><h3>'+L('وصول سريع','Quick access'));return k>0?h.slice(0,k)+add+h.slice(k):h+add}}
+{const _d=V.dash;V.dash=function(){const h=_d.apply(this,arguments);return (role()==='rep'||role()==='sup')?tgMyCard()+vnMyCard()+h:h}}
 </script>
 <script src="wady-back.js"></script></body></html>
