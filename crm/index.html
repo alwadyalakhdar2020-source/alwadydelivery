@@ -648,6 +648,11 @@ function demoData(T){
 }
 const hasDemo=()=>COLS.some(c=>c!=='audit'&&c!=='settings'&&S[c].some(x=>x.demo));
 
+// 26/11: SAP receipts carry the collecting rep's name (U_sales_name). Matched to the sales team by name or alias; cached per team list.
+let _crbn={k:'',m:new Map()};
+function collRepByName(n){const k=(S.team||[]).length+'|'+(S.team||[]).map(t=>(t.aliases||[]).length).join(',');if(_crbn.k!==k)_crbn={k,m:new Map()};
+  const key=normTxt(n);if(!key)return '';if(_crbn.m.has(key))return _crbn.m.get(key);
+  const t=(S.team||[]).find(t=>normTxt(t.name)===key||(t.aliases||[]).some(a=>normTxt(a)===key));const id=t?t.id:'';_crbn.m.set(key,id);return id}
 /* ============ Domain helpers (field work) ============ */
 const qTotal=q=>q.source==='import'||q.source==='sap'?(+q.value||0):(q.lines||[]).reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0)*(1-(+q.discount||0)/100);
 const inMonth=s=>s&&s.slice(0,7)===TODAY().slice(0,7);
@@ -685,8 +690,8 @@ function I(){
   S.collChunks.forEach(ch=>{const imp=impSt.get(ch.importId);if(!imp||imp.status!=='active')return;const at=imp.at||'';
     (ch.rows||[]).forEach(r=>{const k=normCode(r.v);const p=latest.get(k);if(!p||p.at<=at)latest.set(k,{r,at,imp:ch.importId})})});
   latest.forEach(({r,imp})=>{const ch={importId:imp};
-    [r].forEach(r=>{const c=custByCode.get(normCode(r.cc));const rr=r.r&&byId('team',r.r)?r.r:'';const rep=rr||c?.repId||'';
-      coll.push({v:r.v,d:r.d,code:r.cc,cn:r.cn,amt:+r.a||0,rep,reg:c?.region||byId('team',rep)?.region||'',cid:c?.id||null,inv:r.i||'',pm:r.pm||'',so:r.so||'',imp:ch.importId})})});
+    [r].forEach(r=>{const c=custByCode.get(normCode(r.cc));const rr=r.r&&byId('team',r.r)?r.r:(r.rn?collRepByName(r.rn):'');const rep=rr||c?.repId||'';
+      coll.push({v:r.v,d:r.d,code:r.cc,cn:r.cn,amt:+r.a||0,rep,rs:rr?'sap':'card',rn:r.rn||'',reg:c?.region||byId('team',rep)?.region||'',cid:c?.id||null,inv:r.i||'',pm:r.pm||'',so:r.so||'',imp:ch.importId})})});
   coll.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
   const quotes=S.quotes.map(q=>{
     const c=q.source==='import'||q.source==='sap'?(byId('clients',q.clientId)||custByCode.get(normCode(q.clientCode))||byId('clients',q.clientId)):byId('clients',q.clientId);
@@ -730,7 +735,7 @@ function segmentOf(cid,asOf){
 function payClass(cid,asOf){asOf=asOf||TODAY();const ix=I();const f=ix.payFirst.get(cid);
   if(!f||f.d>asOf)return byId('clients',cid)?.kind==='lead'?'none':'stopped';
   let l=null;for(const r of (ix.collByCust.get(cid)||[]))if(r.d<=asOf)l=r;
-  if(!l||l.d<addDays(asOf,-365))return 'stopped';return f.d>=asOf.slice(0,8)+'01'?'new':'old'}
+  if(!l||l.d<addDays(asOf,-365))return 'stopped';const c=byId('clients',cid);const sf=c&&typeof sapFirstPay==='function'?sapFirstPay(c.code):'';const fd=sf&&sf<f.d?sf:f.d;return fd>=asOf.slice(0,8)+'01'?'new':'old'}
 /* customers whose first ever payment falls inside the period */
 function firstPayRows(f,P){const ix=I();const tot=new Map();ix.coll.forEach(r=>{if(r.d>=P.from&&r.d<=P.to){const k=r.cid||('?'+normCode(r.code));tot.set(k,(tot.get(k)||0)+r.amt)}});
   const out=[];ix.payFirst.forEach((r,k)=>{if(r.d<P.from||r.d>P.to)return;const c=r.cid?byId('clients',r.cid):null;const rep=c?.repId||r.rep;const reg=c?.region||r.reg;if(!rowOK(f,rep,reg))return;
@@ -3580,10 +3585,25 @@ async function drawMap(pts){const el=document.getElementById('cmap');if(!el)retu
     .bindPopup(`<b>${esc(x.c.name)}</b><br>${esc(x.c.code||'')} · ${lab(PAY_CLS,x.p)}<br>${esc(tName(x.c.repId))}<br><a href="#" data-open="client" data-id="${x.c.id}">${L('فتح العميل','Open')}</a>`)});
   MAPX.fitBounds(b,{padding:[30,30],maxZoom:14})}
 
+/* ---------- customer age and size (26/11) ----------
+   New / old: a customer with any payment before the current month is «old»; no payment before it → «new» (first payment from all SAP history,
+   or the CRM receipts if SAP's list is not loaded). Size: the largest of his payments, sales orders or quotations over the last 12 months —
+   under 20,000 small, 20,000–50,000 medium, over 50,000 large. */
+const CL_SIZE=[[20000,'small',()=>L('صغير','Small'),'info'],[50000,'medium',()=>L('متوسط','Medium'),'warn'],[Infinity,'large',()=>L('كبير','Large'),'ok']];
+function sapFirstPay(code){const m=((S.firstpay||[]).find(x=>x.id==='all')||{}).map;return m&&code?(m[code]||m[String(code).toUpperCase()]||''):''}
+function clFirstPay(c){if(!c)return '';const a=sapFirstPay(c.code);const r=I().payFirst.get(c.id);const b=r?r.d:'';return a&&b?(a<b?a:b):(a||b)}
+function clAge(c){const f=clFirstPay(c);return f&&f<TODAY().slice(0,8)+'01'?'old':'new'}
+function clSize(c){const s12=addDays(TODAY(),-365);const ix=I();const code=normCode(c.code||'');
+  const paid=(ix.collByCust.get(c.id)||[]).filter(r=>r.d>=s12).reduce((s,r)=>s+(+r.amt||0),0);
+  const mine=o=>o.clientId===c.id||(code&&normCode(o.clientCode||'')===code);
+  const so=(S.orders||[]).filter(o=>o.status!=='cancelled'&&(o.date||'')>=s12&&mine(o)).reduce((s,o)=>s+(+o.total||+o.value||0),0);
+  const qt=(S.quotes||[]).filter(q=>(q.date||'')>=s12&&mine(q)).reduce((s,q)=>s+(+q.total||+q.value||0),0);
+  const v=Math.max(paid,so,qt);const src=v===0?'':v===paid?L('الدفعات','payments'):v===so?L('أوامر البيع','sales orders'):L('عروض الأسعار','quotations');
+  const z=CL_SIZE.find(x=>v<x[0]);return {v,src,key:z[1],label:z[2](),tone:z[3],paid,so,qt}}
 /* ---------- customer page: kind, payment class, deliveries and one timeline ---------- */
 {const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb)return;
   const p=payClass(id);const host=document.createElement('div');host.className='card';host.id='c360';
-  host.innerHTML=`<h2>${L('نظرة شاملة','At a glance')}<span class="sub">${c.kind?pill(CUST_KIND[c.kind][1],CUST_KIND[c.kind][2]):pill(L('النوع غير محدد','Kind not set'),'')} ${pill(lab(PAY_CLS,p),PAY_CLS[p][2])}</span></h2><div id="c360b" class="small muted">${L('جارٍ تحميل التوصيلات…','Loading deliveries…')}</div>`;
+  host.innerHTML=`<h2>${L('نظرة شاملة','At a glance')}<span class="sub">${c.kind?pill(CUST_KIND[c.kind][1],CUST_KIND[c.kind][2]):pill(L('النوع غير محدد','Kind not set'),'')} ${p==='stopped'?pill(lab(PAY_CLS,p),PAY_CLS[p][2]):''} ${(()=>{const a=clAge(c);const f=clFirstPay(c);return `<span title="${esc(f?L('أول سداد ','First payment ')+fdate(f):L('ما سدد أي دفعة','No payment yet'))}">${pill(a==='old'?L('عميل قديم','Existing customer'):L('عميل جديد','New customer'),a==='old'?'':'info')}</span>`})()} ${(()=>{const z=clSize(c);return `<span title="${esc(L(`آخر 12 شهر — الدفعات ${num(Math.round(z.paid))} · أوامر البيع ${num(Math.round(z.so))} · عروض الأسعار ${num(Math.round(z.qt))}`,`Last 12 months — payments ${num(Math.round(z.paid))} · orders ${num(Math.round(z.so))} · quotes ${num(Math.round(z.qt))}`))}">${pill(L('الحجم: ','Size: ')+z.label+(z.v?` (${smoney(z.v)} ${z.src})`:''),z.tone)}</span>`})()}</span></h2><div id="c360b" class="small muted">${L('جارٍ تحميل التوصيلات…','Loading deliveries…')}</div>`;
   const tb=mb.querySelector('.toolbar');if(tb)tb.after(host);else mb.prepend(host);c360Fill(c)}}
 async function c360Fill(c){let D={orders:[],open_so:[]};try{if(c.code){const {data}=await __sb.rpc('crm_cust_deliveries',{p_code:c.code});if(data)D={orders:data.orders||[],open_so:data.open_so||[]}}}catch(e){}
   const el=document.getElementById('c360b');if(!el)return;const ix=I();const ev=[];
@@ -8944,11 +8964,15 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
     if(isPallet(code,it?.name)){nPal++;return}if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
   // 2) liquidity (both including VAT)
   const salesInc=inv.reduce((s,o)=>s+(+o.total||0),0)-cn.reduce((s,o)=>s+(+o.total||0),0);
-  const CR=kxCollRep();const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(CR(r.code,r.d,r.rep)));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
+  const CR=kxCollRep();const repOfColl=r=>r.rs==='sap'?r.rep:CR(r.code,r.d,r.rep);const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(repOfColl(r)));const collV=coll.reduce((s,r)=>s+(+r.amt||0),0);
   // 3) first-time payers: first payment ever (SAP) within the period, customer in scope
   const fp=((S.firstpay||[]).find(x=>x.id==='all')||{}).map||{};const byCode=new Map(S.clients.map(c=>[normCode(c.code),c]));
   const fresh=Object.entries(fp).filter(([cc,d])=>d>=f&&d<=to).map(([cc,d])=>{const c=byCode.get(normCode(cc));const pays=I().coll.filter(r=>normCode(r.code)===normCode(cc));
-    const rep=CR(cc,d,c?.repId||(pays[0]&&pays[0].rep)||'');return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=f&&r.d<=to).reduce((s,r)=>s+(+r.amt||0),0)}})
+    // 26/11: a customer is «new» only in the month of his first payment (old from the next month), so only that month's payments count;
+    // he belongs to the rep written on his first receipt (else the rep of his latest invoice, else his card)
+    const p0=pays.find(r=>r.d===d);const rep=p0&&p0.rs==='sap'?p0.rep:CR(cc,d,c?.repId||(pays[0]&&pays[0].rep)||'');
+    const mA=d.slice(0,8)+'01',mB=addDays(addMonths(mA,1),-1);const a=mA<f?f:mA,b=mB>to?to:mB;
+    return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=a&&r.d<=b).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
   return {f,to,sc,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
 // who the report covers — printed too (the filter bar is not), 25/11
@@ -9000,10 +9024,10 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
    `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length)} ${L('فاتورة','invoices')} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
     ${kpiTile(L('التحصيل شامل الضريبة','Collections incl. VAT'),kxAmt(D.collV),`${num(D.nColl)} ${L('سند قبض','receipts')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
     ${kpiTile(L('الفرق','Gap'),kxAmt(D.collV-D.salesInc),D.collV>=D.salesInc?L('تحصيل أكثر من المبيعات','collected more than sold'):L('مبيعات ما تحصلت بعد','sales not yet collected'))}</div>
-    <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب، وكل سند يتنسب لمندوب آخر فاتورة للعميل قبل تاريخ السند (لأن السند في ساب ما عليه مندوب). النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts, each credited to the rep of the customer\'s latest invoice before it. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
+    <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب، وكل سند يتنسب للمندوب المكتوب عليه في ساب. السند اللي ما عليه اسم مندوب يتنسب لمندوب آخر فاتورة للعميل قبله. النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts, each credited to the rep of the customer\'s latest invoice before it. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
   ${box(L('3) العملاء الجدد','3) New paying customers'),L('عملاء سددوا لأول مرة في تاريخهم خلال الفترة','First payment ever within the period'),
    `<div class="kpis k4">${kpiTile(L('عدد العملاء المسددين لأول مرة','First-time payers'),num(D.fresh.length),'')}${kpiTile(L('قيمة أول سداد','First payment value'),kxAmt(D.fresh.reduce((s,x)=>s+x.first,0)),'')}
-    ${kpiTile(L('إجمالي سدادهم في الفترة','Their payments in period'),kxAmt(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}${kpiTile(L('نسبتهم من إجمالي التحصيل','Share of all collections'),kxP(D.collV?D.fresh.reduce((s,x)=>s+x.inPer,0)/D.collV*100:null),L('سداد العملاء الجدد ÷ تحصيل الفترة','new customers ÷ period collections'))}</div>
+    ${kpiTile(L('سدادهم في شهر أول دفعة','Their payments in first-payment month'),kxAmt(D.fresh.reduce((s,x)=>s+x.inPer,0)),'')}${kpiTile(L('نسبتهم من إجمالي التحصيل','Share of all collections'),kxP(D.collV?D.fresh.reduce((s,x)=>s+x.inPer,0)/D.collV*100:null),L('سداد العملاء الجدد ÷ تحصيل الفترة','new customers ÷ period collections'))}</div>
     ${D.fresh.length?table([{l:L('العميل','Customer'),f:x=>`<b>${esc(x.c?.name||x.cc)}</b> <bdi class="small muted" dir="ltr">${esc(x.cc)}</bdi>`},{l:L('المندوب','Rep'),f:x=>esc(x.rep?tName(x.rep):'—')},{l:L('أول سداد','First payment'),c:'nw',f:x=>fdate(x.d)},
      {l:L('قيمته','Amount'),c:'n',f:x=>num(Math.round(x.first))},{l:L('سداده في الفترة','In period'),c:'n',f:x=>num(Math.round(x.inPer))}],D.fresh.map(x=>({...x,id:null}))):''}
     <div class="small muted">${D.fpAt?`${L('أول سداد لكل عميل من كامل سجل ساب، آخر تحديث','First payment per customer from all SAP history, updated')} ${fdate(D.fpAt)}.`:L('بيانات أول سداد لسا ما وصلت من ساب (تتحدث يومياً).','First-payment data not received from SAP yet (refreshed daily).')}</div>`,'#F39235')}
