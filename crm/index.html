@@ -339,7 +339,7 @@ const stageName=id=>{const s=OPP_STAGES.find(x=>x[0]===id);return s?L(s[1],s[2])
 const projStage=id=>{const s=PROJ_STAGES.find(x=>x[0]===id);return s?L(s[1],PROJ_EN[id]):id};
 
 /* ============ Store ============ */
-const COLS=['refunds','team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets','tasks','sinv','firstpay'];
+const COLS=['refunds','dnopen','team','clients','projects','opps','quotes','samples','visits','complaints','invoices','comms','attachments','audit','imports','collChunks','settings','actions','pipeline','items','orders','prefs','targets','tasks','sinv','firstpay'];
 const S={impUndo:[]};COLS.forEach(c=>S[c]=[]);
 let db=null,downloads=null,mode='init',loaded=new Set(),dataVer=0;
 let viewAs=ls('viewAs')||'';
@@ -8981,7 +8981,10 @@ function kxCollRep(){const key=(S.sinv||[]).length+'|'+I().coll.length;if(_kxRM&
   const f=(code,d,fb)=>{const a=by.get(normCode(code));if(!a||!a.length)return fb||'';let lo=0,hi=a.length-1,at=-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m][0]<=d){at=m;lo=m+1}else hi=m-1}return (at>=0?a[at]:a[0])[1]};
   _kxRM={key,f};return f}
 function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
-  const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const inv=docs.filter(o=>o.kind!=='credit'),cn=docs.filter(o=>o.kind==='credit');
+  const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const cn=docs.filter(o=>o.kind==='credit');
+  // 27/11: delivered but not yet invoiced (open delivery-note lines from SAP) count as sales, so prices and liquidity are not understated
+  const dnD=(((S.dnopen||[]).find(x=>x.id==='all')||{}).rows||[]).filter(o=>o.d>=f&&o.d<=to&&inR(o.repId)).map(o=>({kind:'invoice',dn:true,no:o.no,date:o.d,clientCode:o.cc,cname:o.cn,repId:o.repId,value:+o.value||0,total:+o.total||0,lines:o.lines||[]}));
+  const inv=docs.filter(o=>o.kind!=='credit').concat(dnD);const dnV=dnD.reduce((s,o)=>s+o.total,0);
   const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
   // 1) prices
   let lv=0,bv=0,lvAll=0,noB=0,noLines=0,nPal=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
@@ -9003,7 +9006,7 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
     const mA=d.slice(0,8)+'01',mB=addDays(addMonths(mA,1),-1);const a=mA<f?f:mA,b=mB>to?to:mB;
     return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=a&&r.d<=b).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
-  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,collV,collG,refV,nRef:refs.length,refAt:((S.refunds||[]).find(x=>x.id==='all')||{}).at,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
+  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,dnV,nDn:dnD.length,dnAt:((S.dnopen||[]).find(x=>x.id==='all')||{}).at,collV,collG,refV,nRef:refs.length,refAt:((S.refunds||[]).find(x=>x.id==='all')||{}).at,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
 // who the report covers — printed too (the filter bar is not), 25/11
 function kxWho(D){const v=role()==='rep'?'r:'+me().id:fv('kxS','all');const ids=[...D.sc.ids];
   let k,who,list='';if(v.startsWith('r:')){k=L('المندوب','Rep');who=tName(v.slice(2))}
@@ -9050,7 +9053,7 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
      {l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>kxM(x.v/x.q)},{l:L('السعر الأساسي','Base'),c:'n',f:x=>kxM(x.base)},{l:L('الخصم','Discount'),c:'n',f:x=>`<b style="color:${x.b-x.v>0?'#B42318':'#1E7B3C'}">${kxP((x.b-x.v)/x.b*100)}</b>`}],D.byItem.slice(0,15).map(x=>({...x,id:null}))):''}
     <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.nPal?`${num(D.nPal)} ${L('سطر طبليات خشب — مستبعدة من الخصم. ','wooden pallet lines — left out of the discount. ')}`:''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. الإشعارات الدائنة غير داخلة في هذا المؤشر.','Base price = SAP list today. Credit notes not included here.')}</div>`,'#34BEF0')}
   ${box(L('2) مؤشر السيولة','2) Liquidity'),L('التحصيل مقابل المبيعات — الاثنين شاملين الضريبة','Collections vs sales — both including VAT'),
-   `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length)} ${L('فاتورة','invoices')} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
+   `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length-D.nDn)} ${L('فاتورة','invoices')}${D.nDn?` + ${num(D.nDn)} ${L('توصيل لم يفوتر','delivered, not invoiced')} (${num(Math.round(D.dnV))})`:''} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
     ${kpiTile(L('صافي التحصيل شامل الضريبة','Net collections incl. VAT'),kxAmt(D.collV),`${L('سندات قبض','Receipts')} ${num(Math.round(D.collG))} (${num(D.nColl)}) − ${L('سندات صرف للعملاء','refunds to customers')} ${num(Math.round(D.refV))} (${num(D.nRef)})${D.refAt?'':' · '+L('سندات الصرف ما انسحبت بعد','refunds not loaded yet')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
     ${kpiTile(L('الفرق','Gap'),kxAmt(D.collV-D.salesInc),D.collV>=D.salesInc?L('تحصيل أكثر من المبيعات','collected more than sold'):L('مبيعات ما تحصلت بعد','sales not yet collected'))}</div>
     <div class="small muted">${L('المبيعات من فواتير ساب الصادرة لها فاتورة إلكترونية ناقص الإشعارات الدائنة. التحصيل من سندات القبض في ساب، وكل سند يتنسب للمندوب المكتوب عليه في ساب. السند اللي ما عليه اسم مندوب يتنسب لمندوب آخر فاتورة للعميل قبله. النسبة بنفس الفترة وما تعني إن التحصيل يخص فواتير نفس الفترة.','Sales: SAP e-invoices minus credit notes. Collections: SAP receipts, each credited to the rep of the customer\'s latest invoice before it. Same period; collections may settle earlier invoices.')}</div>`,'#38AC57')}
@@ -9184,6 +9187,24 @@ V.vquality=()=>{const t=TODAY();const f=fv('vqF',t.slice(0,8)+'01'),to=fv('vqT',
    {l:L('موعد المتابعة','Due'),c:'nw',f:v=>`<span class="flag">${fdate(v.nextDate)}</span>`},{l:L('العميل','Customer'),f:v=>esc(byId('clients',v.clientId)?.name||'—')},{l:L('الإجراء','Next step'),f:v=>esc(v.nextStep||'—')},
    {l:L('المسؤول','Owner'),f:v=>esc(tName(v.nextOwner||v.repId))}],fu.sort((a,b)=>a.nextDate.localeCompare(b.nextDate)).slice(0,200),null,{empty:L('ما فيه متابعات متأخرة','None overdue')})}</div>
   <p class="small muted">${L('التقييم من 100 حسب الدليل المعتمد: التحضير 10، التفاعل 10، الاحتياج 20، عرض المنتجات 15، الفرص 20، المتابعة 10، التوثيق 15. اضغط على أي درجة لتفاصيلها.','Scored per the approved guide; tap a score for details.')}</p>`};
+
+/* ---- «مؤشراتي هذا الشهر» on the rep's home page (27/11): the four sales KPIs + visit quality, this month to date, his own figures ---- */
+function kxMyCard(){if(typeof kxData!=='function')return '';const t=TODAY();let D;try{D=kxData(t.slice(0,8)+'01',t)}catch(e){console.warn(e);return ''}
+  const disc=D.bv?(D.bv-D.lv)/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;const fresh=D.fresh||[];const paid=fresh.reduce((s,x)=>s+(+x.inPer||0),0);
+  const mine=role()==='rep'?me().id:null;const vs=(S.visits||[]).filter(v=>v.status==='done'&&v.date>=t.slice(0,8)+'01'&&(!mine||rptMatch(v.repId,mine))&&v.q&&v.q.state==='valid'&&v.q.score!=null);
+  const vq=vs.length?vs.reduce((s,v)=>s+(+v.q.score),0)/vs.length:null;
+  const tile=(l,v,sub,tone)=>`<div class="kpi" style="min-width:0"><span class="l">${l}</span><span class="v ${tone||''}" style="font-size:20px">${v}</span>${sub?`<span class="s">${sub}</span>`:''}</div>`;
+  return `<div class="card" style="border-top:4px solid #38AC57"><h2>${L('مؤشرات الأداء البيعية — هذا الشهر','Sales KPIs — this month')}<span class="sub">${fdate(t.slice(0,8)+'01')} – ${fdate(t)}</span></h2>
+   <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+    ${tile(L('صافي المبيعات','Net sales'),smoney(D.salesInc),D.nDn?L(`منها ${num(D.nDn)} توصيل لم يفوتر`,`incl. ${num(D.nDn)} uninvoiced deliveries`):L('شامل الضريبة','incl. VAT'))}
+    ${tile(L('متوسط الخصم','Avg discount'),disc==null?'—':disc.toFixed(1)+'%',L('عن السعر الأساسي','vs base price'),disc!=null&&disc>10?'flag':'')}
+    ${tile(L('نسبة السيولة','Liquidity'),liq==null?'—':Math.round(liq)+'%',`${L('تحصيل','Collected')} ${smoney(D.collV)}`)}
+    ${tile(L('عملاء جدد مسددين','New paying customers'),num(fresh.length),paid?`${L('سددوا','paid')} ${smoney(paid)}`:'')}
+    ${D.nSp?tile(L('المبيعات الخاصة','Special sales'),smoney(D.spV),D.lvAll?Math.round(D.spV/D.lvAll*100)+'% '+L('من المبيعات','of sales'):''):''}
+    ${tile(L('جودة الزيارات','Visit quality'),vq==null?'—':Math.round(vq)+'/100',`${num(vs.length)} ${L('زيارة صحيحة','valid visits')}`)}</div>
+   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px"><a href="#" data-go="kpix" class="small">${L('التفاصيل ←','Details ←')}</a><a href="#" data-go="vquality" class="small">${L('جودة الزيارات ←','Visit quality ←')}</a></div></div>`}
+{const _mh=V.mhome;if(_mh)V.mhome=function(){const h=_mh.apply(this,arguments);if(!(role()==='rep'||role()==='sup'))return h;const k=h.indexOf('<div class="mh-h"><h3>'+L('وصول سريع','Quick access'));return k>0?h.slice(0,k)+kxMyCard()+h.slice(k):h+kxMyCard()}}
+{const _d=V.dash;V.dash=function(){const h=_d.apply(this,arguments);return (role()==='rep'||role()==='sup')?kxMyCard()+h:h}}
 
 /* ===== Company document library (27/11) — the 18 items of an approval checklist (Jeddah Amana file), one place for every
    certificate with its expiry date; the base for building approval files, compliance sheets and submittals later.
