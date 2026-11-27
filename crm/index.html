@@ -1883,9 +1883,9 @@ function plSheetView(){
    <div class="tw"><table><thead><tr><th colspan="4" style="text-align:center">${L('بيانات العميل','Customer')}</th><th colspan="4" style="text-align:center">${L('المتوقع','Expected')}</th><th colspan="2" style="text-align:center">${L('الفعلي','Actual')}</th><th class="n">${L('الفرق','Gap')}</th><th></th></tr>
    <tr><th>م</th><th>${L('اسم العميل','Customer')}</th><th>${L('حالة العميل','Status')}</th><th>${L('حجم العميل','Size')}</th><th class="n">${L('المبلغ','Amount')}</th><th class="n">${L('بدون الضريبة','Ex-VAT')}</th><th class="n">${L('احتمالية التحصيل %','Probability %')}</th><th class="n">${L('المبلغ الصافي','Net')}</th><th class="n">${L('الإجمالي بالضريبة','Incl. VAT')}</th><th class="n">${L('بدون ضريبة','Ex-VAT')}</th><th class="n">${L('بدون ضريبة','Ex-VAT')}</th><th></th></tr></thead><tbody>
    ${c.rows.map((x,i)=>`<tr><td class="n">${i+1}</td><td>${plInp('opps',i,'name',x.o.name,{w:220,list:'dl_pl_clients',ro})}${x.cid?'':`<div class="small muted">${L('غير مربوط بعميل مسجل','Not linked to a customer')}</div>`}</td><td>${plSel('opps',i,'status',x.o.status,PL_STATUS,ro)}</td><td>${plSel('opps',i,'size',x.o.size,PL_SIZE,ro)}</td>
-     <td>${plInp('opps',i,'amount',x.o.amount,{num:1,w:100,ro})}</td><td class="n" id="plc_${i}_ex">${plNum(x.ex)}</td><td>${plInp('opps',i,'prob',x.o.prob,{num:1,w:70,ro})}</td><td class="n" id="plc_${i}_net"><b>${plNum(x.net)}</b></td>
+     <td>${plInp('opps',i,'amount',x.o.amount,{num:1,w:100,ro})}${typeof plSrcTag==='function'?plSrcTag(x.o):''}</td><td class="n" id="plc_${i}_ex">${plNum(x.ex)}</td><td>${plInp('opps',i,'prob',x.o.prob,{num:1,w:70,ro})}</td><td class="n" id="plc_${i}_net"><b>${plNum(x.net)}</b></td>
      <td>${plInp('opps',i,'actual',x.o.actual,{num:1,w:100,ph:x.auto?plNum(x.auto):'',ro})}</td><td class="n" id="plc_${i}_actEx">${plNum(x.actEx)}</td><td class="n" id="plc_${i}_diff"><span class="${x.diff>=0?'up':'down'}">${plNum(x.diff)}</span></td>
-     <td>${ro?'':`<button class="btn s d" data-act="plDel" data-s="opps" data-i="${i}" aria-label="${L('حذف','Remove')}">✕</button>`}</td></tr>`).join('')||`<tr><td colspan="12" class="empty">${L('أضف عملاء الشهر المتوقع التحصيل منهم','Add the customers expected to pay this month')}</td></tr>`}
+     <td>${ro?'':`<button class="btn s d" data-act="plDel" data-s="opps" data-i="${i}" aria-label="${L('حذف','Remove')}">✕</button>`}</td></tr>`).join('')||`<tr><td colspan="12" class="empty">${L('أضف عملاء الشهر المتوقع التحصيل منهم','Add the customers expected to pay this month')}${ro?'':`<div style="margin-top:8px"><button class="btn p" data-act="plpWizard" data-s="opps">⚡ ${L('إنشاء البايب لاين بخطوة واحدة من العروض والأوامر المفتوحة','Build in one step from open quotes & orders')}</button></div>`}</td></tr>`}
    ${c.outside?`<tr><td></td><td colspan="7" class="muted small">${L('تحصيل الشهر من عملاء المندوب غير المذكورين في الجدول (من سندات القبض)','Collections this month from the rep’s customers not on the sheet (from vouchers)')}</td><td class="n" id="plc_out">${plNum(c.outside)}</td><td class="n">${plNum(c.outsideEx)}</td><td></td><td></td></tr>`:''}
    </tbody><tfoot><tr><td></td><td>${L('الإجمالي','Total')}</td><td></td><td></td><td class="n" id="plt_amt">${plNum(c.amt)}</td><td class="n" id="plt_ex">${plNum(c.ex)}</td><td></td><td class="n" id="plt_net">${plNum(c.net)}</td><td class="n" id="plt_actIn">${plNum(c.actIn)}</td><td class="n" id="plt_actEx">${plNum(c.actEx)}</td><td class="n" id="plt_diff">${plNum(c.diff)}</td><td></td></tr></tfoot></table></div>
    ${ro?'':`<div class="toolbar" style="margin-top:8px"><button class="btn s" data-act="plAdd" data-s="opps">+ ${L('إضافة عميل','Add customer')}</button></div>`}</div>`;
@@ -2744,7 +2744,7 @@ const ACT={
     try{await save('settings',o);toast(L('تم حفظ الإعدادات وإعادة حساب كل المؤشرات','Settings saved; all KPIs recalculated'))}catch(e){}},
   kpiDefaults:()=>{Object.keys(KPI_NAMES).forEach(k=>{const el=document.getElementById('kw_'+k);if(el)el.value=DEFAULT_CFG.weights[k]});['act','conv','ret'].forEach(k=>{document.getElementById('kt_'+k).value=DEFAULT_CFG.targets[k]});['activeDays','lostDays','newDays','strategicTop','cap','largeQuote','expiryDays','declinePct','risePct','vat','pipeCover','backCover'].forEach(k=>{document.getElementById('kc_'+k).value=DEFAULT_CFG[k]});document.getElementById('kc_convBasis').value=DEFAULT_CFG.convBasis;document.getElementById('kwSum').textContent='100';toast(L('اضغط «حفظ الإعدادات» لاعتمادها','Press Save to apply'))},
   saveTargets:async()=>{let n=0;for(const r of S.team.filter(t=>t.role==='rep')){const g=p=>{const el=document.getElementById(p+r.id);return el?+el.value||0:null};const c=g('tc_'),nw=g('tn_'),s=g('ts_');if(c==null)continue;if(c!==(+r.collTarget||0)||nw!==(+r.newTarget||0)||s!==(+r.target||0)){await save('team',{...r,collTarget:c,newTarget:nw,target:s});n++}}toast(n?L(`حُفظت مستهدفات ${n} مندوب`,`Saved targets for ${n} reps`):L('لا توجد تغييرات','No changes'))},
-  plAdd:d=>{const blank={opps:{name:'',status:'old',size:'medium',amount:'',prob:'',actual:''},risks:{name:'',reason:''},backlog3:{name:'',value:''},backlogLater:{name:'',value:''}}[d.s];(PL.doc[d.s]||(PL.doc[d.s]=[])).push(blank);plDirty();render();const n=PL.doc[d.s].length-1;const el=document.getElementById(`pl_${d.s}_${n}_name`);if(el)el.focus()},
+  plAdd:d=>{const blank={opps:{name:'',status:'old',size:'medium',amount:'',prob:'',actual:'',src:'manual'},risks:{name:'',reason:''},backlog3:{name:'',value:''},backlogLater:{name:'',value:''}}[d.s];(PL.doc[d.s]||(PL.doc[d.s]=[])).push(blank);plDirty();render();const n=PL.doc[d.s].length-1;const el=document.getElementById(`pl_${d.s}_${n}_name`);if(el)el.focus()},
   plDel:d=>{PL.doc[d.s].splice(+d.i,1);plDirty();render()},
   plSave:()=>plSave(),
   plDiscard:()=>{PL.dirty=false;PL.key='';render()},
@@ -3879,6 +3879,16 @@ document.addEventListener('change',async e=>{const a=e.target;if(!a||!a.dataset|
 const PLP_SRC={quotes:()=>L('عروض الأسعار المفتوحة','Open quotations'),orders:()=>L('أوامر البيع المفتوحة','Open sales orders'),clients:()=>L('جميع العملاء','All customers')};
 const PLP_SEC={opps:()=>'Opportunity',risks:()=>L('Risk — مخاطرة','Risk'),backlog3:()=>L('Back log — خلال 3 أشهر','Backlog — 3 months'),backlogLater:()=>L('متوقع بعد 3 أشهر','After 3 months')};
 let PLP=null;
+/* 26/11: every opportunity line remembers where its amount came from, so the sheet and the printout can tell a figure taken from an open
+   quotation or sales order apart from an estimate (open balance, average collections of the last 3 months) or a manual entry */
+const PL_SRC={quote:()=>L('من عرض سعر مفتوح','From open quotation'),order:()=>L('من أمر بيع مفتوح','From open sales order'),qo:()=>L('من عرض سعر + أمر بيع','From quotation + order'),
+  ar:()=>L('تقدير: الرصيد المفتوح','Estimate: open balance'),avg:()=>L('تقدير: متوسط تحصيل 3 أشهر','Estimate: 3-month avg collections'),manual:()=>L('إدخال يدوي','Manual entry')};
+function plSrcTag(o){if(!o||!o.src)return '';const k=o.src;const edited=o.srcAmt!=null&&o.src!=='manual'&&String(o.amount)!==''&&Math.round(+o.amount)!==Math.round(+o.srcAmt);
+  const est=k==='ar'||k==='avg';return `<div class="small ${est?'flag':'muted'}" data-src="${k}">${est?'≈ ':''}${PL_SRC[k]?PL_SRC[k]():k}${edited?` · ${L('عُدّل يدوياً (كان','edited (was')} ${num(Math.round(+o.srcAmt))})`:''}</div>`}
+// customer status for the month (old = any payment before the month, SAP history included) and size from the customer card rule
+function plStatusOf(cid,month,kind){if(kind==='lead'||!cid)return 'new';const c=byId('clients',cid);const f=c&&typeof clFirstPay==='function'?clFirstPay(c):'';return f&&f<month+'-01'?'old':'new'}
+function plSizeOf(cid){const c=cid&&byId('clients',cid);return c&&typeof clSize==='function'?clSize(c).key:''}
+
 const plpKey=(cid,name)=>cid||('n:'+normTxt(name));
 /* everything known about a customer that helps pick a realistic amount */
 function plpStats(rep,month){
@@ -3950,11 +3960,18 @@ function plpPaint(){
 function plpBulk(sec){const {rep,month,doc}=plCurrent();if(!rep)return;const have=new Set((doc[sec]||[]).map(x=>plpKey(plCustId(x.name,x.cid),x.name)));
   const m=new Map();[...plpRows('quotes',rep,month),...plpRows('orders',rep,month)].forEach(o=>m.set(o.key,o));const ix=I();const out=[];let skip=0;
   m.forEach(o=>{if(have.has(plpKey(o.cid,o.name))){skip++;return}const amt=Math.round(((o.q||0)+(o.o||0))*plVat());if(!(amt>0))return;
-    const paidBefore=o.cid&&ix.coll.some(r=>r.cid===o.cid&&r.d<month+'-01');
-    out.push({name:o.name,cid:o.cid||'',status:o.kind==='lead'||!paidBefore?'new':'old',size:'',amount:amt,prob:'',actual:''})});
+    const src=o.q&&o.o?'qo':o.o?'order':'quote';const pr=PLP_BULKPR?(src==='quote'?PLP_BULKPR.q:PLP_BULKPR.o):'';
+    out.push({name:o.name,cid:o.cid||'',status:plStatusOf(o.cid,month,o.kind),size:plSizeOf(o.cid),amount:amt,prob:pr,actual:'',src,srcAmt:amt})});
   if(!out.length){toast(skip?L('كل العملاء اللي عندهم مستندات مفتوحة مضافين من قبل','Every customer with open documents is already listed'):L('ما فيه عروض أسعار أو أوامر بيع مفتوحة لعملاء هذا المندوب','No open quotations or sales orders for this rep’s customers'));return}
   out.sort((a,b)=>b.amount-a.amount);doc[sec]=[...(doc[sec]||[]).filter(x=>String(x.name||'').trim()),...out];PL.dirty=true;render();
   toast(L(`أُضيف ${out.length} عميل${skip?` (و${skip} موجودين من قبل)`:''} — عبّ نسبة التحصيل واضغط «حفظ»`,`Added ${out.length} customers${skip?` (${skip} already listed)`:''} — fill the probability and press Save`))}
+let PLP_BULKPR=null;
+function plpWizard(sec){const {rep}=plCurrent();if(!rep)return;
+  openForm({title:L('إنشاء البايب لاين بخطوة واحدة','Build the pipeline in one step'),data:{o:'',q:''},
+    extra:`<p class="small muted">${L('يضيف كل عملاء المندوب اللي عندهم أوامر بيع أو عروض أسعار مفتوحة في ساب، سطر لكل عميل بقيمة المستندات شامل الضريبة. اكتب نسبة التحصيل المتوقعة لكل نوع (تقدر تعدلها لكل عميل بعدين)، أو اتركها فاضية وتعبيها بنفسك.','Adds every customer of the rep with open SAP sales orders or quotations, one line each at the documents’ value incl. VAT. Enter the expected collection % for each kind (editable per customer later), or leave blank.')}</p>`,
+    fields:[{k:'o',l:L('نسبة التحصيل لأوامر البيع %','Collection % for sales orders'),t:'num'},{k:'q',l:L('نسبة التحصيل لعروض الأسعار %','Collection % for quotations'),t:'num'}],
+    onSave:d=>{const ok=v=>v==null||(+v>=0&&+v<=100);if(!ok(d.o)||!ok(d.q)){document.getElementById('ferr').textContent=L('النسبة لازم تكون بين 0 و 100','Percent must be 0–100');throw new Error('pct')}
+      PLP_BULKPR={o:d.o==null?'':+d.o,q:d.q==null?'':+d.q};try{plpBulk(sec)}finally{PLP_BULKPR=null}}})}
 function plpAdd(){
   const P=PLP;if(!P)return;const err=m=>{const e=document.getElementById('plp_err');if(e)e.textContent=m};
   if(!P.sel.size)return err(L('حدد عميل واحد على الأقل','Select at least one customer'));
@@ -3962,7 +3979,8 @@ function plpAdd(){
   const out=[];const bad=[];const ix=I();
   P.sel.forEach((s,k)=>{const o=all.get(k);if(!o)return;const amt=parseNum(s.amount);
     if(P.sec==='opps'){const pr=parseNum(s.prob);if(!(amt>0))bad.push(o.name+': '+L('المبلغ','amount'));else if(pr==null||isNaN(pr)||pr<0||pr>100)bad.push(o.name+': '+L('نسبة التحصيل','probability'));
-      else{const paidBefore=o.cid&&ix.coll.some(r=>r.cid===o.cid&&r.d<P.month+'-01');out.push({name:o.name,cid:o.cid||'',status:o.kind==='lead'||!paidBefore?'new':'old',size:'',amount:amt,prob:pr,actual:''})}}
+      else{const dv=plpDefault('opps',P.src,o,P.inclVat);const src=P.src==='quotes'?'quote':P.src==='orders'?'order':(o.ar>0?'ar':o.c3>0?'avg':'manual');
+        out.push({name:o.name,cid:o.cid||'',status:plStatusOf(o.cid,P.month,o.kind),size:plSizeOf(o.cid),amount:amt,prob:pr,actual:'',src,srcAmt:dv===''?null:dv})}}
     else if(P.sec==='risks')out.push({name:o.name,cid:o.cid||'',reason:String(s.reason||'').trim()});
     else out.push({name:o.name,cid:o.cid||'',value:amt>0?amt:''})});
   if(bad.length)return err(L('ناقص: ','Missing: ')+bad.slice(0,6).join('، ')+(bad.length>6?' …':''));
@@ -3972,7 +3990,7 @@ function plpAdd(){
 /* buttons in each section + collections shown clearly in the actual column */
 {const _v=plSheetView;plSheetView=function(){let h=_v();const {rep}=plCurrent();if(!rep||!plCanEdit(rep))return h;
   ['opps','risks','backlog3','backlogLater'].forEach(sec=>{const a=`<button class="btn s" data-act="plAdd" data-s="${sec}">`;
-    h=h.replace(a,(sec==='opps'?`<button class="btn s p" data-act="plpBulk" data-s="${sec}" title="${L('يضيف كل عملاء المندوب اللي عندهم عروض أسعار أو أوامر بيع مفتوحة في ساب، سطر لكل عميل','Adds every customer of this rep with open SAP quotations or sales orders, one line per customer')}">⇊ ${L('إضافة كل العروض والأوامر المفتوحة','Add all open quotes & orders')}</button><button class="btn s" data-act="plpCust" data-s="${sec}">👤 ${L('اختيار عملاء فردي','Pick customers')}</button>`:'')
+    h=h.replace(a,(sec==='opps'?`<button class="btn s p" data-act="plpWizard" data-s="${sec}" title="${L('يضيف كل عملاء المندوب اللي عندهم عروض أسعار أو أوامر بيع مفتوحة في ساب، سطر لكل عميل','Adds every customer of this rep with open SAP quotations or sales orders, one line per customer')}">⇊ ${L('إضافة كل العروض والأوامر المفتوحة','Add all open quotes & orders')}</button><button class="btn s" data-act="plpCust" data-s="${sec}">👤 ${L('اختيار عملاء فردي','Pick customers')}</button>`:'')
       +`<button class="btn s ${sec==='opps'?'':'p'}" data-act="plpOpen" data-s="${sec}">⇣ ${L('اختيار من العروض والأوامر والعملاء','Pick from quotes, orders, customers')}</button>`+a)});
   return h}}
 {const _c=plCalc;plCalc=function(doc){const c=_c(doc);c.rows.forEach(x=>{x.autoNote=!x.manual&&x.auto>0});return c}}
@@ -3980,7 +3998,7 @@ function plpAdd(){
   c.rows.forEach((x,i)=>{if(x.autoNote)h=h.replace(new RegExp(`(<input id="pl_opps_${i}_actual"[^>]*>)`),`$1<div class="small up" title="${L('محسوب تلقائياً من سندات التحصيل خلال الشهر — اكتب رقم لو تبي تعدّله يدوياً','Auto from collection vouchers this month — type a number to override')}">${L('تلقائي من التحصيل','auto from collections')}: ${plNum(x.auto)}</div>`)});
   const n=c.rows.filter(x=>x.autoNote).length;if(n)h=h.replace(`<span class="sub">${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`,`<span class="sub"><b class="up">${L(`${n} عميل تعبّأ فعليهم من ملف التحصيل`,`${n} customers filled from collections`)}</b> · ${L('المبلغ بالضريبة، والصافي','Amount incl. VAT; net')}`);
   return h}}
-Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpBulk:d=>plpBulk(d.s),plpCust:d=>{plpOpen(d.s);if(PLP){PLP.src='clients';plpPaint()}},plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
+Object.assign(ACT,{plpOpen:d=>plpOpen(d.s),plpBulk:d=>plpBulk(d.s),plpWizard:d=>plpWizard(d.s),plpCust:d=>{plpOpen(d.s);if(PLP){PLP.src='clients';plpPaint()}},plpSrc:d=>{PLP.src=d.v;PLP.lim=200;plpPaint()},plpMore:()=>{PLP.lim+=300;plpPaint()},plpAdd:()=>plpAdd(),
   plpAll:()=>{const v=document.getElementById('plp_all')?.value;if(v===''||v==null)return;PLP.prob=v;document.querySelectorAll('#mbody .plp_ck:checked').forEach(c=>{const tr=c.closest('tr');const p=tr.querySelector('.plp_prob');if(p){p.value=v;const s=PLP.sel.get(c.dataset.k);if(s)s.prob=v}})}});
 
 /* ===== Rule-based recommendations (no AI): every card = rule + evidence numbers + suggested action + owner.
@@ -8523,6 +8541,12 @@ function brandReport(title){const v=document.getElementById('view');if(!v)return
   const k=coInfo();const logo=window.WADY_LOGO_DATA||'../brand/logo-h.png';const c=v.cloneNode(true);
   // filters → a line of what is applied; controls and buttons are not printed
   const applied=[];v.querySelectorAll('.fbar label.fl,.fbar label').forEach(lb=>{const x=lb.querySelector('select,input');if(!x||x.type==='date'&&!x.value)return;let val=x.tagName==='SELECT'?(x.selectedOptions[0]||{}).text:x.value;if(!val||/^(الكل|All|—)/.test(val))return;applied.push(`${(lb.childNodes[0]&&lb.childNodes[0].textContent||'').trim()}: ${val}`)});
+  // 26/11: fields inside the report (e.g. the pipeline sheet) print their current value instead of disappearing
+  {const live=[...v.querySelectorAll('input,select,textarea')],cl=[...c.querySelectorAll('input,select,textarea')];
+   cl.forEach((x,i)=>{const o=live[i];if(!o||x.closest('.fbar,.toolbar')||o.type==='hidden'||o.type==='search'||o.type==='button')return;
+     let t=o.tagName==='SELECT'?((o.selectedOptions[0]||{}).text||''):o.type==='checkbox'||o.type==='radio'?(o.checked?'✓':''):o.value;
+     if(!t&&o.placeholder&&/^[\d,.\s-]+$/.test(o.placeholder))t=o.placeholder;if(t==='—'||/^(اختر|Select)/.test(t))t='';if(o.tagName==='INPUT'&&/^-?\d+(\.\d+)?$/.test(String(t).trim())&&!/date|tel/.test(o.type))t=num(+t);
+     const sp=document.createElement('span');sp.textContent=t;x.replaceWith(sp)})}
   c.querySelectorAll('button,.btn,input,select,textarea,.fbar,.toolbar,.tabs .tab:not(.on),iframe,.th-btn,[data-noprint]').forEach(x=>x.remove());
   c.querySelectorAll('a').forEach(a=>{const sp=document.createElement('span');sp.innerHTML=a.innerHTML;a.replaceWith(sp)});
   // on a phone the preview scrolls wide tables sideways instead of cutting them (25/11)
