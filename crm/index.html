@@ -8887,22 +8887,23 @@ function camShot(){return new Promise((res,rej)=>{
 async function gpsQuick(){if(GV.last&&Date.now()-new Date(GV.last.t)<60000)return GV.last;try{return await Promise.race([getGPS(),new Promise(r=>setTimeout(()=>r(null),8000))])}catch(e){return null}}
 /* ---- completing a visit: camera photos + result title + notes (also after an automatic end) ---- */
 checkoutForm=function(v){
-  const c=byId('clients',v.clientId);let blobs=[],g=null;const auto=!!v.checkOut;
+  const c=byId('clients',v.clientId);let blobs=[],metas=[],g=null;const auto=!!v.checkOut;
   openModal(auto?L('إكمال الزيارة','Complete the visit'):L('إنهاء الزيارة','End the visit'),`<form id="coform">
   ${auto?`<div class="banner warn"><span class="sp">${L('الزيارة انتهت تلقائياً لما خرجت من نطاق العميل الساعة','Ended automatically when you left at')} ${new Date(v.checkOut.t).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'})}. ${L('صوّر واكتب النتيجة عشان تنحسب منفذة.','Add a photo and the result so it counts as done.')}</span></div>`:`<div id="co_gps" class="small muted">${L('جاري تحديد موقعك…','Getting your location…')}</div>`}
   <div class="fld"><label>${L('صور من الموقع بالكاميرا (إلزامي، حتى 3)','Photos from the camera (required, up to 3)')} <span class="req">*</span></label>
    <button type="button" class="btn p" id="co_cam" style="min-height:52px;width:100%">📷 ${L('افتح الكاميرا وصوّر','Open the camera')}</button>
    <span class="small muted">${L('الصور من الكاميرا مباشرة فقط (مو من الاستوديو)، وتنختم بالوقت والموقع واسم العميل.','Live camera only (no gallery); stamped with time, location and customer.')}</span><div id="co_prev" class="photos"></div></div>
   <div class="fld"><label for="co_res">${L('عنوان الزيارة (النتيجة)','Visit result')} <span class="req">*</span></label><div class="chips" id="co_chips" style="display:flex;flex-wrap:wrap;gap:6px">${Object.entries(VISIT_RESULTS).map(([k,x])=>`<button type="button" class="chip" data-r="${k}">${L(x[0],x[1])}</button>`).join('')}</div><input type="hidden" id="co_res"></div>
+  ${typeof vqFields==='function'?vqFields(v,c):''}
   <div class="fld"><div class="chk"><label><input type="checkbox" id="co_eff"> ${L('زيارة فعّالة (نتج عنها فرصة أو طلب أو تقدم واضح)','Effective visit')}</label></div></div>
   <div class="fld full"><label for="co_notes">${L('نتائج الزيارة','Visit notes')} <span class="req">*</span></label><textarea id="co_notes" rows="3" placeholder="${L('وش صار في الزيارة؟ مع مين قابلت؟ وش المطلوب؟','What happened? Who did you meet? What is needed?')}"></textarea></div>
   <div class="fgrid"><div class="fld"><label for="co_next">${L('الخطوة القادمة','Next step')}</label><input id="co_next"></div><div class="fld"><label for="co_nd">${L('موعدها','When')}</label><input id="co_nd" type="date"></div></div>
   <div id="co_err" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">${L('لاحقاً','Later')}</button><button type="submit" class="btn p">${L('حفظ الزيارة','Save visit')}</button></div></form>`,{mount:b=>{
     if(!auto){const gb=b.querySelector('#co_gps');gpsQuick().then(x=>{if(!x)throw new Error(L('تعذّر تحديد الموقع','Could not get the location'));return x}).then(x=>{g=x;const d=distM(g,c);gb.innerHTML=`${L('موقعك','Location')}: <span dir="ltr">${g.lat}, ${g.lng}</span> · ±${g.acc} ${L('م','m')}${d!=null?` · ${L('يبعد عن العميل','from site')} ${fmtDist(d)}`:''}`}).catch(e=>{gb.innerHTML=`<span class="flag">${esc(e.message)}</span>`})}
     const prev=()=>{b.querySelector('#co_prev').innerHTML=blobs.map((x,i)=>`<span style="position:relative;display:inline-block"><img src="${URL.createObjectURL(x)}" alt=""><button type="button" class="btn s" data-del="${i}" style="position:absolute;top:2px;inset-inline-start:2px;padding:0 6px">✕</button></span>`).join('');b.querySelector('#co_cam').disabled=blobs.length>=3};
-    b.querySelector('#co_prev').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){blobs.splice(+d.dataset.del,1);prev()}});
+    b.querySelector('#co_prev').addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d){blobs.splice(+d.dataset.del,1);metas.splice(+d.dataset.del,1);prev()}});
     b.querySelector('#co_cam').addEventListener('click',async()=>{try{const raw=await camShot();let pos=g;if(!pos){pos=await gpsQuick();if(pos)g=pos}
-      const lbl=`${new Date().toLocaleString('en-GB')} · ${(c?.name||'').slice(0,40)}\n${pos?`GPS ${pos.lat}, ${pos.lng} ±${pos.acc}m`:'GPS —'}`;blobs.push(await stampPhoto2(raw,lbl));prev()}catch(e){if(e.message!=='cancel')b.querySelector('#co_err').textContent=e.message}});
+      const lbl=`${new Date().toLocaleString('en-GB')} · ${(c?.name||'').slice(0,40)}\n${pos?`GPS ${pos.lat}, ${pos.lng} ±${pos.acc}m`:'GPS —'}`;blobs.push(await stampPhoto2(raw,lbl));metas.push({t:new Date().toISOString(),lat:pos?pos.lat:null,lng:pos?pos.lng:null,acc:pos?pos.acc:null});prev()}catch(e){if(e.message!=='cancel')b.querySelector('#co_err').textContent=e.message}});
     b.querySelector('#co_chips').addEventListener('click',e=>{const x=e.target.closest('[data-r]');if(!x)return;b.querySelectorAll('#co_chips .chip').forEach(y=>y.classList.toggle('on',y===x));b.querySelector('#co_res').value=x.dataset.r});
     b.querySelector('#coform').addEventListener('submit',async e=>{e.preventDefault();const res=b.querySelector('#co_res').value;const notes=b.querySelector('#co_notes').value.trim();const er=b.querySelector('#co_err');
       if(!blobs.length){er.textContent=L('صوّر صورة واحدة على الأقل من الموقع بالكاميرا','Take at least one photo with the camera');return}
@@ -8910,8 +8911,9 @@ checkoutForm=function(v){
       const btn=e.submitter||b.querySelector('#coform .p');btn.disabled=true;er.textContent='';
       try{const photos=[];for(const x of blobs)photos.push(await storePhoto(x));
         const co=auto?v.checkOut:{t:new Date().toISOString(),lat:g?g.lat:'',lng:g?g.lng:'',acc:g?g.acc:null,src:g?'gps':'none',dist:g?distM(g,c):null};
-        await save('visits',{...v,photos,photoSrc:'camera',result:res,effective:b.querySelector('#co_eff').checked,notes,nextStep:b.querySelector('#co_next').value.trim(),nextDate:b.querySelector('#co_nd').value,checkOut:co,completedAt:new Date().toISOString(),status:'done'},{action:'checkout'});
-        closeModal();toast(L('تم تسجيل الزيارة','Visit saved'))}catch(err){btn.disabled=false;er.textContent=err.message||String(err)}});
+        const vq=typeof vqCollect==='function'?vqCollect(b):{};if(vq.__err){btn.disabled=false;er.textContent=vq.__err;return}
+        await save('visits',{...v,...vq,photoMeta:metas,photos,photoSrc:'camera',result:res,effective:b.querySelector('#co_eff').checked,notes,nextStep:b.querySelector('#co_next').value.trim(),nextDate:b.querySelector('#co_nd').value,checkOut:co,completedAt:new Date().toISOString(),status:'done'},{action:'checkout'});
+        closeModal();toast(L('تم تسجيل الزيارة','Visit saved'));if(typeof vqAfterSave==='function')vqAfterSave(v.id)}catch(err){btn.disabled=false;er.textContent=err.message||String(err)}});
   }});
 };
 
@@ -9059,5 +9061,120 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
    D.nSp?`<div class="kpis k3">${kpiTile(L('قيمة المبيعات الخاصة','Special sales'),kxAmt(D.spV),L('قبل الضريبة','before VAT'))}${kpiTile(L('نسبتها من المبيعات','Share of sales'),kxP(D.lvAll?D.spV/D.lvAll*100:null),'')}${kpiTile(L('الأصناف الخاصة','Special items'),num(D.nSp),'')}</div>
     ${D.spBy.length?table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.code)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))}],D.spBy.map(x=>({...x,id:null}))):''}`
    :`<div class="empty">${L('ما فيه أصناف محددة كمنتج خاص. افتح الصنف من «الأصناف» وعلّم «منتج خاص».','No special items yet. Open an item in «Items» and tick «Special product».')}</div>`,'#8FC153')}`};
+
+/* ===== Visit quality (27/11) — per the analysis doc «تحليل نظام تقييم جودة الزيارات البيعية».
+   The score is computed by the database (trigger z_visit_quality) on every save of a completed visit; the app only collects
+   the facts, shows the score and its reasons, and lets a supervisor clear or reject a flagged visit (review). ===== */
+// purposes (visit types) — the doc's list added to the existing ones
+{const add=[['intro','زيارة تعريفية','Introduction'],['products','عرض منتجات','Product presentation'],['orderfu','متابعة طلب شراء','Purchase order follow-up'],
+  ['newproj','البحث عن مشروع جديد','Looking for a new project'],['winback','استعادة عميل متوقف','Win back a stopped customer']];
+ const oi=VISIT_TYPES.findIndex(x=>x[0]==='other');add.forEach(a=>{if(!VISIT_TYPES.some(x=>x[0]===a[0]))VISIT_TYPES.splice(oi<0?VISIT_TYPES.length:oi,0,a)})}
+const VQ_CRIT={prep:[()=>L('التحضير للزيارة','Preparation'),10],inter:[()=>L('التفاعل مع العميل','Interaction'),10],need:[()=>L('تحديد احتياجات العميل','Needs'),20],
+  show:[()=>L('عرض المنتجات والحلول','Products shown'),15],opp:[()=>L('اكتشاف الفرص البيعية','Opportunities'),20],fu:[()=>L('خطة المتابعة','Follow-up'),10],doc:[()=>L('جودة التوثيق','Documentation'),15]};
+const VQ_STATE={valid:[()=>L('صحيحة','Valid'),'ok'],flagged:[()=>L('معلّمة — تنتظر المشرف','Flagged — awaiting supervisor'),'warn'],invalid:[()=>L('غير صحيحة','Invalid'),'bad']};
+const VQ_STAGE=[['interest','اهتمام','Interest'],['quote','عرض سعر','Quotation'],['nego','تفاوض','Negotiation'],['order','أمر بيع','Sales order']];
+const VQ_OPPTYPE=[['new','طلب جديد','New demand'],['repeat','طلب متكرر','Repeat order'],['project','مشروع','Project'],['upsell','منتج إضافي','Additional product']];
+const vqTone=s=>s>=90?'ok':s>=70?'info':s>=60?'warn':'bad';
+function vqBadge(v,big){const q=v&&v.q;if(!q||q.score==null)return '';const st=VQ_STATE[q.state]||VQ_STATE.valid;
+  return `<button type="button" class="pill ${vqTone(+q.score)}" data-act="vqShow" data-id="${esc(v.id)}" title="${L('تفاصيل التقييم','Score details')}" style="cursor:pointer;border:0;${big?'font-size:15px;padding:6px 12px':''}">⭐ ${num(q.score)}/100 · ${esc(q.grade||'')}${q.state!=='valid'?' · '+st[0]():''}</button>`}
+/* ---- extra fields in the «complete visit» form ---- */
+function vqFields(v,c){const its=(S.items||[]).filter(i=>i.active!==false);const dl=`<datalist id="vq_items">${its.slice(0,3000).map(i=>`<option value="${esc(i.code)}">${esc(i.name||'')}</option>`).join('')}</datalist>`;
+  const prj=(S.projects||[]).filter(p=>p.clientId===v.clientId);const m=v.met||{},n=v.need||{},o=v.opp||{},cp=v.comp||{};const ni=(n.items||[]).concat([{},{}]).slice(0,3);
+  const qs=(S.quotes||[]).filter(q=>q.clientId===v.clientId).slice(-20),os=(S.orders||[]).filter(x=>x.clientId===v.clientId).slice(-20);
+  const comps=((S.settings||[]).find(x=>x.id==='competitors')||{}).list||[];
+  const sel=(id,opts,val,ph)=>`<select id="${id}"><option value="">${ph||'—'}</option>${opts.map(([k,a,e])=>`<option value="${esc(k)}" ${val===k?'selected':''}>${esc(L(a,e||a))}</option>`).join('')}</select>`;
+  const sec=(t,body,open)=>`<details class="vq-sec" ${open?'open':''} style="border:1px solid var(--line,#D3DBE6);border-radius:10px;padding:6px 10px;margin:6px 0"><summary style="font-weight:800;cursor:pointer;min-height:36px;display:flex;align-items:center">${t}</summary><div class="fgrid">${body}</div></details>`;
+  const f=(lab,inp,full)=>`<div class="fld ${full?'full':''}"><label>${lab}</label>${inp}</div>`;
+  return `${dl}<datalist id="vq_comp">${comps.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
+  <div class="small muted" style="margin:6px 0">${L('الحقول التالية ترفع تقييم جودة الزيارة — النقاط تنحسب من البيانات نفسها، مو من مجرد التعبئة.','These fields raise the visit quality score — points come from the facts, not from filling boxes.')}</div>
+  ${sec(L('هدف الزيارة والشخص المقابل','Purpose and person met'),
+    f(L('هدف الزيارة','Purpose'),sel('vq_type',VISIT_TYPES,v.vtype||''))+f(L('اسم الشخص المقابل','Person met'),`<input id="vq_mname" value="${esc(m.name||'')}">`)
+    +f(L('صفته الوظيفية','Job title'),`<input id="vq_mtitle" value="${esc(m.title||'')}">`)+f(L('جواله','Mobile'),`<input id="vq_mphone" inputmode="tel" dir="ltr" value="${esc(m.phone||'')}">`)
+    +`<div class="fld"><div class="chk"><label><input type="checkbox" id="vq_dm" ${m.dm?'checked':''}> ${L('صاحب القرار','Decision maker')}</label></div></div>`,true)}
+  ${sec(L('احتياج العميل والمنافس','Needs and competitor'),
+    f(L('المشروع','Project'),`<select id="vq_proj"><option value="">${L('— مشروع جديد / بدون —','— new / none —')}</option>${prj.map(p=>`<option value="${esc(p.id)}" ${n.projectId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`)
+    +f(L('اسم مشروع جديد','New project name'),`<input id="vq_pname" value="${esc(n.project||'')}">`)+f(L('موقع المشروع','Project site'),`<input id="vq_site" value="${esc(n.site||'')}">`)
+    +ni.map((x,i)=>f(L('صنف مطلوب ','Item needed ')+(i+1),`<div style="display:flex;gap:6px"><input id="vq_ni${i}" list="vq_items" dir="ltr" placeholder="${L('كود الصنف','Item code')}" value="${esc(x.code||'')}" style="flex:2"><input id="vq_nq${i}" inputmode="decimal" placeholder="${L('الكمية','Qty')}" value="${esc(x.qty||'')}" style="flex:1"></div>`)).join('')
+    +f(L('المواصفات','Specs'),`<input id="vq_specs" value="${esc(n.specs||'')}">`)+f(L('موعد التوريد المتوقع','Expected delivery'),`<input id="vq_deliv" type="date" value="${esc(n.deliv||'')}">`)
+    +f(L('المنافس الحالي','Current competitor'),`<input id="vq_comp" list="vq_comp" value="${esc(cp.name||'')}">`)+f(L('سعر المنافس (إن توفر)','Competitor price'),`<input id="vq_cprice" inputmode="decimal" value="${esc(cp.price||'')}">`))}
+  ${sec(L('المنتجات المعروضة','Products shown'),f(L('أكواد الأصناف المعروضة (افصل بفاصلة)','Item codes shown (comma separated)'),`<input id="vq_shown" list="vq_items" dir="ltr" value="${esc((v.shown||[]).join(', '))}">`,true))}
+  ${sec(L('الفرصة البيعية','Sales opportunity'),
+    f(L('نوع الفرصة','Type'),sel('vq_otype',VQ_OPPTYPE,o.type||''))+f(L('المنتج','Product'),`<input id="vq_oitem" list="vq_items" dir="ltr" value="${esc(o.item||'')}">`)
+    +f(L('الكمية','Quantity'),`<input id="vq_oqty" inputmode="decimal" value="${esc(o.qty||'')}">`)+f(L('القيمة التقديرية (ر.س)','Est. value (SAR)'),`<input id="vq_oval" inputmode="decimal" value="${esc(o.value||'')}">`)
+    +f(L('المرحلة','Stage'),sel('vq_ostage',VQ_STAGE,o.stage||''))+f(L('احتمالية الإتمام %','Probability %'),`<input id="vq_oprob" inputmode="decimal" value="${esc(o.prob||'')}">`)
+    +f(L('موعد الإغلاق المتوقع','Expected close'),`<input id="vq_oclose" type="date" value="${esc(o.close||'')}">`)
+    +f(L('عرض السعر المرتبط','Linked quotation'),`<select id="vq_oq"><option value="">—</option>${qs.map(q=>`<option ${o.quoteNo===q.no?'selected':''}>${esc(q.no||'')}</option>`).join('')}</select>`)
+    +f(L('أمر البيع المرتبط','Linked sales order'),`<select id="vq_oo"><option value="">—</option>${os.map(x=>`<option ${o.orderNo===x.no?'selected':''}>${esc(x.no||'')}</option>`).join('')}</select>`))}
+  ${sec(L('مسؤول المتابعة','Follow-up owner'),f(L('المسؤول عن الإجراء القادم','Owner of the next step'),`<select id="vq_owner">${S.team.filter(t=>t.active!==false).map(t=>`<option value="${esc(t.id)}" ${(v.nextOwner||v.repId)===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}</select>`))}`}
+function vqCollect(b){const g=id=>{const e=b.querySelector('#'+id);return e?String(e.value||'').trim():''};const nz=x=>x===''?'':(isNaN(+x.replace(/,/g,''))?x:+x.replace(/,/g,''));
+  const items=[0,1,2].map(i=>({code:g('vq_ni'+i),qty:nz(g('vq_nq'+i))})).filter(x=>x.code);
+  const opp={type:g('vq_otype'),item:g('vq_oitem'),qty:nz(g('vq_oqty')),value:nz(g('vq_oval')),stage:g('vq_ostage'),prob:nz(g('vq_oprob')),close:g('vq_oclose'),quoteNo:g('vq_oq'),orderNo:g('vq_oo')};
+  const hasOpp=Object.values(opp).some(x=>x!=='');const pr=+opp.prob;if(hasOpp&&opp.prob!==''&&(isNaN(pr)||pr<0||pr>100))return {__err:L('احتمالية الإتمام بين 0 و 100','Probability must be 0–100')};
+  return {vtype:g('vq_type')||undefined,met:{name:g('vq_mname'),title:g('vq_mtitle'),phone:g('vq_mphone'),dm:!!b.querySelector('#vq_dm')?.checked},
+    need:{projectId:g('vq_proj'),project:g('vq_pname'),site:g('vq_site'),items,specs:g('vq_specs'),deliv:g('vq_deliv')},comp:{name:g('vq_comp'),price:nz(g('vq_cprice'))},
+    shown:g('vq_shown').split(/[,،\s]+/).map(x=>x.trim()).filter(Boolean),opp:hasOpp?opp:{},nextOwner:g('vq_owner')}}
+/* after saving: read the score the database computed and show it */
+async function vqAfterSave(id){if(typeof __sb==='undefined')return;try{await new Promise(r=>setTimeout(r,700));
+  const {data}=await __sb.from('crm_store').select('data').eq('col','visits').eq('id',id).single();if(!data||!data.data)return;
+  const loc=byId('visits',id);if(loc)Object.assign(loc,{q:data.data.q});if(data.data.q)vqShow(id);render()}catch(e){console.warn('vq',e)}}
+function vqShow(id){const v=byId('visits',id);const q=v&&v.q;if(!q)return toast(L('ما انحسب تقييم لهذي الزيارة بعد','No score yet for this visit'));
+  const c=byId('clients',v.clientId);const by={};(q.items||[]).forEach(x=>(by[x.c]=by[x.c]||[]).push(x));const st=VQ_STATE[q.state]||VQ_STATE.valid;
+  const lead=isLead()||role()==='sup';const rv=v.review;
+  openModal(L('تقييم جودة الزيارة','Visit quality score'),`<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:40px;font-weight:800" class="${vqTone(+q.score)==='bad'?'flag':''}">${num(q.score)}<span class="small muted">/100</span></div>
+     <div><b>${esc(q.grade||'')}</b> ${pill(st[0](),st[1])}<div class="small muted">${esc(c?.name||'')} · ${fdate(v.date)} · ${esc(tName(v.repId))} · ${L('المعادلة إصدار','formula v')}${q.ver}</div></div></div>
+   ${(q.flags||[]).length?`<div class="banner warn"><span class="sp">${(q.flags||[]).map(f=>esc(f.m)).join(' · ')}</span></div>`:''}
+   ${rv?`<div class="small">${L('مراجعة المشرف','Supervisor review')}: <b>${rv.decision==='ok'?L('اعتمدها','approved'):L('رفضها','rejected')}</b> — ${esc(tName(rv.by)||'')} ${rv.reason?'· '+esc(rv.reason):''}</div>`:''}
+   <div class="tw"><table><thead><tr><th>${L('المعيار / العنصر','Criterion / item')}</th><th class="n">${L('النقاط','Points')}</th><th>${L('السبب','Reason')}</th></tr></thead><tbody>
+   ${Object.keys(VQ_CRIT).map(k=>{const its=by[k]||[];const got=its.reduce((s,x)=>s+(+x.pts||0),0);return `<tr class="kx-grp"><td><b>${VQ_CRIT[k][0]()}</b></td><td class="n"><b>${got}/${VQ_CRIT[k][1]}</b></td><td></td></tr>`
+     +its.map(x=>`<tr><td style="padding-inline-start:18px">${x.pts>=x.max?'✓':'✕'} ${esc(VQ_ITEM[x.k]?VQ_ITEM[x.k]():x.k)}</td><td class="n ${x.pts<x.max?'flag':''}">${x.pts}/${x.max}</td><td class="small">${esc(x.why||'')}</td></tr>`).join('')}).join('')}
+   </tbody></table></div>
+   <p class="small muted">${L('الدرجة تنحسب تلقائياً في السيرفر من بيانات الزيارة، وما أحد يقدر يعدلها يدوياً. جودة الزيارة منفصلة عن نتيجة البيع.','Computed automatically on the server; nobody can edit it. Quality is separate from the sale outcome.')}</p>
+   ${lead&&q.state!=='valid'||lead&&rv?`<div class="formbar"><input id="vq_rr" placeholder="${L('سبب القرار','Reason')}" style="flex:1" value="${esc(rv?.reason||'')}"><button class="btn d" data-act="vqReview" data-id="${esc(v.id)}" data-v="reject">${L('رفض الزيارة','Reject')}</button><button class="btn p" data-act="vqReview" data-id="${esc(v.id)}" data-v="ok">${L('اعتماد الزيارة','Approve')}</button></div>`:''}`)}
+const VQ_ITEM={planned:()=>L('مخططة مسبقاً','Planned in advance'),purpose:()=>L('الهدف محدد','Purpose set'),met:()=>L('الشخص المقابل وصفته','Person met'),dm:()=>L('صاحب القرار','Decision maker'),
+  stay:()=>L('مدة الحضور','Time on site'),project:()=>L('المشروع','Project'),items:()=>L('المنتجات والكميات','Items and quantities'),specs:()=>L('المواصفات وموعد التوريد','Specs and delivery'),
+  comp:()=>L('المنافس','Competitor'),shown:()=>L('منتجات معروضة','Products shown'),match:()=>L('تطابق المعروض مع الاحتياج','Shown matches need'),opp:()=>L('فرصة موثقة','Documented opportunity'),
+  value:()=>L('القيمة وموعد الإغلاق','Value and close date'),sap:()=>L('مربوطة بمستند ساب','Linked to SAP document'),next:()=>L('إجراء قادم وتاريخ','Next step and date'),owner:()=>L('مسؤول المتابعة','Follow-up owner'),
+  photo:()=>L('صور في الموقع','On-site photos'),notes:()=>L('ملاحظات واضحة','Clear notes'),gps:()=>L('موقع الدخول والخروج','Check-in/out location')};
+async function vqReview(id,dec){const v=byId('visits',id);if(!v)return;const reason=(document.getElementById('vq_rr')||{}).value||'';
+  if(dec==='reject'&&!reason.trim())return toast(L('اكتب سبب الرفض','Enter the reason'));
+  await save('visits',{...v,review:{decision:dec,reason:reason.trim()}},{action:'visit_review'});closeModal();toast(L('تم حفظ المراجعة','Review saved'));vqAfterSave(id)}
+Object.assign(ACT,{vqShow:d=>vqShow(d.id),vqReview:d=>vqReview(d.id,d.v)});
+/* score badge on visit rows and on the visit card */
+{const _vr=visitRow;visitRow=function(v){let h=_vr(v);const b=vqBadge(v);return b?h.replace('<div class="main"><div class="t">',`<div class="main"><div class="t">${b} `):h}}
+{const _ov=OPEN.visit;OPEN.visit=(id,refresh)=>{_ov(id,refresh);const v=byId('visits',id);const mb=document.getElementById('mbody');if(!v||!mb||!v.q)return;
+  const d=document.createElement('div');d.className='card';d.innerHTML=`<h2>${L('جودة الزيارة','Visit quality')}</h2>${vqBadge(v,true)}${(v.q.flags||[]).length?`<div class="small flag" style="margin-top:6px">${(v.q.flags||[]).map(f=>esc(f.m)).join(' · ')}</div>`:''}`;mb.prepend(d)}}
+
+/* ---- report «جودة الزيارات» ---- */
+{const a=NAV.findIndex(n=>n[0]==='kpix'||n[0]==='itemrep');NAV.splice(a<0?NAV.length:a,0,['vquality','star',()=>L('جودة الزيارات','Visit quality'),()=>wadyLvl('crm','reports')>=1||wadyLvl('crm','kpis')>=1]);
+ if(window.REPORT_ROUTES&&!REPORT_ROUTES.includes('vquality'))REPORT_ROUTES.push('vquality');if((location.hash||'').slice(1)==='vquality'){route='vquality';setTimeout(render,0)}}
+function vqTarget(){return +(((S.settings||[]).find(x=>x.id==='visitRules')||{}).dailyTarget)||5}
+V.vquality=()=>{const t=TODAY();const f=fv('vqF',t.slice(0,8)+'01'),to=fv('vqT',t);const reps=visibleReps().filter(r=>r.role==='rep'||r.role==='sup');
+  const sel=role()==='rep'?'':`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="vqR">${opt(rptRepOpts(reps),fv('vqR',''),L('الكل','All'))}</select></label>`;
+  const rid=role()==='rep'?me().id:fv('vqR','');const inR=id=>rid?rptMatch(id,rid):reps.some(r=>r.id===id);
+  const vs=vis(S.visits).filter(v=>v.date>=f&&v.date<=to&&inR(v.repId));const done=vs.filter(v=>v.status==='done');
+  const by=new Map();const g=k=>{let o=by.get(k);if(!o){o={k,name:rptName(k),plan:0,done:0,valid:0,flag:0,inv:0,sum:0,n:0,exc:0,opp:0,oppV:0,days:new Map()};by.set(k,o)}return o};
+  vs.forEach(v=>{const o=g(rptKey(v.repId));if(v.planned)o.plan++;if(v.status!=='done')return;o.done++;o.days.set(v.date,(o.days.get(v.date)||0)+1);const q=v.q||{};
+    if(q.state==='invalid')o.inv++;else if(q.state==='flagged')o.flag++;else if(q.score!=null){o.valid++;o.sum+=+q.score;o.n++;if(+q.score>=90)o.exc++}
+    if(v.opp&&v.opp.item){o.opp++;o.oppV+=+v.opp.value||0}});
+  const rows=[...by.values()].map(o=>({...o,avg:o.n?o.sum/o.n:null,hit:[...o.days.values()].filter(n=>n>=vqTarget()).length,dn:o.days.size})).sort((a,b)=>(b.avg??-1)-(a.avg??-1));
+  const T=rows.reduce((a,o)=>{['plan','done','valid','flag','inv','sum','n','exc','opp','oppV'].forEach(k=>a[k]+=o[k]);return a},{plan:0,done:0,valid:0,flag:0,inv:0,sum:0,n:0,exc:0,opp:0,oppV:0});
+  const pend=done.filter(v=>v.q&&v.q.state==='flagged').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const fu=vis(S.visits).filter(v=>inR(v.repId)&&v.nextDate&&v.nextDate<t&&!(S.visits||[]).some(x=>x.clientId===v.clientId&&x.date>=v.nextDate&&x.id!==v.id));
+  return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" data-act="filtSel" data-k="vqF" value="${f}"></label><label class="fl">${L('إلى','To')}<input type="date" data-act="filtSel" data-k="vqT" value="${to}"></label>${sel}</div>
+  <div class="kpis k5">${kpiTile(L('متوسط جودة الزيارات','Average quality'),T.n?num(Math.round(T.sum/T.n))+'/100':'—',`${num(T.n)} ${L('زيارة صحيحة مقيّمة','valid scored visits')}`)}
+   ${kpiTile(L('المنفذة / المخططة','Done / planned'),`${num(T.done)} / ${num(T.plan)}`,'')}${kpiTile(L('معلّمة تنتظر المشرف','Flagged'),num(T.flag),`${num(T.inv)} ${L('غير صحيحة','invalid')}`)}
+   ${kpiTile(L('زيارات ممتازة (90+)','Excellent (90+)'),num(T.exc),'')}${kpiTile(L('فرص جديدة','New opportunities'),num(T.opp),T.oppV?`${L('قيمتها','worth')} ${smoney(T.oppV)}`:'')}</div>
+  <div class="card"><h2>${L('ترتيب المندوبين حسب جودة الزيارة','Reps ranked by visit quality')}<span class="sub">${L('المتوسط من الزيارات الصحيحة فقط — المعلّمة ما تدخل إلا بعد اعتماد المشرف','Average of valid visits only')}</span></h2>${table([
+   {l:'#',c:'n',f:x=>num(rows.indexOf(x)+1)},{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.name)}</b>`},{l:L('متوسط الجودة','Avg quality'),c:'n',f:x=>x.avg==null?'—':`<span class="pill ${vqTone(x.avg)}">${num(Math.round(x.avg))}</span>`},
+   {l:L('مخططة','Planned'),c:'n',f:x=>num(x.plan)},{l:L('منفذة','Done'),c:'n',f:x=>num(x.done)},{l:L('صحيحة','Valid'),c:'n',f:x=>num(x.valid)},{l:L('معلّمة','Flagged'),c:'n',f:x=>x.flag?`<span class="flag">${num(x.flag)}</span>`:'0'},
+   {l:L('غير صحيحة','Invalid'),c:'n',f:x=>num(x.inv)},{l:L('ممتازة','Excellent'),c:'n',f:x=>num(x.exc)},{l:L('فرص','Opps'),c:'n',f:x=>num(x.opp)},{l:L('قيمة الفرص','Opp value'),c:'n',f:x=>num(Math.round(x.oppV))},
+   {l:L(`أيام حقق فيها ${vqTarget()} زيارات`,`Days with ${vqTarget()}+ visits`),c:'n',f:x=>`${num(x.hit)} / ${num(x.dn)}`}],rows.map(x=>({...x,id:null})),null,{empty:L('ما فيه زيارات في الفترة','No visits in the period')})}</div>
+  <div class="card"><h2>${L('زيارات تنتظر مراجعة المشرف','Visits awaiting supervisor review')}<span class="sub">${num(pend.length)}</span></h2>${table([
+   {l:L('التاريخ','Date'),c:'nw',f:v=>fdate(v.date)},{l:L('المندوب','Rep'),f:v=>esc(tName(v.repId))},{l:L('العميل','Customer'),f:v=>esc(byId('clients',v.clientId)?.name||'—')},
+   {l:L('الدرجة','Score'),f:v=>vqBadge(v)},{l:L('السبب','Reason'),f:v=>`<span class="small">${(v.q.flags||[]).map(x=>esc(x.m)).join(' · ')}</span>`}],pend.slice(0,200),null,{empty:L('ما فيه زيارات معلّمة','Nothing flagged')})}</div>
+  <div class="card"><h2>${L('متابعات متأخرة','Overdue follow-ups')}<span class="sub">${num(fu.length)}</span></h2>${table([
+   {l:L('موعد المتابعة','Due'),c:'nw',f:v=>`<span class="flag">${fdate(v.nextDate)}</span>`},{l:L('العميل','Customer'),f:v=>esc(byId('clients',v.clientId)?.name||'—')},{l:L('الإجراء','Next step'),f:v=>esc(v.nextStep||'—')},
+   {l:L('المسؤول','Owner'),f:v=>esc(tName(v.nextOwner||v.repId))}],fu.sort((a,b)=>a.nextDate.localeCompare(b.nextDate)).slice(0,200),null,{empty:L('ما فيه متابعات متأخرة','None overdue')})}</div>
+  <p class="small muted">${L('التقييم من 100 حسب الدليل المعتمد: التحضير 10، التفاعل 10، الاحتياج 20، عرض المنتجات 15، الفرص 20، المتابعة 10، التوثيق 15. اضغط على أي درجة لتفاصيلها.','Scored per the approved guide; tap a score for details.')}</p>`};
 </script>
 <script src="wady-back.js"></script></body></html>
