@@ -3462,7 +3462,9 @@ function kpiData(P){const ms=monthsIn(P.from,P.to);const span=ms.length;const pr
   firstPayData({},P).custs.forEach(c=>{const o=get(c.rep);if(!o)return;o.nc++;o.ncAmt+=c.tot;o.custs.push(c)});
   I().coll.forEach(r=>{if(r.d<P.from||r.d>P.to)return;const o=get(r.rep);if(o)o.coll+=r.amt});
   R.forEach(o=>{ms.forEach(m=>{const t=tgOf(m,o.id);o.ncT+=+t.newCust||0;o.collT+=+t.coll||0})});
-  const rows=[...R.values()];const sum=(arr,name,id)=>arr.reduce((a,o)=>{['sales','lv','lvAmt','prev','nc','ncAmt','ncT','coll','collT'].forEach(k=>a[k]+=o[k]);a.custs=a.custs.concat(o.custs);return a},{id,name,sales:0,lv:0,lvAmt:0,prev:0,nc:0,ncAmt:0,ncT:0,coll:0,collT:0,custs:[]});
+  let rows=[...R.values()];const sum=(arr,name,id)=>arr.reduce((a,o)=>{['sales','lv','lvAmt','prev','nc','ncAmt','ncT','coll','collT'].forEach(k=>a[k]+=o[k]);a.custs=a.custs.concat(o.custs);return a},{id,name,sales:0,lv:0,lvAmt:0,prev:0,nc:0,ncAmt:0,ncT:0,coll:0,collT:0,custs:[]});
+  // reception-desk reps shown as one line «مكتب الاستقبال» (25/11)
+  {const off=rows.filter(o=>sgIsOffice(o.id));if(off.length>1){const m=sum(off,rptName(SG_OFFICE),SG_OFFICE);m.grp=off[0].grp;rows=rows.filter(o=>!sgIsOffice(o.id)).concat(m)}}
   const groups=[...new Set(rows.map(o=>o.grp))].map(g=>({g,name:g?tName(g):L('بدون مشرف','No supervisor'),reps:rows.filter(o=>o.grp===g).sort((a,b)=>b.sales-a.sales||b.coll-a.coll)})).map(x=>({...x,tot:sum(x.reps,x.name,'g:'+x.g)}));
   return {ms,prevFrom,prevTo,groups,total:sum(rows,L('الإجمالي','Total'),'all'),hasSales:(KX.sales||[]).length>0}}
 const disc=o=>o.lv>0?1-o.lvAmt/o.lv:null;
@@ -3721,14 +3723,48 @@ async function arLog(key,msg){const o=agData({min:AG_MIN}).rows.find(x=>x.key===
   try{await save('comms',{id:uid('cm-'),clientId:o.id,repId:o.repId||me().id,channel:'whatsapp',dir:'out',at:new Date().toISOString(),summary:L('تذكير بالسداد: ','Payment reminder: ')+money(o.od),remind:true,needsReply:false},{silent:true})}catch(e){console.warn(e)}}
 const lastRemind=id=>S.comms.filter(c=>c.clientId===id&&c.remind).map(c=>c.at).sort().pop();
 
+/* ---- report groups (25/11): Makkah → Jeddah → Sales office. A rep's group is his region, else his supervisor's.
+   The reception-desk reps (everyone in the «office» region: Osama, Ziad, Islam) show in reports as one line «مكتب الاستقبال». ---- */
+const SG_ORDER=['mak','jed','office'];const SG_OFFICE='__office';
+function sgRegion(id){const t=id?byId('team',id):null;if(!t)return '';return t.region||(t.supId&&byId('team',t.supId)?.region)||''}
+const sgIsOffice=id=>!!id&&sgRegion(id)==='office';
+const rptKey=id=>sgIsOffice(id)?SG_OFFICE:(id||'');
+const rptName=k=>k===SG_OFFICE?L('مكتب الاستقبال','Reception desk'):k?tName(k):L('بدون مندوب','Unassigned');
+const sgName=g=>{const r=REGIONS.find(x=>x.id===g);return r?L(r.ar,r.en):g?g:L('غير موزعين على مجموعة','No group')};
+const rptMatch=(id,k)=>!k||(k===SG_OFFICE?sgIsOffice(id):id===k);
+// rep options for report filters: office reps folded into one entry
+const rptRepOpts=reps=>{const o=[];let off=false;reps.forEach(r=>{if(sgIsOffice(r.id)){if(!off){off=true;o.push([SG_OFFICE,rptName(SG_OFFICE)])}}else o.push([r.id,r.name])});return o};
+// aging rows → groups → reps (office merged) → customers, with sums at each level
+function agGroups(rows){const K=['cur','b30','b60','b90','b90p','tot','lim'];const z=()=>Object.fromEntries(K.map(k=>[k,0]));const add=(a,o)=>{K.forEach(k=>a[k]+=+o[k]||0)};
+  const G=new Map();rows.forEach(o=>{const g=sgRegion(o.repId);const rk=rptKey(o.repId);let gg=G.get(g);if(!gg){gg={g,name:sgName(g),reps:new Map(),sum:z()};G.set(g,gg)}
+    let r=gg.reps.get(rk);if(!r){r={k:rk,name:rptName(rk),rows:[],sum:z()};gg.reps.set(rk,r)}r.rows.push(o);add(r.sum,o);add(gg.sum,o)});
+  const ord=g=>{const i=SG_ORDER.indexOf(g);return i<0?99:i};
+  const groups=[...G.values()].sort((a,b)=>ord(a.g)-ord(b.g)||a.name.localeCompare(b.name,'ar')).map(g=>({...g,reps:[...g.reps.values()].sort((a,b)=>b.sum.tot-a.sum.tot).map(r=>({...r,rows:r.rows.sort((a,b)=>b.tot-a.tot)}))}));
+  const all=z();groups.forEach(g=>add(all,g.sum));return {groups,all,three:groups.every(g=>SG_ORDER.includes(g.g))}}
+// the customers table, grouped (25/11): group → rep → customers → rep total → group total → total of all groups
+function agGroupTable(rows,print){const G=agGroups(rows);const nb=AG_B.length;const ncol=nb+3+(print?0:1);
+  const cells=(o,b)=>AG_B.map(([k])=>`<td class="n">${o[k]?(b?`<b>${num(Math.round(o[k]))}</b>`:`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`):'<span class="muted">—</span>'}</td>`).join('')
+    +`<td class="n"><b>${num(Math.round(o.tot))}</b></td><td class="n">${o.lim?num(Math.round(o.lim)):'<span class="muted">—</span>'}</td>`;
+  const sumRow=(lab,o,cls,st)=>`<tr class="${cls}"><td${st?` style="${st}"`:''}><b>${esc(lab)}</b></td>${cells(o,true)}${print?'':'<td></td>'}</tr>`;
+  const cust=o=>`<tr><td style="padding-inline-start:18px">${o.id&&!print?`<a href="#" data-open="client" data-id="${o.id}">${esc(o.name)}</a>`:esc(o.name)} <span class="small muted"><bdi dir="ltr">${esc(o.code||'')}</bdi></span></td>${AG_B.map(([k])=>`<td class="n">${o[k]?`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`:'<span class="muted">—</span>'}</td>`).join('')}
+    <td class="n"><b>${num(Math.round(o.tot))}</b></td><td class="n">${o.lim?`${num(o.lim)}${o.over?` <span class="flag small">${Math.round(o.use*100)}%</span>`:''}`:'<span class="muted">—</span>'}</td>
+    ${print?'':`<td class="nw">${o.od>0?`<button class="btn s" data-act="arRemind" data-k="${esc(o.key)}">${L('تذكير','Remind')}</button>`:''}</td>`}</tr>`;
+  const sub='background:rgba(52,190,240,.10)';
+  const body=G.groups.map(g=>`<tr class="kx-grp"><td colspan="${ncol}">${esc(L('مجموعة ','Group: ')+g.name)}</td></tr>`+g.reps.map(r=>`<tr><td colspan="${ncol}" style="font-weight:800;color:#051D48;padding-top:8px">${esc(r.name)} <span class="small muted">(${num(r.rows.length)} ${L('عميل','customers')})</span></td></tr>`
+      +r.rows.map(cust).join('')+sumRow(L('مجموع ','Total ')+r.name,r.sum,'',sub)).join('')+sumRow(L('مجموع عملاء مجموعة ','Total group ')+g.name,g.sum,'kx-gt')).join('');
+  const lab=G.three?L('إجمالي الثلاث مجموعات','Total of the three groups'):L('إجمالي المجموعات','Total of all groups');
+  return `<div class="tw"><table class="kx-t"><thead><tr><th>${L('المجموعة / المندوب / العميل','Group / rep / customer')}</th>${AG_B.map(([,l])=>`<th class="n">${l()}</th>`).join('')}<th class="n">${L('الإجمالي','Total')}</th><th class="n">${L('حد الائتمان','Limit')}</th>${print?'':'<th></th>'}</tr></thead>
+    <tbody>${rows.length?body:`<tr><td colspan="${ncol}" class="empty">${L('لا توجد سجلات','No records')}</td></tr>`}</tbody>${rows.length?`<tfoot>${sumRow(lab,G.all,'')}</tfoot>`:''}</table></div>`}
+// «by rep» rows with the reception-desk reps folded into one line
+function agFoldReps(reps){const m=new Map();reps.forEach(r=>{const k=rptKey(r.id);const o=m.get(k);if(!o){m.set(k,{...r,id:k,name:rptName(k)});return}['n','tot','od','b90p','over'].forEach(f=>o[f]=(+o[f]||0)+(+r[f]||0))});return [...m.values()].sort((a,b)=>b.od-a.od)}
 /* --- the aging page --- */
 V.aging=()=>{
   const D=agData({min:AG_MIN});const rid=fv('agRep','');const fl=fv('agF','od');const q=normTxt(fv('agQ',''));
-  let rows=D.rows.filter(o=>(!rid||o.repId===rid)&&(fl==='all'||fl==='od'&&o.od>0||fl==='b90p'&&o.b90p>0||fl==='over'&&o.over)&&(!q||normTxt(o.name+' '+o.code).includes(q)));
+  let rows=D.rows.filter(o=>rptMatch(o.repId,rid)&&(fl==='all'||fl==='od'&&o.od>0||fl==='b90p'&&o.b90p>0||fl==='over'&&o.over)&&(!q||normTxt(o.name+' '+o.code).includes(q)));
   if(!D.rows.length&&!S.invoices.length)return `<div class="card empty"><h2>${L('أعمار الديون','AR aging')}</h2><p>${L('ما فيه فواتير للحين. ارفع ملف الفواتير (المفتوحة والمغلقة) من «مركز استيراد Excel» ← «الفواتير»: رقم الفاتورة، كود العميل، تاريخ الفاتورة، تاريخ الاستحقاق، قيمة الفاتورة. وبعدها ملف الإشعارات الدائنة. النظام يطرح التحصيل والإشعارات ويطلع الرصيد.','No invoices yet. Import all invoices, then credit notes; collections and credit notes are subtracted automatically.')}</p>${canImport()?`<button class="btn p" data-act="arGoImp">${L('رفع ملف الأرصدة','Import open invoices')}</button>`:''}</div>`;
   const reps=visibleReps();const t=TODAY();
   const bar=AG_B.map(([k,l],n)=>{const v=D.b[k];const w=D.tot>0?Math.max(0,v/D.tot*100):0;return w>0?`<i class="ag-${k}" style="width:${w}%" title="${l()}: ${money(v)}"></i>`:''}).join('');
-  let h=`<div class="toolbar"><select data-act="filtSel" data-k="agRep" aria-label="${L('المندوب','Rep')}">${opt(reps.map(r=>[r.id,r.name]),rid,L('كل المندوبين','All reps'))}</select>
+  let h=`<div class="toolbar"><select data-act="filtSel" data-k="agRep" aria-label="${L('المندوب','Rep')}">${opt(rptRepOpts(reps),rid,L('كل المندوبين','All reps'))}</select>
    <input type="search" placeholder="${L('بحث باسم أو كود العميل','Search customer')}" value="${esc(fv('agQ',''))}" data-act="agQ">
    ${[['od',L('المتأخر','Overdue')],['b90p',L('+90 يوم','90+')],['over',L('تجاوز الحد','Over limit')],['all',L('الكل','All')]].map(([k,l])=>`<button class="chip ${fl===k?'on':''}" data-act="filt" data-k="agF" data-v="${k}">${l}</button>`).join('')}
    <span class="grow"></span>${D.last?`<span class="small muted">${D.sap?L('آخر تحديث من ساب','Updated from SAP'):L('آخر رفع','Last import')}: ${fdt(D.last.at)}</span>`:''}<button class="btn s" data-act="arXlsx">Excel</button><button class="btn s" data-act="arPrint">${L('طباعة','Print')}</button>${canImport()&&!D.sap?`<button class="btn s" data-act="arGoImp">${L('رفع ملف جديد','New file')}</button>`:''}</div>
@@ -3736,30 +3772,20 @@ V.aging=()=>{
    ${kpiTile(L('أكثر من 90 يوم','90+ days'),smoney(D.b.b90p),`${D.rows.filter(o=>o.b90p>0).length} ${L('عميل','customers')}`)}${kpiTile(L('تجاوزوا حد الائتمان','Over credit limit'),num(D.over),D.rows.some(o=>o.lim>0)?'':L('ما فيه حدود ائتمان مسجلة','No limits on file'))}
    ${kpiTile(L('غير مستحق بعد','Not yet due'),smoney(D.b.cur))}</div>
   <div class="card"><h2>${L('توزيع المديونية حسب العمر','Aging distribution')}</h2><div class="ag-bar">${bar}</div><div class="ag-leg">${AG_B.map(([k,l])=>`<span><i class="ag-${k}"></i>${l()} <b>${smoney(D.b[k])}</b></span>`).join('')}</div></div>`;
-  if(isLead()&&!rid)h+=`<div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:r=>r.id?`<a href="#" data-act="filtSel2" data-k="agRep" data-v="${r.id}">${esc(r.name)}</a>`:esc(r.name)},{l:L('العملاء','Customers'),c:'n',f:r=>num(r.n)},{l:L('المديونية','Receivable'),c:'n',f:r=>money(r.tot)},{l:L('المتأخر','Overdue'),c:'n',f:r=>`<b>${money(r.od)}</b>`},{l:L('+90 يوم','90+'),c:'n',f:r=>r.b90p?`<span class="flag">${money(r.b90p)}</span>`:'—'},{l:L('تجاوز الحد','Over limit'),c:'n',f:r=>r.over||'—'}],D.reps.map(r=>({...r,id:r.id})))}</div>`;
-  const lim=fv('agLim',150);
-  h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)} · ${L('من الأكبر رصيداً للأصغر','largest balance first')}</span></h2>${D.small.n?`<div class="small muted" style="margin:-4px 0 8px">${L(`ما يظهر ${num(D.small.n)} عميل رصيدهم أقل من ${D.min} ريال (إجماليهم ${num(Math.round(D.small.tot))} ريال)، وما هم محسوبين في الأرقام فوق.`,`${num(D.small.n)} customers with balances under ${D.min} SAR (${num(Math.round(D.small.tot))} SAR in all) are left out of this report and its totals.`)}</div>`:''}${table([
-    {l:L('العميل','Customer'),f:o=>`${o.id?`<a href="#" data-open="client" data-id="${o.id}"><b>${esc(o.name)}</b></a>`:`<b>${esc(o.name)}</b> ${pill(L('غير مطابق','Unmatched'),'warn')}`}<div class="small muted">${esc(o.code||'')} · ${esc(o.repId?tName(o.repId):'—')}</div>`},
-    ...AG_B.map(([k,l])=>({l:l(),c:'n',f:o=>o[k]?`<span class="${k==='b90p'?'flag':''}">${num(Math.round(o[k]))}</span>`:'<span class="muted">—</span>'})),
-    {l:L('الإجمالي','Total'),c:'n',f:o=>`<b>${num(Math.round(o.tot))}</b>${o.cr?`<div class="small muted">${L('دائن غير مخصص','unapplied credit')} ${num(Math.round(o.cr))}</div>`:''}`},
-    {l:L('حد الائتمان','Limit'),c:'n',f:o=>o.lim?`${num(o.lim)}<div class="small ${o.over?'flag':'muted'}">${Math.round(o.use*100)}%</div>`:'<span class="muted">—</span>'},
-    {l:'',c:'nw',f:o=>{const lr=o.id?lastRemind(o.id):'';return o.od>0?`<button class="btn s" data-act="arRemind" data-k="${esc(o.key)}">${L('تذكير','Remind')}</button>${lr?`<div class="small muted">${L('آخر تذكير','last')} ${fdate(lr.slice(0,10))}</div>`:''}`:''}}],rows.slice(0,lim))}
-   ${rows.length>lim?`<button class="btn s" data-act="filt" data-k="agLim" data-v="${lim+300}">${L('عرض المزيد','Show more')} (${rows.length-lim})</button>`:''}</div>
+  if(isLead()&&!rid)h+=`<div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:r=>r.id?`<a href="#" data-act="filtSel2" data-k="agRep" data-v="${r.id}">${esc(r.name)}</a>`:esc(r.name)},{l:L('العملاء','Customers'),c:'n',f:r=>num(r.n)},{l:L('المديونية','Receivable'),c:'n',f:r=>money(r.tot)},{l:L('المتأخر','Overdue'),c:'n',f:r=>`<b>${money(r.od)}</b>`},{l:L('+90 يوم','90+'),c:'n',f:r=>r.b90p?`<span class="flag">${money(r.b90p)}</span>`:'—'},{l:L('تجاوز الحد','Over limit'),c:'n',f:r=>r.over||'—'}],agFoldReps(D.reps))}</div>`;
+  h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)} · ${L('من الأكبر رصيداً للأصغر','largest balance first')}</span></h2>${D.small.n?`<div class="small muted" style="margin:-4px 0 8px">${L(`ما يظهر ${num(D.small.n)} عميل رصيدهم أقل من ${D.min} ريال (إجماليهم ${num(Math.round(D.small.tot))} ريال)، وما هم محسوبين في الأرقام فوق.`,`${num(D.small.n)} customers with balances under ${D.min} SAR (${num(Math.round(D.small.tot))} SAR in all) are left out of this report and its totals.`)}</div>`:''}${agGroupTable(rows)}</div>
   ${D.sap?`<div class="card small"><b>${L('طريقة الحساب','How balances are worked out')}</b><br>${L('الأرقام من ساب مباشرة وتتحدث كل نص ساعة. رصيد كل عميل في ساب يتوزع على أحدث حركاته المدينة (الفواتير والأرصدة الافتتاحية والقيود المدينة)، يعني كل سداد أو إشعار دائن ينخصم من أقدم دين أول. الفواتير الملغاة والقيود المعكوسة ما تدخل. العمر من تاريخ الاستحقاق في ساب. الحركات الأقدم من سنتين تظهر في سطر «رصيد سابق».','Read from SAP every 30 minutes. Each customer\'s SAP balance is laid on his newest debits, i.e. payments and credit notes settle the oldest debt first. Cancelled invoices and reversed entries are excluded. Age counts from the SAP due date. Debits older than two years show as one «previous balance» line.')}</div>`:`<div class="card small"><b>${L('طريقة الحساب','How balances are worked out')}</b><br>${L('رصيد الفاتورة = قيمتها ناقص المسدد. لو الملف ما فيه عمود «المسدد» أو «الرصيد المتبقي»، النظام يطرح دفعات التحصيل المستوردة والإشعارات الدائنة لكل عميل: أولاً على الفاتورة المذكورة في السند أو الإشعار، والباقي على الأقدم فالأقدم. أي دفعة تزيد عن الفواتير تظهر «دائن غير مخصص».','Invoice balance = amount − paid. Without a paid/balance column, collections and credit notes are applied per customer: first to the invoice they name, then oldest first.')}
    <br>${L('العمر يُحسب من تاريخ الاستحقاق؛ لو ما فيه، من تاريخ الفاتورة + مدة سداد العميل؛ ولو ما فيه، من تاريخ الفاتورة.','Age counts from the due date; else invoice date + customer terms; else invoice date.')}
    ${(()=>{const A=arAlloc();return A.start?`<div style="margin-top:6px">${L('الدفعات والإشعارات المحسوبة من تاريخ','Payments and credit notes counted from')} <b>${fdate(A.start)}</b>${isLead()?` <input type="date" value="${A.start}" data-act="arStart" aria-label="${L('بداية الحساب','Start date')}" style="width:auto"> <span class="muted">${L('(تلقائياً أقدم فاتورة في الملف — غيّره لو ملف الفواتير يبدأ بعد أول الدفعات)','(defaults to the oldest invoice)')}</span>`:''}</div>`:''})()}</div>`}`;
   return h;
 };
 function arXlsx(){if(!xlsxOk())return;const D=agData({min:AG_MIN});const H=[L('كود العميل','Code'),L('العميل','Customer'),L('المندوب','Rep'),...AG_B.map(([,l])=>l()),L('الإجمالي','Total'),L('حد الائتمان','Limit'),L('أقدم تأخير (يوم)','Oldest days')];
-  const aoa=[H,...D.rows.map(o=>[o.code,o.name,o.repId?tName(o.repId):'',...AG_B.map(([k])=>Math.round(o[k])),Math.round(o.tot),o.lim||'',o.max||''])];
+  const G=agGroups(D.rows);const aoa=[[L('المجموعة','Group'),...H]];G.groups.forEach(g=>{g.reps.forEach(r=>{r.rows.forEach(o=>aoa.push([g.name,o.code,o.name,r.name,...AG_B.map(([k])=>Math.round(o[k])),Math.round(o.tot),o.lim||'',o.max||'']));aoa.push([g.name,'',L('مجموع ','Total ')+r.name,'',...AG_B.map(([k])=>Math.round(r.sum[k])),Math.round(r.sum.tot),'',''])});aoa.push([g.name,'',L('مجموع عملاء المجموعة','Group total'),'',...AG_B.map(([k])=>Math.round(g.sum[k])),Math.round(g.sum.tot),'',''])});aoa.push(['','',G.three?L('إجمالي الثلاث مجموعات','Total of the three groups'):L('إجمالي المجموعات','Total'),'',...AG_B.map(([k])=>Math.round(G.all[k])),Math.round(G.all.tot),'','']);
   const det=[[L('رقم الفاتورة','Invoice'),L('كود العميل','Code'),L('العميل','Customer'),L('تاريخ الفاتورة','Date'),L('الاستحقاق','Due'),L('القيمة','Amount'),L('المتبقي','Balance'),L('أيام التأخير','Days late')]];
   D.rows.forEach(o=>o.inv.forEach(i=>det.push([i.no,o.code,o.name,i.date,i.dueDate,+i.amount||'',Math.round(i.b),Math.max(0,i.d)])));
   xlsxBlob(aoa,L('أعمار الديون','Aging'),[[L('الفواتير','Invoices'),det]]).then(b=>saveFile(`${L('أعمار الديون','AR aging')}-${TODAY()}.xlsx`,b))}
-function arPrint(){const D=agData({min:AG_MIN});const rid=fv('agRep','');const rows=D.rows.filter(o=>!rid||o.repId===rid);
-  const th=`<tr><th>${L('العميل','Customer')}</th><th>${L('المندوب','Rep')}</th>${AG_B.map(([,l])=>`<th>${l()}</th>`).join('')}<th>${L('الإجمالي','Total')}</th><th>${L('الحد','Limit')}</th></tr>`;
-  const tr=rows.map(o=>`<tr><td>${esc(o.name)} <small>${esc(o.code||'')}</small></td><td>${esc(o.repId?tName(o.repId):'')}</td>${AG_B.map(([k])=>`<td class="n">${o[k]?num(Math.round(o[k])):''}</td>`).join('')}<td class="n"><b>${num(Math.round(o.tot))}</b></td><td class="n">${o.lim?num(o.lim):''}</td></tr>`).join('');
-  const sum=`<tr class="tot"><td colspan="2">${L('الإجمالي','Total')}</td>${AG_B.map(([k])=>`<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o[k],0)))}</td>`).join('')}<td class="n">${num(Math.round(rows.reduce((s,o)=>s+o.tot,0)))}</td><td></td></tr>`;
-  printHtmlDoc(L('أعمار الديون','AR aging'),`${rid?tName(rid)+' · ':''}${fdate(TODAY())} · ${L(`أرصدة ${D.min} ريال فأكثر، من الأكبر للأصغر`,`Balances of ${D.min} SAR and over, largest first`)}`,`<table>${th}${tr}${sum}</table>`)}
+function arPrint(){const D=agData({min:AG_MIN});const rid=fv('agRep','');const rows=D.rows.filter(o=>rptMatch(o.repId,rid));
+  printHtmlDoc(L('أعمار الديون','AR aging'),`${rid?rptName(rid)+' · ':''}${fdate(TODAY())} · ${L(`أرصدة ${D.min} ريال فأكثر، من الأكبر للأصغر`,`Balances of ${D.min} SAR and over, largest first`)}`,agGroupTable(rows,true))}
 
 /* --- quotation print (A4 portrait, brand header, VAT) --- */
 function qCfg(){return {vat:15,vatOn:true,...((S.settings.find(x=>x.id==='qcfg')||{}))}}
@@ -8693,7 +8719,7 @@ const irItem=code=>(S.items||[]).find(x=>x.code===code)||null;
 function irPeriod(){const t=TODAY();const f=fv('irF',t.slice(0,8)+'01'),to=fv('irT',t);const days=Math.max(1,daysBetween(f,to)+1);return {f,to,pf:addDays(f,-days),pt:addDays(f,-1),days}}
 // order lines in the period, within the user's scope and the page filters
 function irLines(f,to,noPal){const rp=fv('irRep',''),rg=fv('irReg',''),gp=fv('irGrp','');const out=[];
-  vis(S.orders).forEach(o=>{if(o.status==='cancelled'||!o.date||o.date<f||o.date>to)return;if(rp&&o.repId!==rp)return;if(rg&&o.region!==rg)return;
+  vis(S.orders).forEach(o=>{if(o.status==='cancelled'||!o.date||o.date<f||o.date>to)return;if(rp&&!rptMatch(o.repId,rp))return;if(rg&&o.region!==rg)return;
     (o.lines||[]).forEach(l=>{if(!l.item)return;const it=irItem(l.item);if(noPal&&isPallet(l.item,it?.name||l.name))return;if(gp&&String(it?.group||'')!==gp)return;
       const q=+l.qty||0,v=+l.value||0,bp=it&&it.price!=null?+it.price:null;out.push({o,item:l.item,name:it?.name||l.name||l.item,unit:l.unit||it?.unit||'',q,v,bp,base:bp!=null?bp*q:null})})});return out}
 function irGroup(rows,key){const m=new Map();rows.forEach(r=>{const k=key(r);let g=m.get(k);if(!g){g={k,q:0,v:0,base:0,vb:0,qb:0,n:0,free:0,nob:0,orders:new Set(),name:r.name,unit:r.unit};m.set(k,g)}
@@ -8702,7 +8728,7 @@ const irM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFrac
 const irPct=(a,b)=>b?((a/b)*100):null;const irP=x=>x==null?'—':(Math.round(x*10)/10).toFixed(1)+'%';
 const irFilters=()=>{const reps=visibleReps();const grps=[...new Set((S.items||[]).map(x=>x.group).filter(Boolean))].sort();const {f,to}=irPeriod();
   return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${f}" data-act="filtIn" data-k="irF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${to}" data-act="filtIn" data-k="irT"></label>
-   ${isLead()?`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="irRep">${opt(reps.map(r=>[r.id,r.name]),fv('irRep',''),L('الكل','All'))}</select></label><label class="fl">${L('المنطقة','Region')}<select data-act="filtSel" data-k="irReg">${opt(REGIONS.map(r=>[r.id,L(r.ar,r.en)]),fv('irReg',''),L('الكل','All'))}</select></label>`:''}
+   ${isLead()?`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="irRep">${opt(rptRepOpts(reps),fv('irRep',''),L('الكل','All'))}</select></label><label class="fl">${L('المنطقة','Region')}<select data-act="filtSel" data-k="irReg">${opt(REGIONS.map(r=>[r.id,L(r.ar,r.en)]),fv('irReg',''),L('الكل','All'))}</select></label>`:''}
    ${grps.length?`<label class="fl">${L('مجموعة الأصناف','Item group')}<select data-act="filtSel" data-k="irGrp">${opt(grps.map(g=>[g,g]),fv('irGrp',''),L('الكل','All'))}</select></label>`:''}</div>`};
 const irNote=()=>`<div class="small muted" style="margin-top:6px">${L('المصدر: بنود أوامر البيع من ساب (بدون الملغاة) حسب تاريخ الأمر. القيمة بعد خصم السطر وقبل خصم المستند والضريبة. السعر الأساسي من قائمة «Base price» في ساب كما هي اليوم، مو سعر يوم البيع.','Source: SAP sales-order lines (not cancelled) by order date; value after line discount, before document discount and VAT. Base price: SAP «Base price» list as of today.')}</div>`;
 
@@ -8726,7 +8752,7 @@ V.itemrep=()=>{const P=irPeriod();const cur=irLines(P.f,P.to),prev=irLines(P.pf,
 function drOdd(free,nob){if(!free.length&&!nob.length)return '';
   const cl=o=>{const c=o.clientId?byId('clients',o.clientId):null;return c?.name||o.cname||o.clientName||o.clientCode||'—'};
   const cols=gift=>[{l:L('التاريخ','Date'),c:'nw',f:r=>fdate(r.o.date)},{l:L('أمر البيع','Order'),c:'nw',f:r=>`<a href="#" data-open="order" data-id="${esc(r.o.id)}"><bdi dir="ltr">${esc(r.o.no||r.o.id)}</bdi></a>`},
-    {l:L('العميل','Customer'),f:r=>esc(cl(r.o))},{l:L('المندوب','Rep'),f:r=>esc(r.o.repId?tName(r.o.repId):'—')},
+    {l:L('العميل','Customer'),f:r=>esc(cl(r.o))},{l:L('المندوب','Rep'),f:r=>esc(r.o.repId?rptName(rptKey(r.o.repId)):'—')},
     {l:L('الصنف','Item'),f:r=>`<b>${esc(r.name)}</b> <bdi class="small muted" dir="ltr">${esc(r.item)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:r=>num(Math.round(r.q*100)/100)+' '+esc(r.unit)},
     ...(gift?[{l:L('السعر الأساسي','Base price'),c:'n',f:r=>r.bp!=null?irM(r.bp):'—'},{l:L('قيمته بالسعر الأساسي','Value at base'),c:'n',f:r=>r.base!=null?`<b>${num(Math.round(r.base))}</b>`:'—'}]
       :[{l:L('قيمة البيع','Sales value'),c:'n',f:r=>num(Math.round(r.v))},{l:L('متوسط سعر البيع','Unit price'),c:'n',f:r=>r.q?irM(r.v/r.q):'—'}])];
@@ -8737,19 +8763,19 @@ function drOdd(free,nob){if(!free.length&&!nob.length)return '';
 /* ---- discount rates: actual average price vs base price, per rep and item; discount as a share of the period's sales ---- */
 V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to,true);const tot=rows.reduce((s,r)=>s+r.v,0);
   const withB=rows.filter(r=>r.base!=null);const B=withB.reduce((s,r)=>s+r.base,0),VB=withB.reduce((s,r)=>s+r.v,0),D=B-VB;const nob=rows.filter(r=>r.base==null);const free=rows.filter(r=>r.v===0&&r.q>0);
-  const reps=irGroup(rows,r=>r.o.repId||'').map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);const sel=fv('drRep','');
-  const items=irGroup(sel?rows.filter(r=>(r.o.repId||'')===sel):rows,r=>r.item).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);
+  const reps=irGroup(rows,r=>rptKey(r.o.repId)).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);const sel=fv('drRep','');
+  const items=irGroup(sel?rows.filter(r=>rptKey(r.o.repId)===sel):rows,r=>r.item).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);
   const dcol=x=>`<b style="color:${x>0?'#B42318':x<0?'#1E7B3C':'inherit'}">${irP(x)}</b>`;
   return `${irFilters()}
   <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),L('قبل الضريبة','before VAT'))}${kpiTile(L('قيمتها بالأسعار الأساسية','At base prices'),smoney(B),nob.length?`${num(nob.length)} ${L('سطر بدون سعر أساسي (مستبعد)','lines without base price (excluded)')}`:'')}
    ${kpiTile(L('إجمالي الفرق (الخصم)','Total discount'),smoney(D),`${irP(irPct(D,B))} ${L('من السعر الأساسي','of base')}`)}${kpiTile(L('الخصم من مبيعات الفترة','Discount vs period sales'),irP(irPct(D,tot)),free.length?`${num(free.length)} ${L('سطر مجاني بسعر صفر محسوب ضمن الخصم','zero-price lines included')}`:'')}</div>
   ${drOdd(free,nob)}
   <div class="card"><h2>${L('حسب المندوب','By rep')}<span class="sub">${L('اضغط على المندوب لتفاصيل أصنافه','Tap a rep for item details')}</span></h2>${table([
-    {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filt" data-k="drRep" data-v="${esc(x.k)}"><b>${esc(x.k?tName(x.k):L('غير محدد','Unassigned'))}</b></a>`},
+    {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filt" data-k="drRep" data-v="${esc(x.k)}"><b>${esc(x.k?rptName(x.k):L('غير محدد','Unassigned'))}</b></a>`},
     {l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},{l:L('بالسعر الأساسي','At base'),c:'n',f:x=>num(Math.round(x.base))},{l:L('الفرق','Difference'),c:'n',f:x=>num(Math.round(x.d))},
     {l:L('نسبة الخصم','Discount %'),c:'n',f:x=>dcol(irPct(x.d,x.base))},{l:L('من مبيعات المندوب','of rep sales'),c:'n',f:x=>irP(irPct(x.d,x.v))},{l:L('من إجمالي مبيعات الفترة','of all period sales'),c:'n',f:x=>irP(irPct(x.d,tot))}],
     reps.map(x=>({...x,id:null})),null,{empty:L('ما فيه مبيعات في هذه الفترة','No sales in this period')})}</div>
-  <div class="card"><h2>${L('حسب الصنف','By item')} ${sel?`— ${esc(tName(sel))} <a href="#" class="small" data-act="filt" data-k="drRep" data-v="">${L('(كل المندوبين)','(all reps)')}</a>`:''}</h2>${table([
+  <div class="card"><h2>${L('حسب الصنف','By item')} ${sel?`— ${esc(rptName(sel))} <a href="#" class="small" data-act="filt" data-k="drRep" data-v="">${L('(كل المندوبين)','(all reps)')}</a>`:''}</h2>${table([
     {l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.k)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)+' '+esc(x.unit)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},
     {l:L('متوسط سعر البيع','Avg selling price'),c:'n',f:x=>x.qb?irM(x.vb/x.qb):'—'},{l:L('السعر الأساسي','Base price'),c:'n',f:x=>{const it=irItem(x.k);return it&&it.price!=null?irM(it.price):'—'}},
     {l:L('الفرق للوحدة','Diff / unit'),c:'n',f:x=>x.qb?irM((x.base-x.vb)/x.qb):'—'},{l:L('إجمالي الفرق','Total diff'),c:'n',f:x=>x.nob===x.n?'—':num(Math.round(x.d))},
@@ -8896,6 +8922,7 @@ const spSet=()=>{const s=(S.settings||[]).find(x=>x.id==='specialItems');return 
 
 function kxScope(){const reps=visibleReps();if(role()==='rep')return {ids:new Set([me().id]),label:tName(me().id)};
   const v=fv('kxS','all');if(v.startsWith('r:'))return {ids:new Set([v.slice(2)]),label:tName(v.slice(2))};
+  if(v===SG_OFFICE){const ids=reps.filter(r=>sgIsOffice(r.id)).map(r=>r.id);return {ids:new Set(ids),label:rptName(SG_OFFICE)}}
   if(v.startsWith('g:')){const sid=v.slice(2);return {ids:new Set([sid,...S.team.filter(t=>t.supId===sid).map(t=>t.id)]),label:L('مجموعة ','Group ')+tName(sid)}}
   return {ids:new Set(reps.map(r=>r.id)),label:L('الكل','All'),all:true}}
 // Receipts carry no sales person from SAP, so the engine credits them to the customer's rep in the CRM card, while sales come from the
@@ -8928,6 +8955,7 @@ function kxData(f0,to0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),
 function kxWho(D){const v=role()==='rep'?'r:'+me().id:fv('kxS','all');const ids=[...D.sc.ids];
   let k,who,list='';if(v.startsWith('r:')){k=L('المندوب','Rep');who=tName(v.slice(2))}
   else if(v.startsWith('g:')){k=L('مجموعة المشرف','Supervisor group');who=tName(v.slice(2));list=ids.filter(i=>i!==v.slice(2)).map(tName).filter(Boolean).join('، ')}
+  else if(v===SG_OFFICE){k=L('المندوب','Rep');who=rptName(SG_OFFICE);list=ids.map(tName).filter(Boolean).join('، ')}
   else{k=L('النطاق','Scope');who=L('كل المناديب','All reps')+` (${num(ids.length)})`}
   return `<div class="card" style="padding:10px 14px;display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline"><span><span class="muted">${k}:</span> <b style="font-size:15px">${esc(who)}</b></span>${list?`<span class="small"><span class="muted">${L('المناديب','Reps')}:</span> ${esc(list)}</span>`:''}<span class="small"><span class="muted">${L('الفترة','Period')}:</span> <bdi>${fdate(D.f)}</bdi> – <bdi>${fdate(D.to)}</bdi></span></div>`}
 // period breakdown (25/11): monthly / quarterly / yearly slices of the chosen range, each computed exactly like the totals
@@ -8957,7 +8985,7 @@ const kxP=x=>x==null||!isFinite(x)?'—':(Math.round(x*10)/10).toFixed(1)+'%';
 const kxM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t=>t.role==='sup'&&reps.some(r=>r.supId===t.id||r.id===t.id));
   const disc=D.bv-D.lv,dp=D.bv?disc/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;
-  const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${L('الكل','All')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${reps.map(r=>`<option value="r:${r.id}" ${fv('kxS','')==='r:'+r.id?'selected':''}>${esc(r.name)}</option>`).join('')}</optgroup></select></label>`;
+  const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${L('الكل','All')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${rptRepOpts(reps).map(([id,n])=>{const v=id===SG_OFFICE?id:'r:'+id;return `<option value="${v}" ${fv('kxS','')===v?'selected':''}>${esc(n)}</option>`}).join('')}</optgroup></select></label>`;
   const box=(t,sub,body,c)=>`<div class="card" style="border-top:4px solid ${c}"><h2>${t}<span class="sub">${sub}</span></h2>${body}</div>`;
   return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<label class="fl">${L('التقسيم','Breakdown')}<select data-act="filtSel" data-k="kxG">${[['',L('إجمالي فقط','Totals only')],['m',L('شهري','Monthly')],['q',L('ربع سنوي','Quarterly')],['y',L('سنوي','Yearly')]].map(([v,l])=>`<option value="${v}" ${fv('kxG','')===v?'selected':''}>${l}</option>`).join('')}</select></label><span class="per">${esc(D.sc.label)}</span></div>
   ${kxWho(D)}
