@@ -9338,5 +9338,22 @@ function vnMyCard(){if(role()!=='rep')return '';const rows=visitNowRows(me().id)
 {const _mh=V.mhome;V.mhome=function(){const h=_mh.apply(this,arguments);if(!(role()==='rep'||role()==='sup'))return h;const add=tgMyCard()+vnMyCard();
   const k=h.indexOf('<div class="mh-h"><h3>'+L('وصول سريع','Quick access'));return k>0?h.slice(0,k)+add+h.slice(k):h+add}}
 {const _d=V.dash;V.dash=function(){const h=_d.apply(this,arguments);return (role()==='rep'||role()==='sup')?tgMyCard()+vnMyCard()+h:h}}
+
+/* ---- 4) «صحة الربط»: every scheduled pull (SAP, trackers, system jobs) with its last success; admins get a push when one stops ---- */
+let SH={rows:null,at:0,busy:false,err:''};
+async function shLoad(){if(SH.busy)return;SH.busy=true;try{const {data,error}=await __sb.rpc('crm_sync_health');if(error)throw error;SH.rows=data||[];SH.err=''}catch(e){SH.err=e.message||String(e);SH.rows=SH.rows||[]}finally{SH.at=Date.now();SH.busy=false;render()}}
+{NAV.push(['synchealth','alert',()=>L('صحة الربط مع ساب','Sync health'),()=>typeof isAdmin==='function'&&isAdmin()]);if((location.hash||'').slice(1)==='synchealth'){route='synchealth';setTimeout(render,0)}}
+const SH_ST={ok:['سليم','OK','ok'],late:['متأخر','Late','warn'],error:['خطأ','Error','bad'],never:['لم يعمل بعد','Never ran','']};
+const shAge=m=>m==null?'—':m<60?L(`قبل ${m} دقيقة`,`${m} min ago`):m<1440?L(`قبل ${Math.round(m/60)} ساعة`,`${Math.round(m/60)} h ago`):L(`قبل ${Math.round(m/1440)} يوم`,`${Math.round(m/1440)} d ago`);
+V.synchealth=()=>{if(typeof __sb==='undefined')return `<div class="card empty">${L('هذي الصفحة تشتغل على المنصة فقط','Available on the platform only')}</div>`;
+  if(!SH.rows||Date.now()-SH.at>60e3)setTimeout(shLoad,0);const R=SH.rows||[];const bad=R.filter(r=>r.status==='error'||(r.status==='late'&&r.src!=='مهام النظام'));
+  const grp=[...new Set(R.map(r=>r.src))];
+  return `<div class="kpis k3">${kpiTile(L('الحالة العامة','Overall'),R.length?(bad.length?`<span class="flag">${num(bad.length)} ${L('مشكلة','issues')}</span>`:L('كل شي سليم','All good')):'…','')}${kpiTile(L('عدد المهام المراقبة','Jobs watched'),num(R.length),'')}${kpiTile(L('آخر فحص','Last check'),SH.at?new Date(SH.at).toLocaleTimeString(loc(),{hour:'2-digit',minute:'2-digit'}):'—',`<a href="#" data-act="shRefresh">${L('تحديث','Refresh')}</a>`)}</div>
+  ${SH.err?`<div class="banner bad"><span class="sp">${esc(SH.err)}</span></div>`:''}
+  ${grp.map(g=>`<div class="card"><h2>${esc(g)}</h2>${table([{l:L('المهمة','Job'),f:r=>`<b>${esc(r.label)}</b>`},{l:L('الحالة','Status'),f:r=>pill(lab(SH_ST,r.status),SH_ST[r.status]?.[2]||'')},
+    {l:L('آخر نجاح','Last success'),c:'nw',f:r=>r.last_ok?`${fdt(r.last_ok)}<div class="small muted">${shAge(r.age_min)}</div>`:'—'},{l:L('المفروض كل','Expected every'),c:'n',f:r=>r.every_min?(r.every_min>=1440?L('يوم','day'):r.every_min+' '+L('د','min')):'—'},
+    {l:L('التفاصيل','Details'),f:r=>r.detail?`<span class="small flag">${esc(r.detail)}</span>`:''}],R.filter(r=>r.src===g).map(r=>({...r,id:null})),null,{all:true})}</div>`).join('')}
+  <p class="small muted">${L('«متأخر» = ما نجح من أكثر من 3 أضعاف مدته المعتادة. لو صار خطأ أو تأخير، يوصل لمدير النظام إشعار على الجوال (مرة كل 3 ساعات لنفس المشكلة).','«Late» = no success for over 3× its usual interval. Admins get a push (once per 3 hours for the same problem).')}</p>`};
+ACT.shRefresh=()=>{SH.at=0;shLoad()};
 </script>
 <script src="wady-back.js"></script></body></html>
