@@ -971,11 +971,17 @@ function pickerView(){
    ${AUTH.pkOffer&&pkOn()?`<div class="banner info pk-offer"><span class="sp"><b>تفعيل الدخول بالبصمة:</b> اضغط «فعّل الآن» وأكّد ببصمة الوجه أو الإصبع، والمرة الجاية تدخل بدون كلمة مرور.</span><button class="btn p s" data-act="pkReg">فعّل الآن</button><button class="btn s" data-act="pkLater">لاحقاً</button></div>`:''}
    ${AUTH.denied?`<div class="banner bad"><span class="sp">ليس لديك صلاحية على «${esc(appById(AUTH.denied)?.name||'')}». اختر من التطبيقات المتاحة لك، أو تواصل مع مدير النظام.</span></div>`:''}
    ${!mine.length?`<div class="banner"><span class="sp">حسابك مفعّل لكن لم تُحدد له تطبيقات بعد. تواصل مع مدير النظام.</span></div>`:''}
+   ${drvCard()}
    ${tasksPanel()}
    ${(()=>{const L=APPS.filter(a=>(!a.hidden||!a.hidden())&&canApp(a.id));try{localStorage.setItem('wady.myapps',JSON.stringify(L.map(a=>a.id)))}catch(e){}
      return L.length?`<div class="apps">${L.map(a=>appCard(a,'pick')).join('')}</div>`:`<div class="card empty">ما عندك صلاحية على أي تطبيق حالياً. تواصل مع مدير النظام.</div>`})()}
    <p class="small muted" style="margin-top:12px">التطبيقات الملوّنة هي المتاحة لك. البيانات المشتركة (الموظفون، الفروع، العملاء) واحدة في كل التطبيقات.</p></div></div>`;
 }
+/* 27/11: a driver linked to his user gets a «طلباتي» card that opens his orders page */
+const DRVME={v:undefined,busy:false};
+async function drvLoad(){DRVME.busy=true;try{const {data,error}=await sb.rpc('my_driver');DRVME.v=error?null:(data||null)}catch(e){DRVME.v=null}finally{DRVME.busy=false;if(!S.app&&DRVME.v)render()}}
+function drvCard(){if(!S.session)return '';if(DRVME.v===undefined){if(!DRVME.busy)setTimeout(drvLoad,0);return ''}if(!DRVME.v)return '';
+  return `<a class="card" href="/fleet/driver.html" style="display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit;border:2px solid #38AC57;margin-bottom:12px;min-height:64px"><span style="font-size:30px" aria-hidden="true">🚚</span><span class="grow"><b style="font-size:17px">طلباتي — التوصيل</b><br><small class="muted">طلبات سيارتك اليوم وبكرة، وتصوير سند التسليم</small></span><span class="btn p s">افتح</span></a>`}
 function pendingView(){return `<div style="min-height:100%;display:grid;place-items:center;padding:24px"><div class="card" style="width:min(460px,100%);padding:24px;text-align:center"><h2 style="justify-content:center">حسابك بانتظار التفعيل</h2><p class="muted">${S.me&&!S.me.active?'هذا الحساب موقوف.':'سجّلت الدخول بنجاح، لكن مدير النظام لم يحدد صلاحياتك بعد. تواصل معه ليربط حسابك.'}</p><button class="btn" data-act="logout">تسجيل الخروج</button></div></div>`}
 function renderShell(body){
   const A=appById(S.app);const items=(NAVS[S.app]||[]).filter(n=>n[3]());if(!items.some(n=>n[0]===route))route=items[0]?.[0]||'';
@@ -1246,7 +1252,7 @@ const ACT={
   pickApp:(d,el)=>{AUTH.pick=d.a;try{localStorage.setItem('wady.app',d.a)}catch(e){}document.querySelectorAll('.appc').forEach(b=>{const on=b===el;b.classList.toggle('sel',on);b.setAttribute('aria-pressed',on)});const sb_=document.querySelector('#authForm button[type=submit]');if(sb_)sb_.textContent='دخول إلى '+(appById(d.a)?.name||'');const em=document.getElementById('au_email');if(em&&!em.value)em.focus()},
   openApp:d=>{AUTH.denied=null;openApp(d.a)},
   toPicker:()=>{closeModal();toPicker()},
-  logout:async()=>{if(PL.dirty&&!document.getElementById('plDirty'))PL.dirty=false;PP.dirty=false;try{indexedDB.deleteDatabase('wady-cache')}catch(e){}await sb.auth.signOut();},
+  logout:async()=>{DRVME.v=undefined;if(PL.dirty&&!document.getElementById('plDirty'))PL.dirty=false;PP.dirty=false;try{indexedDB.deleteDatabase('wady-cache')}catch(e){}await sb.auth.signOut();},
   plAdd:d=>{if(!PL.doc)return;if(d.s==='items')PL.items.push({customer_id:null,customer_name:'',cust_type:'',size:'',amount:'',probability:'',actual_amount:'',notes:''});else if(d.s==='risks')PL.risks.push({customer_name:'',reason:''});else PL.backlog.push({customer_name:'',horizon:d.h||'within3',value:''});
     PL.dirty=true;render();const list=d.s==='items'?PL.items:d.s==='risks'?PL.risks:PL.backlog;const el=document.getElementById(`pl_${d.s}_${list.length-1}_customer_name`);if(el)el.focus()},
   plAddAll:()=>{const have=new Set(PL.items.map(i=>i.customer_id).filter(Boolean));const add=S.customers.filter(c=>c.rep_id===PL.rep&&!have.has(c.id)&&c.status!=='inactive'&&c.status!=='lost');
