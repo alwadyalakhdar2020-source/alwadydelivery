@@ -9075,6 +9075,10 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
 const VQ_CRIT={prep:[()=>L('التحضير للزيارة','Preparation'),10],inter:[()=>L('التفاعل مع العميل','Interaction'),10],need:[()=>L('تحديد احتياجات العميل','Needs'),20],
   show:[()=>L('عرض المنتجات والحلول','Products shown'),15],opp:[()=>L('اكتشاف الفرص البيعية','Opportunities'),20],fu:[()=>L('خطة المتابعة','Follow-up'),10],doc:[()=>L('جودة التوثيق','Documentation'),15]};
 const VQ_STATE={valid:[()=>L('صحيحة','Valid'),'ok'],flagged:[()=>L('معلّمة — تنتظر المشرف','Flagged — awaiting supervisor'),'warn'],invalid:[()=>L('غير صحيحة','Invalid'),'bad']};
+function vqCarTxt(q){const c=q&&q.car;if(!c||c.state==='noCar')return '';
+  if(c.state==='ok')return pill(L(`🚗 السيارة كانت في الموقع (~${c.near_min} دقيقة)`,`🚗 Car on site (~${c.near_min} min)`),'ok')+(c.ref==='phone'?` <span class="small muted">${L('مقارنة بموقع الجوال — العميل بدون موقع مسجل','vs phone location — customer has no location')}</span>`:'');
+  if(c.state==='away')return pill(L(`🚗 السيارة بعيدة (${num(c.nearest_m)} م)`,`🚗 Car away (${num(c.nearest_m)} m)`),'bad');
+  return pill(L('🚗 ما فيه بيانات من جهاز السيارة','🚗 No car tracker data'),'')+(c.why?` <span class="small muted">${esc(c.why)}</span>`:'')}
 const VQ_STAGE=[['interest','اهتمام','Interest'],['quote','عرض سعر','Quotation'],['nego','تفاوض','Negotiation'],['order','أمر بيع','Sales order']];
 const VQ_OPPTYPE=[['new','طلب جديد','New demand'],['repeat','طلب متكرر','Repeat order'],['project','مشروع','Project'],['upsell','منتج إضافي','Additional product']];
 const vqTone=s=>s>=90?'ok':s>=70?'info':s>=60?'warn':'bad';
@@ -9125,6 +9129,7 @@ function vqShow(id){const v=byId('visits',id);const q=v&&v.q;if(!q)return toast(
   const lead=isLead()||role()==='sup';const rv=v.review;
   openModal(L('تقييم جودة الزيارة','Visit quality score'),`<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:40px;font-weight:800" class="${vqTone(+q.score)==='bad'?'flag':''}">${num(q.score)}<span class="small muted">/100</span></div>
      <div><b>${esc(q.grade||'')}</b> ${pill(st[0](),st[1])}<div class="small muted">${esc(c?.name||'')} · ${fdate(v.date)} · ${esc(tName(v.repId))} · ${L('المعادلة إصدار','formula v')}${q.ver}</div></div></div>
+   <div style="margin:4px 0 8px">${vqCarTxt(q)}</div>
    ${(q.flags||[]).length?`<div class="banner warn"><span class="sp">${(q.flags||[]).map(f=>esc(f.m)).join(' · ')}</span></div>`:''}
    ${rv?`<div class="small">${L('مراجعة المشرف','Supervisor review')}: <b>${rv.decision==='ok'?L('اعتمدها','approved'):L('رفضها','rejected')}</b> — ${esc(tName(rv.by)||'')} ${rv.reason?'· '+esc(rv.reason):''}</div>`:''}
    <div class="tw"><table><thead><tr><th>${L('المعيار / العنصر','Criterion / item')}</th><th class="n">${L('النقاط','Points')}</th><th>${L('السبب','Reason')}</th></tr></thead><tbody>
@@ -9145,7 +9150,7 @@ Object.assign(ACT,{vqShow:d=>vqShow(d.id),vqReview:d=>vqReview(d.id,d.v)});
 /* score badge on visit rows and on the visit card */
 {const _vr=visitRow;visitRow=function(v){let h=_vr(v);const b=vqBadge(v);return b?h.replace('<div class="main"><div class="t">',`<div class="main"><div class="t">${b} `):h}}
 {const _ov=OPEN.visit;OPEN.visit=(id,refresh)=>{_ov(id,refresh);const v=byId('visits',id);const mb=document.getElementById('mbody');if(!v||!mb||!v.q)return;
-  const d=document.createElement('div');d.className='card';d.innerHTML=`<h2>${L('جودة الزيارة','Visit quality')}</h2>${vqBadge(v,true)}${(v.q.flags||[]).length?`<div class="small flag" style="margin-top:6px">${(v.q.flags||[]).map(f=>esc(f.m)).join(' · ')}</div>`:''}`;mb.prepend(d)}}
+  const d=document.createElement('div');d.className='card';d.innerHTML=`<h2>${L('جودة الزيارة','Visit quality')}</h2>${vqBadge(v,true)} ${vqCarTxt(v.q)}${(v.q.flags||[]).length?`<div class="small flag" style="margin-top:6px">${(v.q.flags||[]).map(f=>esc(f.m)).join(' · ')}</div>`:''}`;mb.prepend(d)}}
 
 /* ---- report «جودة الزيارات» ---- */
 {const a=NAV.findIndex(n=>n[0]==='kpix'||n[0]==='itemrep');NAV.splice(a<0?NAV.length:a,0,['vquality','star',()=>L('جودة الزيارات','Visit quality'),()=>wadyLvl('crm','reports')>=1||wadyLvl('crm','kpis')>=1]);
@@ -9155,9 +9160,9 @@ V.vquality=()=>{const t=TODAY();const f=fv('vqF',t.slice(0,8)+'01'),to=fv('vqT',
   const sel=role()==='rep'?'':`<label class="fl">${L('المندوب','Rep')}<select data-act="filtSel" data-k="vqR">${opt(rptRepOpts(reps),fv('vqR',''),L('الكل','All'))}</select></label>`;
   const rid=role()==='rep'?me().id:fv('vqR','');const inR=id=>rid?rptMatch(id,rid):reps.some(r=>r.id===id);
   const vs=vis(S.visits).filter(v=>v.date>=f&&v.date<=to&&inR(v.repId));const done=vs.filter(v=>v.status==='done');
-  const by=new Map();const g=k=>{let o=by.get(k);if(!o){o={k,name:rptName(k),plan:0,done:0,valid:0,flag:0,inv:0,sum:0,n:0,exc:0,opp:0,oppV:0,days:new Map()};by.set(k,o)}return o};
+  const by=new Map();const g=k=>{let o=by.get(k);if(!o){o={k,name:rptName(k),plan:0,done:0,valid:0,flag:0,inv:0,sum:0,n:0,exc:0,opp:0,oppV:0,carOk:0,carAway:0,days:new Map()};by.set(k,o)}return o};
   vs.forEach(v=>{const o=g(rptKey(v.repId));if(v.planned)o.plan++;if(v.status!=='done')return;o.done++;o.days.set(v.date,(o.days.get(v.date)||0)+1);const q=v.q||{};
-    if(q.state==='invalid')o.inv++;else if(q.state==='flagged')o.flag++;else if(q.score!=null){o.valid++;o.sum+=+q.score;o.n++;if(+q.score>=90)o.exc++}
+    if(q.car&&q.car.state==='ok')o.carOk++;if(q.car&&q.car.state==='away')o.carAway++;if(q.state==='invalid')o.inv++;else if(q.state==='flagged')o.flag++;else if(q.score!=null){o.valid++;o.sum+=+q.score;o.n++;if(+q.score>=90)o.exc++}
     if(v.opp&&v.opp.item){o.opp++;o.oppV+=+v.opp.value||0}});
   const rows=[...by.values()].map(o=>({...o,avg:o.n?o.sum/o.n:null,hit:[...o.days.values()].filter(n=>n>=vqTarget()).length,dn:o.days.size})).sort((a,b)=>(b.avg??-1)-(a.avg??-1));
   const T=rows.reduce((a,o)=>{['plan','done','valid','flag','inv','sum','n','exc','opp','oppV'].forEach(k=>a[k]+=o[k]);return a},{plan:0,done:0,valid:0,flag:0,inv:0,sum:0,n:0,exc:0,opp:0,oppV:0});
@@ -9170,7 +9175,7 @@ V.vquality=()=>{const t=TODAY();const f=fv('vqF',t.slice(0,8)+'01'),to=fv('vqT',
   <div class="card"><h2>${L('ترتيب المندوبين حسب جودة الزيارة','Reps ranked by visit quality')}<span class="sub">${L('المتوسط من الزيارات الصحيحة فقط — المعلّمة ما تدخل إلا بعد اعتماد المشرف','Average of valid visits only')}</span></h2>${table([
    {l:'#',c:'n',f:x=>num(rows.indexOf(x)+1)},{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.name)}</b>`},{l:L('متوسط الجودة','Avg quality'),c:'n',f:x=>x.avg==null?'—':`<span class="pill ${vqTone(x.avg)}">${num(Math.round(x.avg))}</span>`},
    {l:L('مخططة','Planned'),c:'n',f:x=>num(x.plan)},{l:L('منفذة','Done'),c:'n',f:x=>num(x.done)},{l:L('صحيحة','Valid'),c:'n',f:x=>num(x.valid)},{l:L('معلّمة','Flagged'),c:'n',f:x=>x.flag?`<span class="flag">${num(x.flag)}</span>`:'0'},
-   {l:L('غير صحيحة','Invalid'),c:'n',f:x=>num(x.inv)},{l:L('ممتازة','Excellent'),c:'n',f:x=>num(x.exc)},{l:L('فرص','Opps'),c:'n',f:x=>num(x.opp)},{l:L('قيمة الفرص','Opp value'),c:'n',f:x=>num(Math.round(x.oppV))},
+   {l:L('غير صحيحة','Invalid'),c:'n',f:x=>num(x.inv)},{l:L('🚗 مؤكدة بالسيارة','🚗 Car-confirmed'),c:'n',f:x=>num(x.carOk)},{l:L('🚗 السيارة بعيدة','🚗 Car away'),c:'n',f:x=>x.carAway?`<span class="flag">${num(x.carAway)}</span>`:'0'},{l:L('ممتازة','Excellent'),c:'n',f:x=>num(x.exc)},{l:L('فرص','Opps'),c:'n',f:x=>num(x.opp)},{l:L('قيمة الفرص','Opp value'),c:'n',f:x=>num(Math.round(x.oppV))},
    {l:L(`أيام حقق فيها ${vqTarget()} زيارات`,`Days with ${vqTarget()}+ visits`),c:'n',f:x=>`${num(x.hit)} / ${num(x.dn)}`}],rows.map(x=>({...x,id:null})),null,{empty:L('ما فيه زيارات في الفترة','No visits in the period')})}</div>
   <div class="card"><h2>${L('زيارات تنتظر مراجعة المشرف','Visits awaiting supervisor review')}<span class="sub">${num(pend.length)}</span></h2>${table([
    {l:L('التاريخ','Date'),c:'nw',f:v=>fdate(v.date)},{l:L('المندوب','Rep'),f:v=>esc(tName(v.repId))},{l:L('العميل','Customer'),f:v=>esc(byId('clients',v.clientId)?.name||'—')},
