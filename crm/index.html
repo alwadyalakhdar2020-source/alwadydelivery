@@ -9619,4 +9619,47 @@ ACT.siteMain=async d=>{if(!isLead())return;const c=byId('clients',d.c);if(!c)ret
   let sites=(c.sites||[]).filter(x=>x.id!==s.id);if(+c.lat&&+c.lng){const t=clTerr(c)||{};sites.push({id:'st-'+Date.now().toString(36),name:L('الموقع الرئيسي السابق','Previous main location'),kind:'office',lat:+c.lat,lng:+c.lng,city:t.city||'',district:t.district||c.district||'',by:me().id,at:now})}
   await save('clients',{...c,lat:+s.lat,lng:+s.lng,district:s.district||c.district,sites,mainFrom:{site:s.name,by:me().id,at:now}});toast(L('صار هذا الموقع هو الرئيسي','Main location updated'));OPEN.client(c.id,true)};
 </script>
+<script>
+/* ============ Customer portal accounts (27/11) ============
+   The rep asks for a portal account for his customer (email); the rep's supervisor approves, then the manager.
+   The customer signs in at /client/ with an email link and sees his quotations, sales orders, deliveries, invoices,
+   credit notes, payments and statement — read only. The server enforces every step (portal_access_*). */
+IC.portalacc='<path d="M3 21v-2a4 4 0 0 1 4-4h4"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/>';
+{const si=NAV.findIndex(n=>n[0]==='stmt');NAV.splice(si>=0?si+1:NAV.length,0,['portalacc','portalacc',()=>L('حسابات بوابة العملاء','Customer portal accounts'),()=>true]);
+ if((location.hash||'').slice(1)==='portalacc'){route='portalacc';setTimeout(render,0)}}
+const PA={list:null,busy:false,at:0,err:''};
+async function paLoad(force){if(PA.busy||typeof window.__sb==='undefined')return;if(!force&&PA.list&&Date.now()-PA.at<60000)return;PA.busy=true;
+  try{const {data,error}=await window.__sb.rpc('portal_access_list',{p_client:null});if(error)throw error;PA.list=data||[];PA.at=Date.now();PA.err=''}catch(e){PA.list=PA.list||[];PA.err=L('تعذّر تحميل الطلبات','Could not load')}
+  PA.busy=false;if(route==='portalacc')render();const mb=document.getElementById('mbody');if(mb&&mb.querySelector('.pab'))paCardPaint()}
+const PA_ST={requested:[()=>L('بانتظار المشرف','Awaiting supervisor'),'warn'],sup_ok:[()=>L('بانتظار المدير','Awaiting manager'),'warn'],approved:[()=>L('مفعّل','Active'),'ok'],rejected:[()=>L('مرفوض','Rejected'),'bad'],disabled:[()=>L('موقوف','Disabled'),'']};
+const paPill=a=>{const s=PA_ST[a.status];return s?pill(s[0](),s[1]):esc(a.status)};
+const paAct=a=>`${a.can_sup||a.can_mgr?`<button class="btn s" data-act="paDecide" data-id="${a.id}" data-ok="1">✓ ${a.can_mgr||(!a.rep_sup&&a.can_sup)?L('اعتماد نهائي','Approve'):L('موافقة المشرف','Approve')}</button> <button class="btn s d" data-act="paDecide" data-id="${a.id}" data-ok="0">✕ ${L('رفض','Reject')}</button>`:''}${a.can_disable?`<button class="btn s d" data-act="paDecide" data-id="${a.id}" data-ok="0" data-dis="1">${L('إيقاف الحساب','Disable')}</button>`:''}`;
+const paSteps=a=>`<div class="small muted">${L('طلبه','Requested by')} ${esc(a.req_name||'—')} · ${fdate(a.requested_at)}${a.sup_by?` — ${L('المشرف','Supervisor')}: ${esc(a.sup_name||'')} ${fdate(a.sup_at)}`:''}${a.mgr_by?` — ${L('المدير','Manager')}: ${esc(a.mgr_name||'')} ${fdate(a.mgr_at)}`:''}${a.decided_note?` — ${esc(a.decided_note)}`:''}${a.last_login?` — ${L('آخر دخول','Last sign-in')} ${fdate(a.last_login)}`:''}</div>`;
+V.portalacc=()=>{if(typeof window.__sb==='undefined')return `<div class="card empty">${L('هذي الصفحة تشتغل على المنصة فقط','Available on the platform only')}</div>`;
+  if(!PA.list){paLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const f=fv('paF','mine');const L0=PA.list;const mine=L0.filter(a=>a.can_sup||a.can_mgr);const rows=f==='mine'?mine:f==='live'?L0.filter(a=>a.status==='approved'):L0;
+  const url=location.origin+'/client/';
+  return `<div class="banner info"><span class="sp">${L('رابط بوابة العملاء','Customer portal link')}: <bdi dir="ltr">${esc(url)}</bdi> — ${L('العميل يدخل بالإيميل المعتمد ويوصله رابط دخول. الطلب يبدأ من بطاقة العميل: المندوب ← المشرف ← المدير.','Customers sign in with the approved email. Requests start on the customer card: rep → supervisor → manager.')}</span><button class="btn s" data-act="paCopy" data-u="${esc(url)}">${L('نسخ الرابط','Copy link')}</button></div>
+   <div class="tabs">${[['mine',L('بانتظار قرارك','Waiting for you')+` ${mine.length}`],['live',L('الحسابات المفعّلة','Active')],['all',L('الكل','All')]].map(([k,l])=>`<button class="tab ${f===k?'on':''}" data-act="filt" data-k="paF" data-v="${k}">${l}</button>`).join('')}</div>
+   ${PA.err?`<div class="banner bad"><span class="sp">${esc(PA.err)}</span></div>`:''}
+   ${rows.length?`<div class="tw"><table class="tbl"><thead><tr><th>${L('العميل','Customer')}</th><th>${L('الإيميل','Email')}</th><th>${L('المندوب','Rep')}</th><th>${L('الحالة','Status')}</th><th></th></tr></thead><tbody>
+    ${rows.map(a=>`<tr><td><a href="#" data-open="client" data-id="${esc(a.client_id)}">${esc(a.client_name||'')}</a><div class="small muted"><bdi>${esc(a.card_code)}</bdi>${a.contact?` · ${esc(a.contact)}`:''}</div>${paSteps(a)}</td><td><bdi dir="ltr">${esc(a.email)}</bdi></td><td>${esc(a.rep_name||'—')}</td><td>${paPill(a)}</td><td style="white-space:nowrap">${paAct(a)}</td></tr>`).join('')}</tbody></table></div>`
+    :`<div class="card empty">${f==='mine'?L('ما فيه طلبات تنتظر قرارك','Nothing waiting for you'):L('ما فيه حسابات','None')}</div>`}`};
+// customer card: portal account status + request button
+function paCardPaint(){const mb=document.getElementById('mbody');const box=mb&&mb.querySelector('.pab');if(!box)return;const id=box.dataset.id;const L0=(PA.list||[]).filter(a=>a.client_id===id);
+  const live=L0.find(a=>['requested','sup_ok','approved'].includes(a.status));
+  box.innerHTML=`<h2>${L('بوابة العملاء','Customer portal')} <span class="sub">${L('اطلاع العميل على مستنداته وكشف حسابه','Read-only access for the customer')}</span></h2>
+   ${L0.map(a=>`<div class="li"><div class="main"><div class="t"><bdi dir="ltr">${esc(a.email)}</bdi> ${paPill(a)}</div>${paSteps(a)}</div><div class="end">${paAct(a)}</div></div>`).join('')}
+   ${live?'':`<div class="formbar"><button class="btn s" data-act="paReq" data-id="${esc(id)}">🔑 ${L('طلب حساب للعميل في البوابة','Request a portal account')}</button></div>`}`}
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||mb.querySelector('.pab')||!c.code||typeof window.__sb==='undefined')return;
+  mb.insertAdjacentHTML('beforeend',`<div class="card pab" data-id="${esc(id)}" style="margin-top:10px"></div>`);if(PA.list)paCardPaint();paLoad(true)}}
+Object.assign(ACT,{
+  paCopy:d=>{(navigator.clipboard?navigator.clipboard.writeText(d.u):Promise.reject()).then(()=>toast(L('تم نسخ الرابط','Copied'))).catch(()=>toast(d.u))},
+  paReq:d=>{const c=byId('clients',d.id);if(!c)return;openForm({title:L('طلب حساب بوابة للعميل','Request a portal account'),data:{email:c.email||'',contact:c.contact||''},
+    extra:`<div class="small muted" style="margin-bottom:8px">${esc(c.name)} · <bdi>${esc(c.code)}</bdi> — ${L('بعد الطلب: موافقة المشرف ثم اعتماد المدير، وبعدها يقدر العميل يدخل بإيميله من رابط البوابة.','Supervisor then manager approve; then the customer signs in with this email.')}</div>`,
+    fields:[{k:'email',l:L('إيميل العميل','Customer email'),req:1,full:1,ph:'name@company.com'},{k:'contact',l:L('اسم الشخص المسؤول','Contact person'),full:1}],
+    onSave:async v=>{const {error}=await window.__sb.rpc('portal_access_request',{p_client:c.id,p_email:v.email,p_contact:v.contact||''});if(error)formErr(error.message||L('تعذّر الطلب','Failed'));await paLoad(true);setTimeout(()=>OPEN.client(c.id,true),50)}})},
+  paDecide:async d=>{const ok=d.ok==='1';let note='';if(!ok){note=prompt(d.dis?L('سبب إيقاف الحساب','Why disable?'):L('سبب الرفض','Why reject?'))||'';if(!note.trim())return toast(L('اكتب السبب','Enter a reason'))}
+    const {error}=await window.__sb.rpc('portal_access_decide',{p_id:+d.id,p_ok:ok,p_note:note});if(error)return toast(error.message);toast(ok?L('تم','Done'):L('تم الحفظ','Saved'));paLoad(true)}});
+</script>
 <script src="wady-back.js"></script></body></html>

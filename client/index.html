@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>بوابة العملاء — الوادي الأخضر المميز</title><link rel="icon" href="/brand/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#051D48;--green:#38AC57;--orange:#F39235;--blue:#34BEF0;--pale:#EDECED;--line:#E2E6EE;--muted:#5B6474;--bad:#C2410C}
+*{box-sizing:border-box}html,body{margin:0}body{font-family:Tajawal,system-ui,sans-serif;background:#F4F6FA;color:#0B1B33;font-size:16px;line-height:1.6}
+a{color:var(--navy)}button,input,select{font:inherit}
+.top{background:var(--navy);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+.top img{height:34px;background:#fff;border-radius:8px;padding:3px 6px}.top .g{flex:1;min-width:0}.top b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.top small{opacity:.8}
+.top button{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:10px;padding:8px 12px;min-height:40px;cursor:pointer}
+main{max-width:1100px;margin:0 auto;padding:14px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px;scrollbar-width:thin}
+.tabs button{flex:0 0 auto;border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 14px;min-height:44px;cursor:pointer;color:var(--navy);font-weight:700}
+.tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.bar label{display:flex;flex-direction:column;font-size:13px;color:var(--muted)}
+.bar input{border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:44px;background:#fff}
+.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;min-height:44px;cursor:pointer;color:var(--navy);font-weight:700}
+.btn.p{background:var(--green);border-color:var(--green);color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}.kpi span{font-size:13px;color:var(--muted)}.kpi b{display:block;font-size:22px;color:var(--navy);font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:start;vertical-align:top}
+th{background:#F7F8FB;color:var(--muted);font-size:13px;font-weight:700;position:sticky;top:0}td.n,th.n{text-align:end;white-space:nowrap}
+.tw{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:12px}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:13px;font-weight:700;background:var(--pale);color:var(--navy);white-space:nowrap}
+.pill.ok{background:#E6F5EA;color:#1E7A3A}.pill.warn{background:#FDEFE0;color:#9A4A00}.pill.bad{background:#FDE7E2;color:var(--bad)}.pill.info{background:#E3F6FD;color:#0B6283}
+.doc{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:#fff}
+.doc .h{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}.doc .h b{font-size:16px}.muted{color:var(--muted)}.small{font-size:13px}
+details summary{cursor:pointer;color:var(--navy);font-weight:700;margin-top:6px;min-height:32px}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+.login{min-height:100vh;display:grid;place-items:center;padding:20px}.login .card{width:min(420px,100%);padding:24px;text-align:center}
+.login img{height:56px;margin-bottom:10px}.login input{width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:48px;margin:10px 0;text-align:start}
+.note{background:#FFF7EC;border:1px solid #F5D3A8;border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+.neg{color:var(--bad)}bdi{unicode-bidi:isolate}
+@media print{.top,.tabs,.bar,.noprint{display:none!important}body{background:#fff}.card,.tw{border:none;max-height:none;overflow:visible}main{padding:0}.ph{display:block!important}}
+.ph{display:none;margin-bottom:10px}
+</style></head><body><div id="app"><div class="empty">جاري التحميل…</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SBURL='https://kpdvgmioltltshzersyc.supabase.co',SBKEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwZHZnbWlvbHRsdHNoemVyc3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzMzg4NjAsImV4cCI6MjEwODkxNDg2MH0.8tGbvz3dZT2TVLWEUuCg5_o-hD4rSb7iWZwd14nKpeU';
+const sb=supabase.createClient(SBURL,SBKEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+const $=s=>document.querySelector(s);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});const money=v=>v==null||v===''?'—':`<bdi>${nf.format(+v||0)}</bdi> ر.س`;
+const qf=v=>new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(+v||0);
+const fd=d=>{if(!d)return '—';const m=String(d).slice(0,10).split('-');return m.length===3?`<bdi>${m[2]}/${m[1]}/${m[0]}</bdi>`:esc(d)};
+const today=()=>new Date(Date.now()+3*3600e3).toISOString().slice(0,10);const addM=(d,n)=>{const x=new Date(d+'T12:00:00Z');x.setUTCMonth(x.getUTCMonth()+n);return x.toISOString().slice(0,10)};
+const S={me:null,tab:'stmt',from:addM(today(),-6),to:today(),data:null,stmt:null,busy:false,err:null,sent:null};
+const TABS=[['stmt','كشف الحساب'],['quotes','عروض الأسعار'],['orders','أوامر البيع'],['dlv','التوريدات'],['inv','الفواتير'],['cn','الإشعارات الدائنة'],['pay','الدفعات']];
+const QST={sent:['مُرسل','info'],ordered:['تحوّل لأمر بيع','ok'],accepted:['مقبول','ok'],won:['مقبول','ok'],rejected:['مغلق',''],expired:['منتهي','']};
+const OST={open:['مفتوح','info'],partial:['مورّد جزئياً','warn'],delivered:['مكتمل التوريد','ok'],cancelled:['ملغي','bad']};
+const PM={transfer:'تحويل بنكي',cash:'نقدي',card:'شبكة',check:'شيك',cheque:'شيك'};
+const itemName=c=>(S.data&&S.data.items&&S.data.items[c])||'';
+function pill(a){return a?`<span class="pill ${a[1]}">${esc(a[0])}</span>`:''}
+
+/* ---------- sign in by email link ---------- */
+function loginView(){return `<div class="login"><div class="card"><img src="/brand/logo-h.png" alt="الوادي الأخضر المميز"><h2 style="margin:4px 0 2px;color:var(--navy)">بوابة العملاء</h2>
+  <p class="muted small" style="margin:0 0 6px">اطّلع على عروض الأسعار وأوامر البيع والتوريدات والفواتير والدفعات وكشف حسابك.</p>
+  ${S.sent?`<div class="note" style="text-align:start">أرسلنا رابط الدخول إلى <b>${esc(S.sent)}</b>. افتح الإيميل واضغط الرابط من نفس الجهاز. إذا ما وصلك خلال دقائق، شيّك على مجلد الرسائل غير المرغوب فيها.</div><button class="btn" id="again">إيميل آخر</button>`
+  :`<form id="lf"><label class="small muted" for="em" style="display:block;text-align:start">الإيميل المسجّل لدى الشركة</label><input id="em" type="email" dir="ltr" autocomplete="email" required placeholder="name@company.com">
+   <button class="btn p" style="width:100%" type="submit">أرسل رابط الدخول</button><div id="lerr" class="small neg" style="margin-top:8px" aria-live="polite"></div></form>`}
+  <p class="small muted" style="margin-top:14px">ما عندك حساب؟ اطلبه من مندوب المبيعات المسؤول عنك.</p></div></div>`}
+document.addEventListener('submit',async e=>{if(e.target.id!=='lf')return;e.preventDefault();const em=$('#em').value.trim().toLowerCase();const er=$('#lerr');const bt=e.target.querySelector('button');er.textContent='';bt.disabled=true;
+  try{const {data:ok,error}=await sb.rpc('portal_email_ok',{p_email:em});if(error)throw error;
+    if(!ok){er.textContent='هذا الإيميل غير مفعّل في بوابة العملاء. تواصل مع مندوب المبيعات.';bt.disabled=false;return}
+    const {error:e2}=await sb.auth.signInWithOtp({email:em,options:{shouldCreateUser:true,emailRedirectTo:location.origin+'/client/'}});if(e2)throw e2;S.sent=em;render()}
+  catch(x){er.textContent=/rate|seconds/i.test(x.message||'')?'طلبت رابط قبل شوي — انتظر دقيقة وحاول مرة ثانية.':'تعذّر الإرسال، حاول بعد قليل.';bt.disabled=false}});
+document.addEventListener('click',e=>{if(e.target.id==='again'){S.sent=null;render()}});
+
+/* ---------- data ---------- */
+async function loadAll(){S.busy=true;S.err=null;render();
+  try{const [d,st]=await Promise.all([sb.rpc('portal_data',{p_from:S.from,p_to:S.to}),loadStmt()]);if(d.error)throw d.error;S.data=d.data;S.stmt=st}
+  catch(x){S.err='تعذّر تحميل البيانات، تأكد من الاتصال وحاول مرة ثانية.'}S.busy=false;render()}
+async function loadStmt(){try{const {data:{session}}=await sb.auth.getSession();const r=await fetch(SBURL+'/functions/v1/portal-statement',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.access_token,apikey:SBKEY},body:JSON.stringify({from:S.from,to:S.to})});
+  const j=await r.json();if(!r.ok||!j.ok)return {err:j.error||'تعذّر جلب الكشف'};return j}catch(x){return {err:'تعذّر جلب الكشف من النظام'}}}
+
+/* ---------- views ---------- */
+function shell(body){const m=S.me;return `<div class="top"><img src="/brand/logo-h.png" alt="الوادي الأخضر"><div class="g"><b>${esc(m.name||'')}</b><small>رقم العميل <bdi>${esc(m.code)}</bdi></small></div><button id="out">خروج</button></div>
+ <main><div class="tabs" role="tablist">${TABS.map(([k,l])=>`<button role="tab" aria-selected="${S.tab===k}" class="${S.tab===k?'on':''}" data-tab="${k}">${l}</button>`).join('')}</div>
+ <div class="card bar noprint"><label>من<input type="date" id="f" value="${S.from}"></label><label>إلى<input type="date" id="t" value="${S.to}"></label><button class="btn p" id="go">عرض</button>${S.tab==='stmt'?'<button class="btn" id="pr">🖨 طباعة / PDF</button>':''}</div>
+ ${S.err?`<div class="note">${esc(S.err)}</div>`:''}${S.busy?'<div class="card empty">جاري التحميل…</div>':body}
+ <p class="small muted noprint">البيانات للاطلاع فقط ومصدرها نظام الشركة (SAP). لأي استفسار تواصل مع مندوب المبيعات.</p></main>`}
+function render(){const app=$('#app');if(!S.session){app.innerHTML=loginView();return}if(!S.me){app.innerHTML=`<div class="login"><div class="card"><p>${S.noacc?'حسابك غير مفعّل في بوابة العملاء أو تم إيقافه. تواصل مع مندوب المبيعات.':'جاري التحقق…'}</p>${S.noacc?'<button class="btn" id="out">خروج</button>':''}</div></div>`;return}
+  const D=S.data;let body='';if(D||S.stmt){body=({stmt:vStmt,quotes:vQuotes,orders:vOrders,dlv:vDlv,inv:()=>vInv('invoice'),cn:()=>vInv('credit'),pay:vPay}[S.tab])()}app.innerHTML=shell(body)}
+function vStmt(){const s=S.stmt||{};if(s.err)return `<div class="note">${esc(s.err)}</div>`;if(!s.rows)return '';
+  const dr=s.rows.reduce((a,x)=>a+x.debit,0),cr=s.rows.reduce((a,x)=>a+x.credit,0);
+  return `<div class="ph"><img src="/brand/logo-h.png" style="height:44px"><h2 style="margin:6px 0">كشف حساب عميل</h2><div>${esc(S.me.name)} — <bdi>${esc(S.me.code)}</bdi> · من ${fd(s.from)} إلى ${fd(s.to)}</div></div>
+   <div class="kpis"><div class="kpi"><span>رصيد أول المدة</span><b>${money(s.opening)}</b></div><div class="kpi"><span>مدين (عليكم)</span><b>${money(dr)}</b></div><div class="kpi"><span>دائن (لكم)</span><b>${money(cr)}</b></div><div class="kpi"><span>رصيد آخر المدة</span><b>${money(s.closing)}</b></div>${s.current!=null?`<div class="kpi"><span>الرصيد الحالي</span><b>${money(s.current)}</b></div>`:''}</div>
+   <div class="tw"><table><thead><tr><th>التاريخ</th><th>المستند</th><th>الرقم</th><th>الاستحقاق</th><th class="n">مدين</th><th class="n">دائن</th><th class="n">الرصيد</th></tr></thead><tbody>
+   <tr><td>${fd(s.from)}</td><td colspan="5"><b>رصيد أول المدة</b></td><td class="n"><b>${money(s.opening)}</b></td></tr>
+   ${s.rows.map(r=>`<tr><td>${fd(r.date)}</td><td>${esc(r.label)}</td><td><bdi>${esc(r.num)}</bdi></td><td>${r.due?fd(r.due):''}</td><td class="n">${r.debit?money(r.debit):''}</td><td class="n">${r.credit?money(r.credit):''}</td><td class="n ${r.balance<0?'neg':''}">${money(r.balance)}</td></tr>`).join('')}
+   </tbody></table></div><p class="small muted">الرصيد الموجب مستحق عليكم، والسالب رصيد لكم.</p>`}
+const lineTbl=(rows,cols)=>`<div class="tw" style="max-height:none;margin-top:6px"><table><thead><tr>${cols.map(c=>`<th class="${c[2]||''}">${c[0]}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td class="${c[2]||''}">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+function vQuotes(){const L=(S.data&&S.data.quotes)||[];if(!L.length)return '<div class="card empty">ما فيه عروض أسعار في هذه الفترة.</div>';
+  return L.map(q=>{const sub=(q.lines||[]).reduce((a,l)=>a+(+l.qty||0)*(+l.price||0),0);const dp=+q.discount||0;const net=sub*(1-dp/100);
+   return `<div class="doc"><div class="h"><b>عرض سعر <bdi>${esc(q.no)}</bdi></b>${pill(QST[q.status]||[q.status,''])}</div><div class="small muted">التاريخ ${fd(q.date)}${q.valid?` · صالح حتى ${fd(q.valid)}`:''}</div>
+    <div>الإجمالي قبل الضريبة: <b>${money(net)}</b>${dp?` <span class="small muted">(بعد خصم ${qf(dp)}%)</span>`:''} · شامل الضريبة 15%: <b>${money(net*1.15)}</b></div>
+    <details><summary>الأصناف (${(q.lines||[]).length})</summary>${lineTbl(q.lines||[],[['الصنف',l=>`${esc(itemName(l.item)||l.item)} <span class="small muted"><bdi>${esc(l.item)}</bdi></span>${l.size?` · ${esc(l.size)}`:''}${l.color?` · ${esc(l.color)}`:''}`],['الكمية',l=>`${qf(l.qty)} ${esc(l.unit||'')}`,'n'],['السعر',l=>money(l.price),'n'],['القيمة',l=>money((+l.qty||0)*(+l.price||0)),'n']])}${q.terms?`<div class="small muted" style="margin-top:6px">الشروط: ${esc(q.terms)}</div>`:''}</details></div>`}).join('')}
+function vOrders(){const L=(S.data&&S.data.orders)||[];if(!L.length)return '<div class="card empty">ما فيه أوامر بيع في هذه الفترة.</div>';
+  return L.map(o=>{const lines=o.lines||[];const q=lines.reduce((a,l)=>a+(+l.qty||0),0),op=lines.reduce((a,l)=>a+(+l.open||0),0);const pct=q?Math.round((q-op)/q*100):0;
+   return `<div class="doc"><div class="h"><b>أمر بيع <bdi>${esc(o.no)}</bdi></b>${pill(OST[o.status]||[o.status,''])}</div><div class="small muted">التاريخ ${fd(o.date)}${o.ref?` · مرجعكم <bdi>${esc(o.ref)}</bdi>`:''}${o.quote?` · من عرض السعر <bdi>${esc(o.quote)}</bdi>`:''}</div>
+    <div>الإجمالي شامل الضريبة: <b>${money(o.total)}</b> · تم توريد <b>${pct}%</b></div>
+    <details><summary>الأصناف والتوريد (${lines.length})</summary>${lineTbl(lines,[['الصنف',l=>`${esc(l.name||itemName(l.item)||l.item)} <span class="small muted"><bdi>${esc(l.item||'')}</bdi></span>`],['المطلوب',l=>`${qf(l.qty)} ${esc(l.unit||'')}`,'n'],['المورّد',l=>qf((+l.qty||0)-(+l.open||0)),'n'],['المتبقي',l=>qf(l.open),'n'],['السعر',l=>money(l.price),'n']])}</details></div>`}).join('')}
+function vDlv(){const D=S.data||{};const L=D.deliveries||[];const ords=(D.orders||[]).filter(o=>o.status==='partial'||o.status==='delivered');
+  return `<div class="note">هنا سندات التسليم اللي وصلتكم وما صدرت فاتورتها بعد. والكميات المورّدة لكل أمر بيع تظهر في تبويب «أوامر البيع».</div>
+   ${L.length?L.map(d=>`<div class="doc"><div class="h"><b>سند تسليم <bdi>${esc(d.no)}</bdi></b>${pill(['بانتظار الفوترة','warn'])}</div><div class="small muted">التاريخ ${fd(d.date)}</div><div>القيمة شامل الضريبة: <b>${money(d.total)}</b></div>
+    <details><summary>الأصناف (${(d.lines||[]).length})</summary>${lineTbl(d.lines||[],[['الصنف',l=>`${esc(itemName(l[0])||l[0])} <span class="small muted"><bdi>${esc(l[0])}</bdi></span>`],['الكمية',l=>qf(l[1]),'n'],['القيمة',l=>money(l[2]),'n']])}</details></div>`).join(''):'<div class="card empty">ما فيه سندات تسليم بانتظار الفوترة.</div>'}
+   ${ords.length?`<div class="card"><b>أوامر بيع تم التوريد منها في الفترة: ${ords.length}</b></div>`:''}`}
+function vInv(kind){const L=((S.data&&S.data.invoices)||[]).filter(i=>(i.kind||'invoice')===kind);const isC=kind==='credit';
+  if(!L.length)return `<div class="card empty">ما فيه ${isC?'إشعارات دائنة':'فواتير'} في هذه الفترة.</div>`;
+  const tot=L.reduce((a,i)=>a+(+i.total||0),0),paid=L.reduce((a,i)=>a+(+i.paid||0),0);
+  return `<div class="kpis"><div class="kpi"><span>العدد</span><b>${L.length}</b></div><div class="kpi"><span>الإجمالي شامل الضريبة</span><b>${money(tot)}</b></div>${isC?'':`<div class="kpi"><span>المتبقي غير المسدد</span><b>${money(tot-paid)}</b></div>`}</div>`+
+   L.map(i=>{const rem=(+i.total||0)-(+i.paid||0);const st=isC?['إشعار دائن','info']:rem<=0.01?['مسددة','ok']:(i.due&&i.due<today())?['متأخرة','bad']:(+i.paid>0?['مسددة جزئياً','warn']:['غير مسددة','warn']);
+    return `<div class="doc"><div class="h"><b>${isC?'إشعار دائن':'فاتورة'} <bdi>${esc(i.no)}</bdi></b>${pill(st)}</div><div class="small muted">التاريخ ${fd(i.date)}${!isC&&i.due?` · الاستحقاق ${fd(i.due)}`:''}</div>
+     <div>قبل الضريبة ${money(i.value)} · الضريبة ${money(i.vat)} · <b>الإجمالي ${money(i.total)}</b>${!isC&&rem>0.01?` · <span class="neg">المتبقي ${money(rem)}</span>`:''}</div>
+     <details><summary>الأصناف (${(i.lines||[]).length})</summary>${lineTbl(i.lines||[],[['الصنف',l=>`${esc(itemName(l[0])||l[0])} <span class="small muted"><bdi>${esc(l[0])}</bdi></span>`],['الكمية',l=>qf(l[1]),'n'],['القيمة قبل الضريبة',l=>money(l[2]),'n']])}</details></div>`}).join('')}
+function vPay(){const D=S.data||{};const P=D.payments||[],R=D.refunds||[];if(!P.length&&!R.length)return '<div class="card empty">ما فيه دفعات في هذه الفترة.</div>';
+  const t=P.reduce((a,p)=>a+(+p.amount||0),0);
+  return `<div class="kpis"><div class="kpi"><span>عدد الدفعات</span><b>${P.length}</b></div><div class="kpi"><span>إجمالي المدفوع</span><b>${money(t)}</b></div>${R.length?`<div class="kpi"><span>مبالغ مردودة لكم</span><b>${money(R.reduce((a,p)=>a+(+p.amount||0),0))}</b></div>`:''}</div>
+   <div class="tw"><table><thead><tr><th>التاريخ</th><th>رقم السند</th><th>النوع</th><th class="n">المبلغ</th></tr></thead><tbody>
+   ${[...P.map(p=>({...p,k:'pay'})),...R.map(p=>({...p,k:'ref'}))].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(p=>`<tr><td>${fd(p.date)}</td><td><bdi>${esc(p.no)}</bdi></td><td>${p.k==='ref'?'مبلغ مردود لكم':esc(PM[p.method]||'سند قبض')}</td><td class="n">${money(p.amount)}</td></tr>`).join('')}</tbody></table></div>`}
+
+document.addEventListener('click',async e=>{const t=e.target.closest('[data-tab]');if(t){S.tab=t.dataset.tab;render();return}
+  if(e.target.id==='go'){const f=$('#f').value,to=$('#t').value;if(!f||!to||f>to)return;S.from=f;S.to=to;loadAll()}
+  if(e.target.id==='pr'){window.print()}
+  if(e.target.id==='out'){await sb.auth.signOut();location.replace('/client/')}});
+async function boot(){const {data:{session}}=await sb.auth.getSession();S.session=session;
+  if(!session){render();return}
+  const {data:me,error}=await sb.rpc('portal_me');if(error||!me){S.noacc=true;render();return}S.me=me;render();loadAll()}
+sb.auth.onAuthStateChange((ev,ses)=>{if(ev==='SIGNED_IN'&&!S.me){S.session=ses;boot()}});
+boot();
+</script></body></html>

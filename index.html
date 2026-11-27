@@ -404,6 +404,7 @@ async function fetchAll(q){const out=[];let from=0;const size=1000;for(;;){const
 async function loadBase(){
   const uid=S.session.user.id;
   const {data:me,error}=await sb.from('profiles').select('*').eq('id',uid).single();if(error)throw error;S.me=me;
+  if(me.role==='pending'){try{const {data:pc}=await sb.rpc('portal_me');if(pc){location.replace('/client/');return}}catch(e){}}
   try{const {data:mp}=await sb.rpc('my_pages');S.pages=mp?.pages||{};S.appAdmin=mp?.app_admin||[]}catch(e){S.pages={};S.appAdmin=[]}
   try{const {data:he}=await sb.rpc('hr_my_emp');S.hrEmp=he||null}catch(e){S.hrEmp=null}
   if(me.role==='pending'||!me.active)return;
