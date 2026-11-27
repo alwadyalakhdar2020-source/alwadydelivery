@@ -9419,8 +9419,9 @@ V.terrmap=()=>{const reps=tmReps();if(!reps.length)return `<div class="card empt
   return `<div class="toolbar"><select data-act="filtSel" data-k="tmRep" aria-label="${L('المندوب','Rep')}">${opt(reps.map(r=>[r.id,r.name]),rid)}</select>
     <select data-act="filtSel" data-k="tmShow" aria-label="${L('العرض','Show')}">${opt([['in',TERR_LBL.in()],['out',TERR_LBL.out()],['unk',TERR_LBL.unk()]],show,L('كل العملاء','All customers'))}</select>
     ${isMgr()?(TM.edit?`<button class="btn p" data-act="tmSave">${L('حفظ النطاق','Save coverage')} (${cov.size})</button><button class="btn s" data-act="tmEdit">${L('إلغاء','Cancel')}</button>`:`<button class="btn s" data-act="tmEdit">✎ ${L('تعديل النطاق على الخريطة','Edit coverage on map')}</button>`):''}
-    <span class="small">${['in','out','unk'].map(k=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-inline-end:10px"><i style="width:10px;height:10px;border-radius:50%;background:${TERR_COL[k]};display:inline-block"></i>${TERR_LBL[k]()}</span>`).join('')}<span style="display:inline-flex;align-items:center;gap:4px"><i style="width:14px;height:10px;background:rgba(56,172,87,.35);border:1px solid #38AC57;display:inline-block"></i>${L('حي ضمن النطاق','Covered district')}</span></span></div>
+    <span class="small">${['in','out','unk'].map(k=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-inline-end:10px"><i style="width:10px;height:10px;border-radius:50%;background:${TERR_COL[k]};display:inline-block"></i>${TERR_LBL[k]()}</span>`).join('')}<span style="display:inline-flex;align-items:center;gap:4px;margin-inline-end:10px"><i style="width:14px;height:10px;background:rgba(56,172,87,.35);border:1px solid #38AC57;display:inline-block"></i>${L('حي ضمن النطاق','Covered district')}</span><span style="display:inline-flex;align-items:center;gap:4px;margin-inline-end:10px"><i style="width:14px;height:10px;background:rgba(243,146,53,.4);border:1px dashed #C46A12;display:inline-block"></i>${L('حي مكرر مع مندوب آخر','Shared with another rep')}</span><span style="display:inline-flex;align-items:center;gap:4px"><i style="width:9px;height:9px;transform:rotate(45deg);border:2px solid #051D48;display:inline-block"></i>${L('موقع أو مشروع إضافي للعميل','Customer extra site')}</span></span></div>
    ${TM.edit?`<div class="banner info"><span class="sp">${L('اضغط على أي حي في الخريطة عشان تضيفه للنطاق أو تشيله، وبعدين «حفظ النطاق».','Tap districts to add or remove, then save.')}</span></div>`:''}
+   ${(()=>{if(typeof covOwners!=='function')return '';const sh=[...cov].map(k=>({k,o:covOwners(k,rid)})).filter(x=>x.o.length);return sh.length?`<div class="banner warn"><span class="sp"><b>⚠ ${L('أحياء مكررة مع مندوب آخر','Districts shared with another rep')} (${sh.length})</b>: ${sh.map(x=>`${esc(x.k.split('|')[1])} ← ${esc(x.o.map(r=>r.name).join('، '))}`).join(' · ')}</span></div>`:''})()}
    ${!cov.size?`<div class="banner warn"><span class="sp">${L('هذا المندوب ما له نطاق محدد، فكل عملاؤه محسوبين بدون قيد.','No coverage set for this rep.')} ${isMgr()?L('حدد أحياءه من «تعديل النطاق على الخريطة» أو من صفحة «الأحياء ومناطق التغطية».',''):''}</span></div>`:''}
    <div class="kpis k5">${kpiTile(L('أحياء النطاق','Covered districts'),num(cov.size),covCities(rid).join('، ')||'—')}${kpiTile(TERR_LBL.in(),num(n.in),L('عميل بموقع داخل أحيائه','located inside'))}
     ${kpiTile(TERR_LBL.out(),num(n.out),pend?`${num(pend)} ${L('مبرر بانتظار المراجعة','awaiting review')}`:L('عميل بموقع خارج أحيائه','located outside'))}${kpiTile(TERR_LBL.unk(),num(n.unk),L('موقعه خارج الحدود المتوفرة','outside known boundaries'))}
@@ -9439,14 +9440,19 @@ async function tmDraw(rid,rows,cov,show){const el=document.getElementById('tmap'
   const Lf=window.L;if(TM.map){try{TM.map.remove()}catch(e){}}TM.map=Lf.map(el,{preferCanvas:true});Lf.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap · العنوان الوطني'}).addTo(TM.map);
   // cities to draw: the rep's coverage cities, the cities of his located customers, else his region's city
   const cities=new Set(covCities(rid));rows.forEach(r=>{if(r.tr&&r.tr.city)cities.add(r.tr.city)});if(!cities.size){const t=byId('team',rid);cities.add(REGION_CITY[t&&t.region]||'مكة المكرمة')}
-  const bounds=[];const styleOf=on=>on?{color:'#2E8B47',weight:1.5,fillColor:'#38AC57',fillOpacity:.33}:{color:'#7A869A',weight:.8,fillColor:'#EDECED',fillOpacity:.08};
+  const bounds=[];const styleOf=(on,sh)=>on&&sh?{color:'#C46A12',weight:2,dashArray:'5 4',fillColor:'#F39235',fillOpacity:.38}:on?{color:'#2E8B47',weight:1.5,fillColor:'#38AC57',fillOpacity:.33}:{color:'#7A869A',weight:.8,fillColor:'#EDECED',fillOpacity:.08};
+  const shOf=(c,n)=>typeof covOwners==='function'?covOwners(distKey(c,n),rid):[];
   cities.forEach(c=>(GEO.data.cities[c]||[]).forEach(d=>{const k=distKey(c,d.n);const on=covHas([...cov],c,d.n);
-    const pg=Lf.polygon(d.b,styleOf(on)).addTo(TM.map).bindTooltip(`${esc(d.n)} — ${esc(c)}`,{sticky:true});if(on)d.b.forEach(r=>r.forEach(p=>bounds.push(p)));
+    const sh=on?shOf(c,d.n):[];const pg=Lf.polygon(d.b,styleOf(on,sh.length)).addTo(TM.map).bindTooltip(`${esc(d.n)} — ${esc(c)}${sh.length?` · ⚠ ${L('مكرر مع','shared with')} ${esc(sh.map(r=>r.name).join('، '))}`:''}`,{sticky:true});if(on)d.b.forEach(r=>r.forEach(p=>bounds.push(p)));
     pg.on('click',()=>{if(!TM.edit)return;if(!TM.cov)TM.cov=new Set(repCov(rid));const hit=[...TM.cov].find(x=>{const i=x.indexOf('|');return normTxt(x.slice(0,i))===normTxt(c)&&normTxt(x.slice(i+1))===normTxt(d.n)});
-      if(hit)TM.cov.delete(hit);else TM.cov.add(k);pg.setStyle(styleOf(!hit));const b=document.querySelector('[data-act="tmSave"]');if(b)b.textContent=`${L('حفظ النطاق','Save coverage')} (${TM.cov.size})`})}));
+      if(hit)TM.cov.delete(hit);else TM.cov.add(k);pg.setStyle(styleOf(!hit,!hit&&shOf(c,d.n).length));const b=document.querySelector('[data-act="tmSave"]');if(b)b.textContent=`${L('حفظ النطاق','Save coverage')} (${TM.cov.size})`})}));
   rows.forEach(r=>{if(!r.loc||(show&&r.st!==show))return;bounds.push([r.loc.lat,r.loc.lng]);const o=r.c.outCov;
     Lf.circleMarker([r.loc.lat,r.loc.lng],{radius:7,color:'#fff',weight:1.5,fillColor:TERR_COL[r.st],fillOpacity:.95}).addTo(TM.map)
      .bindPopup(`<b>${esc(r.c.name)}</b><br>${TERR_LBL[r.st]()}${r.tr&&r.tr.district?` · ${esc(r.tr.district)}، ${esc(r.tr.city)}`:''}${o&&o.reason?`<br>${L('السبب','Reason')}: ${esc(outReasonLbl(o.reason))}${o.note?' — '+esc(o.note):''}`:''}<br><span class="small">${r.loc.src==='visit'?L('الموقع من آخر زيارة','Location from latest visit'):L('الموقع من بطاقة العميل','Location from customer card')}</span><br><a href="#" data-open="client" data-id="${r.c.id}">${L('فتح العميل','Open')}</a>`)});
+  // customer sites (projects, branches): small diamonds coloured by their own district against the rep's coverage
+  if(typeof clSites==='function')rows.forEach(r=>clSites(r.c).forEach(s=>{if(!(+s.lat&&+s.lng))return;const z=siteTerr(rid,s);if(show&&z.st!==show)return;bounds.push([+s.lat,+s.lng]);
+    Lf.marker([+s.lat,+s.lng],{icon:Lf.divIcon({className:'',html:`<div style="width:12px;height:12px;transform:rotate(45deg);background:${TERR_COL[z.st]};border:2px solid #051D48"></div>`,iconSize:[14,14],iconAnchor:[7,7]})}).addTo(TM.map)
+     .bindPopup(`<b>${esc(s.name)}</b> · ${esc(siteKind(s.kind))}<br>${L('العميل','Customer')}: ${esc(r.c.name)}<br>${TERR_LBL[z.st]()}${z.t&&z.t.district?` · ${esc(z.t.district)}، ${esc(z.t.city)}`:''}${s.note?'<br>'+esc(s.note):''}<br><a href="#" data-open="client" data-id="${r.c.id}">${L('فتح العميل','Open')}</a>`)}));
   if(bounds.length)TM.map.fitBounds(bounds,{padding:[24,24],maxZoom:14});else TM.map.setView([21.42,39.83],11)}
 Object.assign(ACT,{
   tmEdit:()=>{if(!isMgr())return;TM.edit=!TM.edit;TM.cov=TM.edit?new Set(repCov(TM.rep)):null;render()},
@@ -9495,5 +9501,117 @@ ACT.terrHere=()=>{if(!navigator.geolocation)return toast(L('الجهاز ما ي
   if(GEO.data||!clLoc(c))put();else geoLoad().then(put).catch(put)}}
 // the areas settings page lists the boundary names too once they are loaded
 {const _a=V.areas;V.areas=function(){if(!GEO.data)geoLoad().then(()=>{if(route==='areas')render()}).catch(()=>{});return _a.apply(this,arguments)}}
+
+/* ============ Shared coverage districts + customer sites and projects (27/11) ============
+   - A district may sit in more than one rep's coverage. Saving coverage warns when a district is already another rep's (the manager
+     can still save), duplicate spellings inside one rep's list are folded, the map paints shared districts orange, and managers
+     and supervisors get an alert per shared district.
+   - A customer keeps ONE main location (his office or head site, the card's lat/lng). It decides whose territory he is in.
+     Projects, branches and stores are extra «sites» on the customer, each with its own location and district; a site outside the
+     rep's coverage is shown and listed but does not move the customer, and a site in a city outside the rep's cities needs a note.
+     Visit check-ins taken at a known site are no longer used as the customer's location. */
+const SITE_KINDS=[['project',()=>L('مشروع','Project')],['branch',()=>L('فرع','Branch')],['store',()=>L('مستودع / ساحة','Store / yard')],['office',()=>L('مكتب','Office')],['other',()=>L('أخرى','Other')]];
+const siteKind=k=>{const r=SITE_KINDS.find(x=>x[0]===k);return r?r[1]():(k||'')};
+const clSites=c=>((c&&Array.isArray(c.sites))?c.sites:[]).filter(s=>s&&s.active!==false);
+const geoM=(a,b,c,d)=>{const R=6371000,r=Math.PI/180,x=(d-b)*r*Math.cos((a+c)/2*r),y=(c-a)*r;return Math.sqrt(x*x+y*y)*R};
+const nearSite=(c,lat,lng,m=300)=>clSites(c).find(s=>+s.lat&&+s.lng&&geoM(+s.lat,+s.lng,+lat,+lng)<=m)||null;
+// the customer's location: his card, else the latest visit check-in that was not taken at one of his sites
+clLoc=function(c){if(!c)return null;if(+c.lat&&+c.lng)return {lat:+c.lat,lng:+c.lng,src:'client'};
+  const v=(S.visits||[]).filter(x=>x.clientId===c.id&&x.checkIn&&+x.checkIn.lat&&+x.checkIn.lng&&!nearSite(c,x.checkIn.lat,x.checkIn.lng)).sort((a,b)=>String(b.checkIn.t||b.date||'').localeCompare(String(a.checkIn.t||a.date||'')))[0];
+  return v?{lat:+v.checkIn.lat,lng:+v.checkIn.lng,src:'visit'}:null};
+// a site against the rep's coverage
+function siteTerr(rid,s){let t=null;if(+s.lat&&+s.lng&&GEO.idx){const z=geoDistAt(s.lat,s.lng);t=z?{...z,src:'geo'}:{city:'',district:'',src:'nogeo'}}
+  else if(s.district)t={city:s.city||'',district:s.district,src:'text'};
+  const cov=repCov(rid);const st=!cov.length?'free':!t||!t.district?'unk':covHas(cov,t.city,t.district)?'in':'out';return {t,st}}
+
+/* ---- coverage shared between reps ---- */
+const covReps=()=>S.team.filter(t=>(t.role==='rep'||t.role==='sup')&&t.active!==false);
+const covNorm=k=>{const i=String(k).indexOf('|');return normTxt(String(k).slice(0,i))+'|'+normTxt(String(k).slice(i+1))};
+// other reps that already cover this city|district
+const covOwners=(k,rid)=>{const n=covNorm(k);return covReps().filter(t=>t.id!==rid&&repCov(t.id).some(x=>covNorm(x)===n))};
+// fold duplicate spellings in one list (الأندلس / الاندلس)
+const covDedup=list=>{const seen=new Set(),out=[],dup=[];list.forEach(k=>{const n=covNorm(k);if(seen.has(n))dup.push(k);else{seen.add(n);out.push(k)}});return {out,dup}};
+function covCheck(rid,list){const {out,dup}=covDedup(list);const shared=out.map(k=>({k,reps:covOwners(k,rid)})).filter(x=>x.reps.length);return {out,dup,shared}}
+const covSig=(rid,c)=>rid+':'+c.shared.map(x=>x.k).sort().join(',');
+const COVW={ack:''};
+function covWarnHtml(c,act,rid){const nm=k=>esc(k.split('|')[1])+' <span class="muted">('+esc(k.split('|')[0])+')</span>';
+  return `<div class="banner warn covw"><span class="sp"><b>⚠ ${L('تنبيه: أحياء مكررة مع مندوب آخر','Warning: districts shared with another rep')}</b><br>
+   ${c.shared.map(x=>`${nm(x.k)} — ${L('موجود عند','already with')} ${x.reps.map(r=>esc(r.name)).join('، ')}`).join('<br>')}
+   <br><span class="small">${L('الحي المكرر يعني أن عميله يُحسب داخل النطاق لأكثر من مندوب. شيله من أحدهم، أو احفظ لو التكرار مقصود.','A shared district counts as inside coverage for each rep. Remove it from one, or save if intended.')}</span></span>
+   <button class="btn s" data-act="${act}" data-id="${esc(rid)}" data-force="1">${L('حفظ رغم التكرار','Save anyway')}</button></div>`}
+{const _ts=ACT.tmSave;ACT.tmSave=async d=>{if(!isMgr()||!TM.cov)return;const c=covCheck(TM.rep,[...TM.cov]);TM.cov=new Set(c.out);
+  if(c.shared.length&&!(d&&d.force)&&COVW.ack!==covSig(TM.rep,c)){document.querySelectorAll('.covw').forEach(x=>x.remove());const tb=document.querySelector('#tmap')?.closest('.card');
+    if(tb)tb.insertAdjacentHTML('beforebegin',covWarnHtml(c,'tmSave',TM.rep));COVW.ack=covSig(TM.rep,c);toast(L('فيه أحياء مكررة مع مندوب آخر — راجع التنبيه','Shared districts — see the warning'));return}
+  COVW.ack='';if(c.dup.length)toast(L('شلت التكرار في أسماء الأحياء','Folded duplicate names'));return _ts(d)}}
+{const _as=ACT.arSaveCov;ACT.arSaveCov=async d=>{const t=byId('team',d.id);if(!t)return;const on=new Set(repCov(d.id));document.querySelectorAll('.arChk').forEach(x=>{if(x.checked)on.add(x.dataset.k);else on.delete(x.dataset.k)});
+  const c=covCheck(d.id,[...on]);
+  if(c.shared.length&&!d.force&&COVW.ack!==covSig(d.id,c)){document.querySelectorAll('.covw').forEach(x=>x.remove());const fb=document.querySelector('[data-act="arSaveCov"]')?.closest('.formbar');
+    if(fb)fb.insertAdjacentHTML('beforebegin',covWarnHtml(c,'arSaveCov',d.id));COVW.ack=covSig(d.id,c);return}
+  COVW.ack='';await save('team',{...t,coverage:c.out});document.querySelectorAll('.covw').forEach(x=>x.remove());
+  toast(c.dup.length?L('انحفظت التغطية وشلت الأحياء المكررة بالاسم','Saved; duplicate names folded'):L('انحفظت مناطق التغطية','Coverage saved'))}}
+// the coverage chips show who else has the district
+{const _a=V.areas;V.areas=function(){const h=_a.apply(this,arguments);if(!isMgr())return h;const sel=fv('arRep',covReps()[0]?.id||'');
+  return h.replace(/<label class="chip (on)?" style="cursor:pointer"><input type="checkbox" class="arChk" data-k="([^"]*)"/g,(m,on,k)=>{const o=covOwners(k.replace(/&amp;/g,'&').replace(/&quot;/g,'"'),sel);
+    return o.length?`<label class="chip ${on||''}" style="cursor:pointer" data-shared="1" title="${esc(L('موجود عند','Also with')+': '+o.map(r=>r.name).join('، '))}"><span aria-hidden="true" style="color:#F39235">⚠</span><input type="checkbox" class="arChk" data-k="${k}"`:m})}}
+// alerts: each shared district once (managers and supervisors), and site notes / out-of-coverage reasons waiting for review
+{const _ca=computeAlerts;computeAlerts=function(){const A=_ca.apply(this,arguments);if(A._cov)return A;A._cov=1;if(!(isMgr()||role()==='sup'))return A;
+  const seen=new Set();covReps().filter(t=>inScope({repId:t.id})).forEach(t=>repCov(t.id).forEach(k=>{const n=covNorm(k);if(seen.has(n))return;const o=covOwners(k,t.id);if(!o.length)return;seen.add(n);
+    A.push({sev:'warn',cat:'perf',title:L('حي مكرر في نطاق أكثر من مندوب','District in more than one rep coverage'),desc:`${k.split('|')[1]} (${k.split('|')[0]}) · ${[t,...o].map(r=>r.name).join('، ')}`,repId:t.id,open:['rep',t.id],key:'covdup:'+n})}));
+  vis(S.clients).filter(c=>c.outCov&&c.outCov.state==='pending'&&c.outCov.reason).forEach(c=>A.push({sev:'info',cat:'perf',title:L('مبرر عميل خارج النطاق ينتظر مراجعتك','Out-of-coverage reason awaiting review'),desc:`${c.name} · ${c.outCov.district||''}${c.outCov.city?'، '+c.outCov.city:''} · ${outReasonLbl(c.outCov.reason)}`,repId:c.repId,open:['client',c.id],key:'outcov:'+c.id}));
+  return A}}
+
+/* ---- customer card: main location + sites ---- */
+function sitesBlock(c){const S2=clSites(c);const rid=c.repId;const main=+c.lat&&+c.lng?{lat:+c.lat,lng:+c.lng}:null;const mt=clTerr(c);const can=canEditSites(c);
+  const stPill=st=>st==='free'?'':pill(TERR_LBL[st](),st==='in'?'ok':st==='out'?'bad':'');
+  const gm=(a,b)=>`<a href="https://www.google.com/maps?q=${a},${b}" target="_blank" rel="noopener" class="small">${L('خرائط','Map')}</a>`;
+  return `<div class="card sitesb" style="margin-top:10px"><h2>${L('مواقع العميل ومشاريعه','Customer sites & projects')} <span class="sub">${L('الموقع الرئيسي يحدد نطاق المندوب، والمشاريع مواقع إضافية','The main location sets the territory; projects are extra sites')}</span></h2>
+   <div class="li"><div class="main"><div class="t">★ ${L('الموقع الرئيسي (المكتب / المقر)','Main location (office)')}</div><div class="m">${mt&&mt.district?esc(mt.district+'، '+(mt.city||'')):L('غير محدد','Not set')}${main?' · '+gm(main.lat,main.lng):mt&&mt.loc?` · <span class="muted">${L('من آخر زيارة','from latest visit')}</span>`:''}</div></div><div class="end">${stPill(terrState(rid,c))}</div></div>
+   ${S2.map(s=>{const r=siteTerr(rid,s);const p=s.projectId&&byId('projects',s.projectId);return `<div class="li"><div class="main"><div class="t">${esc(s.name)} <span class="small muted">· ${esc(siteKind(s.kind))}</span></div>
+     <div class="m">${r.t&&r.t.district?esc(r.t.district+'، '+(r.t.city||'')):L('الحي غير معروف','District unknown')}${+s.lat&&+s.lng?' · '+gm(s.lat,s.lng):''}${p?` · <a href="#" data-open="project" data-id="${p.id}">${esc(p.name)}</a>`:''}</div>${s.note?`<div class="m muted">${esc(s.note)}</div>`:''}</div>
+     <div class="end">${stPill(r.st)}${s.cityChange?' '+pill(L('مدينة مختلفة','Other city'),'bad'):''}${can?` <button class="btn s" data-act="siteEdit" data-c="${c.id}" data-id="${s.id}" aria-label="${L('تعديل','Edit')}">✎</button>${isLead()&&+s.lat&&+s.lng?` <button class="btn s" data-act="siteMain" data-c="${c.id}" data-id="${s.id}" title="${L('اجعله الموقع الرئيسي','Make main')}">★</button>`:''}`:''}</div></div>`}).join('')}
+   ${can?`<div class="formbar"><button class="btn s" data-act="siteEdit" data-c="${c.id}">+ ${L('موقع / مشروع','Site / project')}</button></div>`:''}</div>`}
+const canEditSites=c=>isLead()||c.repId===me().id;
+{const _oc=OPEN.client;OPEN.client=(id,refresh)=>{_oc(id,refresh);const c=byId('clients',id);const mb=document.getElementById('mbody');if(!c||!mb||mb.querySelector('.sitesb'))return;
+  const put=()=>{if(!document.body.contains(mb)||mb.querySelector('.sitesb'))return;mb.insertAdjacentHTML('beforeend',sitesBlock(c))};
+  if(GEO.data)put();else geoLoad().then(put).catch(put)}}
+// a Google Maps link or "lat,lng" text → coordinates
+function parseLoc(s){s=String(s||'');let m=s.match(/@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/)||s.match(/[?&](?:q|query|ll|destination)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/)||s.match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/)||s.match(/^\s*(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)\s*$/);
+  return m?{lat:+m[1],lng:+m[2]}:null}
+function siteEval(){const g=id=>document.getElementById(id);const box=g('siteInfo');if(!box||!FORM||!FORM._site)return null;const c=byId('clients',FORM._site);
+  const lat=+(g('f_lat')||{}).value||0,lng=+(g('f_lng')||{}).value||0;const r=siteTerr(c.repId,{lat,lng,district:(g('f_district')||{}).value||''});
+  const cc=covCities(c.repId);const cityChange=r.st==='out'&&!!(r.t&&r.t.city)&&cc.length>0&&!cc.some(x=>normTxt(x)===normTxt(r.t.city));
+  box.innerHTML=!lat||!lng?`<span class="muted">${L('حدد الموقع: «موقعي الحالي» أو الصق رابط خرائط قوقل','Set the location')}</span>`:r.st==='in'?`<span style="color:#38AC57;font-weight:700">✓ ${L('داخل نطاق المندوب','Inside coverage')}: ${esc(r.t.district)}، ${esc(r.t.city)}</span>`
+   :r.st==='out'?`<span style="color:#E25858;font-weight:700">✕ ${L('خارج نطاق المندوب','Outside coverage')}: ${esc(r.t.district)}، ${esc(r.t.city)}</span>${cityChange?' '+pill(L('مدينة غير مدن المندوب — اكتب ملاحظة','Different city — add a note'),'bad'):''}`
+   :r.st==='free'?`<span class="muted">${r.t&&r.t.district?esc(r.t.district+'، '+r.t.city)+' · ':''}${L('المندوب بدون نطاق محدد','Rep has no coverage set')}</span>`:`<span class="muted">${L('الموقع خارج حدود الأحياء المتوفرة','Outside known boundaries')}</span>`;
+  return {r,cityChange}}
+ACT.siteEdit=d=>{const c=byId('clients',d.c);if(!c||!canEditSites(c))return;const s=d.id?clSites(c).find(x=>x.id===d.id):{kind:'project'};if(!s)return;
+  const projs=vis(S.projects).filter(p=>[p.ownerId,p.contractorId,p.consultantId].includes(c.id));
+  openForm({title:d.id?L('تعديل موقع','Edit site'):L('موقع أو مشروع جديد للعميل','New customer site'),data:{...s},
+   extra:`<div class="small muted" style="margin-bottom:8px">${esc(c.name)} · ${L('الموقع الإضافي ما يغيّر نطاق العميل؛ النطاق يتحدد من الموقع الرئيسي.','An extra site does not change the customer territory.')}</div>`,fields:[
+   {k:'name',l:L('اسم الموقع أو المشروع','Site / project name'),req:1,full:1,ph:L('مثال: مشروع فلل الشرائع','e.g. Al-Sharaye villas')},
+   {k:'kind',l:L('النوع','Type'),t:'sel',opts:SITE_KINDS.map(([k,f])=>[k,f()]),empty:''},
+   {k:'projectId',l:L('ربط بمشروع مسجل (اختياري)','Link to a project (optional)'),t:'sel',opts:projs.map(p=>[p.id,p.name])},
+   {k:'link',l:L('رابط خرائط قوقل أو الإحداثيات','Google Maps link or coordinates'),full:1,ph:'https://maps.google.com/… / 21.42, 39.82'},
+   {k:'lat',l:L('خط العرض','Latitude'),t:'num'},{k:'lng',l:L('خط الطول','Longitude'),t:'num'},
+   {k:'district',l:L('الحي (لو ما فيه موقع)','District (if no location)')},
+   {k:'html1',t:'html',html:`<div class="fld full" style="grid-column:1/-1"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><button type="button" class="btn s" data-act="siteHere">📍 ${L('موقعي الحالي (أنا في الموقع)','My current position')}</button><span id="siteInfo" class="small" aria-live="polite"></span></div></div>`},
+   {k:'note',l:L('ملاحظة','Note'),t:'area',full:1}],
+   onSave:async v=>{const ev=siteEval()||{};delete v.html1;const ll=parseLoc(v.link);if(ll&&!(+v.lat&&+v.lng)){v.lat=ll.lat;v.lng=ll.lng}
+     if(!(+v.lat&&+v.lng)&&!String(v.district||'').trim())formErr(L('حدد موقع المشروع أو اكتب الحي','Set a location or district'));
+     if(ev.cityChange&&String(v.note||'').trim().length<15)formErr(L('الموقع في مدينة غير مدن المندوب: اكتب ملاحظة توضح السبب (15 حرف على الأقل)','Different city: explain in the note'));
+     const r=ev.r||siteTerr(c.repId,v);const t=r.t||{};const now=new Date().toISOString();
+     const row={...s,...v,id:s.id||('st-'+Date.now().toString(36)),lat:+v.lat||null,lng:+v.lng||null,city:t.city||s.city||'',district:t.district||v.district||'',st:r.st,cityChange:!!ev.cityChange,by:s.by||me().id,at:s.at||now,upAt:now};delete row.link;
+     const cur=byId('clients',c.id);const list=(Array.isArray(cur.sites)?cur.sites:[]).filter(x=>x.id!==row.id);await save('clients',{...cur,sites:[...list,row]});setTimeout(()=>OPEN.client(c.id,true),50)},
+   del:d.id?async()=>{const cur=byId('clients',c.id);await save('clients',{...cur,sites:(cur.sites||[]).map(x=>x.id===d.id?{...x,active:false,delBy:me().id,delAt:new Date().toISOString()}:x)});closeModal();setTimeout(()=>OPEN.client(c.id,true),50)}:null});
+  FORM._site=c.id;const ev=()=>siteEval();
+  const lk=document.getElementById('f_link');if(lk)lk.addEventListener('input',()=>{const p=parseLoc(lk.value);if(p){document.getElementById('f_lat').value=p.lat;document.getElementById('f_lng').value=p.lng;ev()}});
+  ['f_lat','f_lng','f_district'].forEach(k=>{const x=document.getElementById(k);if(x)x.addEventListener('input',ev)});geoLoad().then(ev).catch(ev)};
+ACT.siteHere=()=>{if(!navigator.geolocation)return toast(L('الجهاز ما يدعم تحديد الموقع','Location not supported'));const info=document.getElementById('siteInfo');if(info)info.textContent=L('جاري تحديد الموقع…','Locating…');
+  navigator.geolocation.getCurrentPosition(p=>{document.getElementById('f_lat').value=(+p.coords.latitude).toFixed(6);document.getElementById('f_lng').value=(+p.coords.longitude).toFixed(6);geoLoad().catch(()=>{}).then(()=>{siteEval();const ac=Math.round(p.coords.accuracy||0);if(ac>100&&info)info.insertAdjacentHTML('beforeend',` <span class="muted">(±${ac}${L('م — الدقة ضعيفة','m — low accuracy')})</span>`)})},
+   er=>{if(info)info.textContent=L('ما قدرنا نحدد الموقع: ','Could not get location: ')+(er.message||'')},{enableHighAccuracy:true,timeout:15000,maximumAge:30000})};
+// make a site the main location (supervisors and managers): the old main location is kept as an «office» site
+ACT.siteMain=async d=>{if(!isLead())return;const c=byId('clients',d.c);if(!c)return;const s=clSites(c).find(x=>x.id===d.id);if(!s)return;const now=new Date().toISOString();
+  let sites=(c.sites||[]).filter(x=>x.id!==s.id);if(+c.lat&&+c.lng){const t=clTerr(c)||{};sites.push({id:'st-'+Date.now().toString(36),name:L('الموقع الرئيسي السابق','Previous main location'),kind:'office',lat:+c.lat,lng:+c.lng,city:t.city||'',district:t.district||c.district||'',by:me().id,at:now})}
+  await save('clients',{...c,lat:+s.lat,lng:+s.lng,district:s.district||c.district,sites,mainFrom:{site:s.name,by:me().id,at:now}});toast(L('صار هذا الموقع هو الرئيسي','Main location updated'));OPEN.client(c.id,true)};
 </script>
 <script src="wady-back.js"></script></body></html>
