@@ -10075,4 +10075,41 @@ Object.assign(ACT,{
 // the ✕ and period buttons sit inside a card that opens on click: keep the click on the button
 document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('.ob-x,.ob-tag[data-act]');if(!b)return;e.stopPropagation();e.preventDefault();const f=ACT[b.dataset.act];if(f)f({...b.dataset},b)},true);
 </script>
+<script>
+/* ===== 28/11: pipeline — pull lines from the deals board, one stage (column) at a time. Cards of the same customer become one line;
+   board values are before VAT, the pipeline is incl. VAT. ===== */
+PL_SRC.opp=()=>L('من الفرص البيعية','From the deals board');
+let PLO=null;
+function ploRows(){const {rep,doc}=plCurrent();const P=PLO;const cards=obCards().filter(c=>c.repId===rep&&c.stage===P.stage&&(!P.per||c.per===P.per));
+  const by=new Map();cards.forEach(c=>{const k=c.cid||('n:'+normTxt(c.cname||c.title));let o=by.get(k);if(!o){o={key:k,cid:c.cid||'',name:c.cname||c.title,value:0,n:0,prob:0,w:0,per:new Set(),docs:[]};by.set(k,o)}
+    o.value+=c.value;o.n++;o.w+=c.value*c.prob;o.per.add(c.per);o.docs.push(c.srcNo||c.title)});
+  const have=new Set((doc[P.sec]||[]).map(x=>plpKey(plCustId(x.name,x.cid),x.name)));
+  return [...by.values()].map(o=>({...o,prob:o.value?Math.round(o.w/o.value):0,amt:Math.round(o.value*plVat()),added:have.has(plpKey(o.cid,o.name))})).sort((a,b)=>b.value-a.value)}
+function ploOpen(){const {rep}=plCurrent();if(!rep)return;PLO={stage:PLO?.stage||'offer',per:PLO?.per??'cur',sec:'opps',sel:new Set()};ploPaint()}
+function ploPaint(){const P=PLO;const rows=ploRows();const r=byId('team',plCurrent().rep);const cnt=st=>obCards().filter(c=>c.repId===plCurrent().rep&&c.stage===st&&(!P.per||c.per===P.per)).length;
+  const secs=[['opps','Opportunity'],['backlog3',L('Back log — خلال 3 أشهر','Backlog — 3 months')],['backlogLater',L('متوقع بعد 3 أشهر','After 3 months')]];
+  openModal(L('إضافة من الفرص البيعية — ','Add from the deals board — ')+(r?.name||''),`<div class="plpx">
+   <div class="small muted" style="margin-bottom:6px">${L('اختر العمود، وكل عميل ينضاف في سطر واحد بإجمالي فرصه في هذا العمود شامل الضريبة، والنسبة = احتمال الفرص (مرجّح بالقيمة).','Pick a column; each customer becomes one line with the total of his deals in it incl. VAT; probability = the deals’ value-weighted probability.')}</div>
+   <div class="tabs" style="margin-bottom:6px">${OPP_STAGES.filter(s=>s[0]!=='lost').map(s=>`<button class="tab ${P.stage===s[0]?'on':''}" data-act="ploSt" data-v="${s[0]}">${L(s[1],s[2])} <span class="small muted">${num(cnt(s[0]))}</span></button>`).join('')}</div>
+   <div class="toolbar"><div class="tabs">${[['cur',L('الشهر الحالي','This month')],['bl','Backlog'],['',L('الكل','All')]].map(([v,l])=>`<button class="tab ${P.per===v?'on':''}" data-act="ploPer" data-v="${v}">${l}</button>`).join('')}</div><span class="grow"></span>
+    <label class="small" style="display:flex;gap:6px;align-items:center">${L('إضافة إلى','Add to')} <select id="plo_sec" style="width:auto">${opt(secs,P.sec)}</select></label></div>
+   <div class="tw" style="max-height:52vh;overflow:auto"><table><thead><tr><th><input type="checkbox" id="plo_all" aria-label="${L('تحديد الكل','Select all')}"></th><th>${L('العميل','Customer')}</th><th class="n">${L('عدد الفرص','Deals')}</th><th>${L('المستندات','Documents')}</th><th class="n">${L('القيمة قبل الضريبة','Value ex-VAT')}</th><th class="n">${L('المبلغ بالضريبة','Amount incl. VAT')}</th><th class="n">${L('الاحتمال %','Prob. %')}</th></tr></thead><tbody>
+   ${rows.map(o=>`<tr class="${o.added?'muted':''}"><td>${o.added?pill(L('مضاف','Added'),'ok'):`<input type="checkbox" class="plo_ck" data-k="${esc(o.key)}" ${P.sel.has(o.key)?'checked':''}>`}</td><td><b>${esc(o.name)}</b></td><td class="n">${o.n}</td>
+     <td class="small">${esc(o.docs.slice(0,4).join('، '))}${o.docs.length>4?' …':''}</td><td class="n">${num(Math.round(o.value))}</td><td class="n"><b>${num(o.amt)}</b></td><td class="n">${o.prob}%</td></tr>`).join('')||`<tr><td colspan="7" class="empty">${L('ما فيه فرص لهذا المندوب في هذا العمود','No deals for this rep in this column')}</td></tr>`}</tbody></table></div>
+   <div id="plo_err" class="flag"></div>
+   <div class="formbar"><span class="small muted" id="plo_n" style="margin-inline-end:auto">${P.sel.size} ${L('محدد','selected')}</span><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="ploAdd">${L('إضافة المحدد','Add selected')}</button></div></div>`,
+   {mount:b=>b.addEventListener('change',e=>{const t=e.target;
+     if(t.classList.contains('plo_ck')){t.checked?P.sel.add(t.dataset.k):P.sel.delete(t.dataset.k)}
+     else if(t.id==='plo_all'){b.querySelectorAll('.plo_ck').forEach(c=>{c.checked=t.checked;t.checked?P.sel.add(c.dataset.k):P.sel.delete(c.dataset.k)})}
+     else if(t.id==='plo_sec'){P.sec=t.value;P.sel.clear();ploPaint();return}
+     const n=b.querySelector('#plo_n');if(n)n.textContent=P.sel.size+' '+L('محدد','selected')})})}
+function ploAdd(){const P=PLO;if(!P)return;if(!P.sel.size){const e=document.getElementById('plo_err');if(e)e.textContent=L('حدد عميل واحد على الأقل','Select at least one customer');return}
+  const {month,doc}=plCurrent();const rows=ploRows().filter(o=>P.sel.has(o.key)&&!o.added);
+  const out=rows.map(o=>P.sec==='opps'?{name:o.name,cid:o.cid,status:plStatusOf(o.cid,month,(o.cid&&byId('clients',o.cid)?.kind)||'customer'),size:plSizeOf(o.cid),amount:o.amt,prob:o.prob,actual:'',src:'opp',srcAmt:o.amt}:{name:o.name,cid:o.cid,value:o.amt});
+  doc[P.sec]=[...(doc[P.sec]||[]).filter(x=>String(x.name||'').trim()),...out];PL.dirty=true;closeModal();render();
+  toast(L(`أُضيف ${out.length} من الفرص البيعية — اضغط «حفظ» لتثبيتها`,`Added ${out.length} from the deals board — press Save to keep them`))}
+Object.assign(ACT,{ploOpen:()=>ploOpen(),ploSt:d=>{PLO.stage=d.v;PLO.sel.clear();ploPaint()},ploPer:d=>{PLO.per=d.v;PLO.sel.clear();ploPaint()},ploAdd:()=>ploAdd()});
+{const _v=plSheetView;plSheetView=function(){const h=_v.apply(this,arguments);const {rep}=plCurrent();if(!rep||!plCanEdit(rep))return h;
+  const a=`<button class="btn s" data-act="plpCust" data-s="opps">`;return h.replace(a,`<button class="btn s" data-act="ploOpen" title="${L('يجيب الفرص المفتوحة من عمود تختاره في لوحة الفرص البيعية','Pull open deals from a column of the deals board')}">▦ ${L('من الفرص البيعية','From deals board')}</button>`+a)}}
+</script>
 <script src="wady-back.js"></script></body></html>
