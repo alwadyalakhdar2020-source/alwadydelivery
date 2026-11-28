@@ -2784,7 +2784,7 @@ IC.cart='<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path 
  NAV.splice(qi+1,0,['orders','cart',()=>L('أوامر البيع','Sales orders'),ALL]);
  const ci=NAV.findIndex(n=>n[0]==='clients');
  NAV.splice(ci+1,0,['items','box',()=>L('الأصناف','Items'),ALL]);}
-const ORDER_ST={open:['مفتوح','Open','info'],partial:['تسليم جزئي','Partly delivered','warn'],delivered:['مُسلّم','Delivered','ok'],cancelled:['ملغي','Cancelled','bad']};
+const ORDER_ST={open:['مفتوح','Open','info'],partial:['تسليم جزئي','Partly delivered','warn'],delivered:['مُسلّم','Delivered','ok'],closed:['مغلق','Closed',''],cancelled:['ملغي','Cancelled','bad']};
 const itemByCode=code=>{const n=normCode(code);return n?S.items.find(x=>normCode(x.code)===n):null};
 
 /* ---- items ---- */
@@ -2825,7 +2825,7 @@ V.orders=()=>{
    <label class="fl" for="soQ">${L('بحث','Search')}<input id="soQ" data-act="filtIn" data-k="soQ" value="${esc(fv('soQ',''))}" placeholder="${L('رقم الأمر أو العميل','Order no. or customer')}"></label>
    ${typeof soCanNew==='function'&&soCanNew()?`<button class="btn p" data-act="soNew">+ ${L('أمر بيع جديد','New sales order')}</button>`:''}</div>
   ${(()=>{// delivered / still to deliver are counted from the order lines (qty − open) × price, so a partly delivered order splits correctly
-    const lv=l=>{const q=+l.qty||0,op=l.open!=null&&l.open!==''?Math.min(q,Math.max(0,+l.open)):null,pr=+l.price||(q?(+l.value||0)/q:0);return {dl:op==null?0:(q-op)*pr,op:op==null?0:op*pr}};
+    const lv=l=>{const q=+l.qty||0,op=l.open!=null&&l.open!==''?Math.min(q,Math.max(0,+l.open)):null,pr=+l.price||(q?(+l.value||0)/q:0);return {dl:l.dq!=null&&l.dq!==''?(+l.dq||0)*pr:op==null?0:(q-op)*pr,op:op==null?0:op*pr}};
     let dl=0,op=0;live.forEach(o=>{if(!(o.lines||[]).length){if(o.status==='delivered')dl+=+o.value||0;else op+=+o.value||0;return}(o.lines||[]).forEach(l=>{const x=lv(l);dl+=x.dl;op+=x.op})});
     const oo=live.filter(o=>o.status==='open'||o.status==='partial');const nc=rows.length-live.length;
     return `<div class="kpis k4">${kpiTile(L('عدد الأوامر','Orders'),num(live.length),nc?`${num(nc)} ${L('ملغي غير محسوب','cancelled not counted')}`:L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('قيمة الأوامر','Orders value'),smoney(val(live)),L('قبل الضريبة','before VAT'))}
@@ -2841,7 +2841,7 @@ OPEN.order=(id,refresh)=>{const o=byId('orders',id);if(!o)return;
   setDrawer('order',id,L('أمر البيع ','Sales order ')+o.no,`<dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · ${esc(o.clientCode||'')}</dd>
    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('المنطقة','Region')}</dt><dd>${esc(regName(o.region))}</dd><dt>${L('الحالة','Status')}</dt><dd>${pillOf(ORDER_ST,o.status)}</dd>
    <dt>${L('تاريخ التسليم','Delivery')}</dt><dd>${o.delivery?fdate(o.delivery):'—'}</dd><dt>${L('عرض السعر','Quotation')}</dt><dd>${esc(o.quoteNo||'—')}</dd><dt>${L('المشروع','Project')}</dt><dd>${esc(o.project||'—')}</dd></dl>
-   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?qty2(l.qty):'—'},...((o.lines||[]).some(l=>l.open!=null&&l.open!=='')?[{l:L('المسلَّم','Delivered'),c:'n',f:l=>l.open!=null&&l.open!==''?qty2(Math.max(0,(+l.qty||0)-(+l.open||0))):'—'},{l:L('المتبقي','Open'),c:'n',f:l=>l.open!=null&&l.open!==''?qty2(l.open):'—'}]:[]),{l:L('سعر الوحدة','Unit price'),c:'n',f:l=>l.price!==''&&l.price!=null?price2(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>amt2(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
+   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?qty2(l.qty):'—'},...((o.lines||[]).some(l=>l.open!=null&&l.open!=='')?[{l:L('المسلَّم','Delivered'),c:'n',f:l=>l.dq!=null&&l.dq!==''?qty2(+l.dq):l.open!=null&&l.open!==''?qty2(Math.max(0,(+l.qty||0)-(+l.open||0))):'—'},{l:L('المتبقي','Open'),c:'n',f:l=>l.open!=null&&l.open!==''?qty2(l.open):'—'}]:[]),{l:L('سعر الوحدة','Unit price'),c:'n',f:l=>l.price!==''&&l.price!=null?price2(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>amt2(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
    <div class="small muted">${L('الإجمالي','Total')}: <b>${money2(o.value)}</b></div></div>`,refresh)};
 
 /* ---- pipeline: fill the rep's sheet from his customers, open quotations and open orders ---- */
@@ -3322,7 +3322,7 @@ const dlvLast=o=>(o.dlv||[])[0]||null;
   mb.insertAdjacentHTML('beforeend',`<div class="card"><h2>${L('التوصيل','Delivery')}<span class="sub">${L('من تطبيق التوصيل — يتحدث مباشرة','From the delivery app — live')}</span></h2>
    ${rows.length?table([{l:L('التاريخ المطلوب','Requested'),c:'nw',f:r=>r.requested?fdate(r.requested):'—'},{l:L('الحالة','Status'),f:r=>pillOf(DLV_ST,r.status)+(r.reason?`<div class="small muted">${esc(r.reason)}</div>`:'')},{l:L('الوردية','Shift'),c:'nw',f:r=>r.shift?fdate(r.shift):'—'},{l:L('السيارة','Vehicle'),f:r=>esc(r.vehicle||'—')+(r.trip?` · ${L('رد','trip')} ${r.trip}`:'')},{l:L('الفرع','Branch'),f:r=>esc(r.branch||'—')}],rows.map(r=>({...r,id:null})))
      :`<div class="muted small">${L('ما فيه طلب توصيل لهذا الأمر بعد.','No delivery request yet.')}</div>`}
-   ${can?`<div class="formbar"><button class="btn p" data-act="dlvNew" data-so="${esc(o.no)}">${L('طلب توصيل لهذا الأمر','Request delivery')}</button></div>`:''}</div>`)}}
+   ${can&&['open','partial'].includes(o.status)?`<div class="formbar"><button class="btn p" data-act="dlvNew" data-so="${esc(o.no)}">${L('طلب توصيل لهذا الأمر','Request delivery')}</button></div>`:''}</div>`)}}
 Object.assign(ACT,{dlvNew:d=>{closeModal();DLV.so=d.so;go('dlv')}});
 
 /* ============ Detailed customer record, opportunity page with stage path, automatic stage rules ============ */
@@ -8416,7 +8416,7 @@ function printOrder(id){const o=byId('orders',id);if(!o)return;const c=byId('cli
   brandDoc({titleAr:'أمر بيع',titleEn:'SALES ORDER',no:o.no,date:pdate(o.date),meta:[['التسليم',o.delivery?pdate(o.delivery):''],['عرض السعر',o.quoteNo],['مرجع العميل',o.ref]],status:st,
     party:clientRows(c,o),sideTitle:'المندوب',side:[['مندوب المبيعات',r.name||tName(o.repId)],['الجوال',r.phone],['المنطقة',regName(o.region)]],
     cols:[{l:'الكود'},{l:'الصنف',b:1},{l:'الكمية',n:1},{l:'المسلَّم',n:1},{l:'المتبقي',n:1},{l:'الوحدة'},{l:'سعر الوحدة',n:1},{l:'الإجمالي',n:1,b:1}],
-    rows:lines.map(l=>[l.item||'',l.name||itemName(l.item),num(+l.qty||0),l.open!=null&&l.open!==''?num(Math.max(0,(+l.qty||0)-(+l.open||0))):'',l.open!=null&&l.open!==''?num(+l.open):'',l.unit||'',pm(l.price),pm(l.value!=null?l.value:(+l.qty||0)*(+l.price||0))]),
+    rows:lines.map(l=>[l.item||'',l.name||itemName(l.item),num(+l.qty||0),l.dq!=null&&l.dq!==''?num(+l.dq):l.open!=null&&l.open!==''?num(Math.max(0,(+l.qty||0)-(+l.open||0))):'',l.open!=null&&l.open!==''?num(+l.open):'',l.unit||'',pm(l.price),pm(l.value!=null?l.value:(+l.qty||0)*(+l.price||0))]),
     totals:[['الإجمالي بدون ضريبة',pm(o.value!=null?o.value:sub)],['ضريبة القيمة المضافة',pm(vat)],['الإجمالي شامل الضريبة (ر.س)',pm(o.total!=null?o.total:sub+vat),1]],sigs:2})}
 ACT.soPrint=d=>printOrder(d.id);
 
