@@ -2443,7 +2443,7 @@ function editClient(id,preset){
    {k:'district',l:L('الحي','District')},
    {k:'repId',l:L('المندوب المسؤول','Assigned rep'),t:'sel',req:1,ro:!isLead()&&!!id,opts:repOpts()},
    {k:'contact',l:L('اسم المسؤول','Contact person')},{k:'phone',l:L('الجوال','Phone')},{k:'email',l:L('البريد','Email')},
-   {k:'histValue',l:L('قيمة المبيعات التاريخية','Historical sales value'),t:'num'},{k:'histVolume',l:L('حجم المبيعات التاريخي','Historical volume'),t:'num'},
+   {k:'histValue',l:L('قيمة المبيعات التاريخية','Historical sales value'),t:'num'},{k:'histVolume',l:L('حجم المبيعات التاريخي (عدد الفواتير)','Historical volume (invoices)'),t:'num'},
    {k:'lastTxDate',l:L('تاريخ آخر عملية (SAP)','Last transaction (SAP)'),t:'date'},
    {k:'lat',l:L('خط العرض','Latitude'),t:'num'},{k:'lng',l:L('خط الطول','Longitude'),t:'num',hint:L('من خرائط قوقل: اضغط مطولاً على الموقع وانسخ الإحداثيات','From Google Maps: long-press and copy coordinates')},
    {k:'notes',l:L('ملاحظات','Notes'),t:'area'}],
@@ -3353,7 +3353,7 @@ editClient=function(id,preset){
    {k:'campaignId',l:L('جاء عن طريق حملة','From campaign'),t:'sel',empty:L('— بدون حملة —','— none —'),opts:(typeof MKO!=='undefined'?MKO.list:[]).map(x=>[String(x.id),x.name])},...cust(CF_SECTIONS[0]),
    hdr(CF_SECTIONS[1]),{k:'contact',l:L('اسم المسؤول','Contact person'),req:R('contact')},{k:'phone',l:L('الجوال','Phone'),req:R('phone')},{k:'email',l:L('البريد','Email'),req:R('email')},...cust(CF_SECTIONS[1]),
    hdr(CF_SECTIONS[2]),{k:'crNo',l:L('السجل التجاري','CR number'),req:R('crNo')},{k:'vatNo',l:L('الرقم الضريبي','VAT number'),req:R('vatNo')},{k:'creditLimit',l:L('حد الائتمان (ر.س)','Credit limit'),t:'num',req:R('creditLimit')},{k:'paymentTerms',l:L('شروط الدفع','Payment terms'),req:R('paymentTerms')},
-   {k:'histValue',l:L('قيمة المبيعات التاريخية','Historical sales'),t:'num'},{k:'histVolume',l:L('حجم المبيعات التاريخي','Historical volume'),t:'num'},{k:'lastTxDate',l:L('تاريخ آخر عملية (SAP)','Last transaction'),t:'date'},...cust(CF_SECTIONS[2]),
+   {k:'histValue',l:L('قيمة المبيعات التاريخية','Historical sales'),t:'num'},{k:'histVolume',l:L('حجم المبيعات التاريخي (عدد الفواتير)','Historical volume (invoices)'),t:'num'},{k:'lastTxDate',l:L('تاريخ آخر عملية (SAP)','Last transaction'),t:'date'},...cust(CF_SECTIONS[2]),
    hdr(CF_SECTIONS[3]),{k:'region',l:L('المنطقة','Region'),t:'sel',req:R('region'),opts:REGIONS.map(r=>[r.id,L(r.ar,r.en)])},{k:'city',l:L('المدينة','City'),req:R('city')},{k:'district',l:L('الحي','District'),req:R('district')},{k:'address',l:L('العنوان','Address'),req:R('address')},
    {k:'locationUrl',l:L('رابط الموقع (قوقل ماب)','Location link'),req:R('locationUrl')},{k:'lat',l:L('خط العرض','Latitude'),t:'num',req:R('lat')},{k:'lng',l:L('خط الطول','Longitude'),t:'num',req:R('lng')},...cust(CF_SECTIONS[3]),
    hdr(CF_SECTIONS[4]),...cust(CF_SECTIONS[4]),{k:'notes',l:L('ملاحظات','Notes'),t:'area',req:R('notes')}];
@@ -9661,5 +9661,17 @@ Object.assign(ACT,{
     onSave:async v=>{const {error}=await window.__sb.rpc('portal_access_request',{p_client:c.id,p_email:v.email,p_contact:v.contact||''});if(error)formErr(error.message||L('تعذّر الطلب','Failed'));await paLoad(true);setTimeout(()=>OPEN.client(c.id,true),50)}})},
   paDecide:async d=>{const ok=d.ok==='1';let note='';if(!ok){note=prompt(d.dis?L('سبب إيقاف الحساب','Why disable?'):L('سبب الرفض','Why reject?'))||'';if(!note.trim())return toast(L('اكتب السبب','Enter a reason'))}
     const {error}=await window.__sb.rpc('portal_access_decide',{p_id:+d.id,p_ok:ok,p_note:note});if(error)return toast(error.message);toast(ok?L('تم','Done'):L('تم الحفظ','Saved'));paLoad(true)}});
+</script>
+<script>
+/* 28/11: customer fields that come from SAP are shown read only in the customer form, with a «من ساب» tag:
+   CR number, VAT number, credit limit and payment terms (daily from the SAP business partner), and the sales history
+   (net invoiced value, number of invoices and last transaction date, computed from the SAP documents in the CRM). */
+{const _of=openForm;openForm=function(o){const r=_of.apply(this,arguments);try{
+  if(!document.getElementById('f_crNo')||!o||!o.data)return r;const d=o.data;const sap=new Set(d.sapFields||[]);
+  const tag=(id,txt)=>{const el=document.getElementById(id);if(!el)return;el.readOnly=true;el.style.background='rgba(52,190,240,.08)';el.title=txt;
+    const lb=el.closest('label,.fld')||el.parentElement;if(lb&&!lb.querySelector('.sapTag'))(lb.querySelector('span,b')||lb).insertAdjacentHTML('beforeend',` <small class="sapTag" style="color:#0B6283;font-weight:700">· ${L('من ساب','from SAP')}</small>`)};
+  ['crNo','vatNo','creditLimit','paymentTerms'].forEach(k=>{const v=d[k];if(sap.has(k)&&v!==undefined&&v!==null&&String(v)!=='')tag('f_'+k,L('يتحدث يومياً من بطاقة العميل في ساب — عدّله في ساب','Updated daily from SAP — change it in SAP'))});
+  ['histValue','histVolume','lastTxDate'].forEach(k=>{if(d[k]!==undefined&&d[k]!==null&&d[k]!=='')tag('f_'+k,L('محسوب من مستندات ساب من 1/11/2025: صافي الفواتير، وعدد الفواتير، وآخر فاتورة أو سداد','Computed from SAP documents since 1 Nov 2025'))});
+ }catch(e){}return r}}
 </script>
 <script src="wady-back.js"></script></body></html>
