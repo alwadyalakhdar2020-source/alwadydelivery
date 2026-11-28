@@ -8983,6 +8983,8 @@ function kxScope(){const reps=visibleReps();if(role()==='rep')return {ids:new Se
   const v=fv('kxS','all');if(v.startsWith('r:'))return {ids:new Set([v.slice(2)]),label:tName(v.slice(2))};
   if(v===SG_OFFICE){const ids=reps.filter(r=>sgIsOffice(r.id)).map(r=>r.id);return {ids:new Set(ids),label:rptName(SG_OFFICE)}}
   if(v.startsWith('g:')){const sid=v.slice(2);return {ids:new Set([sid,...S.team.filter(t=>t.supId===sid).map(t=>t.id)]),label:L('مجموعة ','Group ')+tName(sid)}}
+  // 28/11: «all» is the whole company for managers only; a supervisor's «all» is his own team
+  if(!isMgr())return {ids:new Set([me().id,...reps.map(r=>r.id)]),label:L('كل فريقي','My whole team')};
   return {ids:new Set(reps.map(r=>r.id)),label:L('الكل','All'),all:true}}
 // Receipts carry no sales person from SAP, so the engine credits them to the customer's rep in the CRM card, while sales come from the
 // SAP sales person on each invoice — the two did not match (Ahmed: ~2M sales a month, almost no collections). Here a receipt goes to the rep
@@ -9054,7 +9056,7 @@ const kxP=x=>x==null||!isFinite(x)?'—':(Math.round(x*10)/10).toFixed(1)+'%';
 const kxM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t=>t.role==='sup'&&reps.some(r=>r.supId===t.id||r.id===t.id));
   const disc=D.bv-D.lv,dp=D.bv?disc/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;
-  const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${L('الكل','All')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${rptRepOpts(reps).map(([id,n])=>{const v=id===SG_OFFICE?id:'r:'+id;return `<option value="${v}" ${fv('kxS','')===v?'selected':''}>${esc(n)}</option>`}).join('')}</optgroup></select></label>`;
+  const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${isMgr()?L('الكل','All'):L('كل فريقي','My whole team')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${rptRepOpts(reps).map(([id,n])=>{const v=id===SG_OFFICE?id:'r:'+id;return `<option value="${v}" ${fv('kxS','')===v?'selected':''}>${esc(n)}</option>`}).join('')}</optgroup></select></label>`;
   const box=(t,sub,body,c)=>`<div class="card" style="border-top:4px solid ${c}"><h2>${t}<span class="sub">${sub}</span></h2>${body}</div>`;
   return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<label class="fl">${L('التقسيم','Breakdown')}<select data-act="filtSel" data-k="kxG">${[['',L('إجمالي فقط','Totals only')],['m',L('شهري','Monthly')],['q',L('ربع سنوي','Quarterly')],['y',L('سنوي','Yearly')]].map(([v,l])=>`<option value="${v}" ${fv('kxG','')===v?'selected':''}>${l}</option>`).join('')}</select></label><span class="per">${esc(D.sc.label)}</span></div>
   ${kxWho(D)}
