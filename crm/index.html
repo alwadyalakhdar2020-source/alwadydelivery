@@ -10026,7 +10026,7 @@ V.oppboard=()=>{
   const col=st=>{const A=shown.filter(o=>o.stage===st[0]).sort((a,b)=>b.value-a.value);const lim=+fv('obLim_'+st[0],OB_LIM);
     return `<div class="ob-col" data-stage="${st[0]}"><div class="ob-h"><span>${L(st[1],st[2])} (${num(A.length)})</span><small>${smoney(sum(A))}</small></div>
      ${A.slice(0,lim).map(o=>{const late=o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage);const d=o.expectedPay||o.expectedClose;
-       return `<div class="ob-c ${o.per} ${late?'late':''}" draggable="${obCan(o)}" data-obid="${esc(o.id)}" ${o.virt?(o.virt==='quote'?`data-open="quote" data-id="${esc(o.srcId)}"`:`data-open="order" data-id="${esc(o.srcId)}"`):`data-open="opp" data-id="${esc(o.id)}"`}>
+       return `<div class="ob-c ${o.per} ${late?'late':''}" draggable="${obCan(o)}" data-obid="${esc(o.id)}" ${o.virt?`data-act="obEdit" data-k="${esc(o.id)}"`:`data-open="opp" data-id="${esc(o.id)}"`}>
         ${obCan(o)?`<button type="button" class="ob-x" data-act="obX" data-k="${esc(o.id)}" title="${L('شيلها من اللوحة','Remove from board')}" aria-label="${L('إزالة','Remove')}">✕</button>`:''}
         <b>${esc(o.cname||o.title)}</b><div class="m">${esc(o.src?o.title:o.title)}${o.partial?' · '+L('تسليم جزئي — المتبقي','partly delivered — remaining'):''}</div>
         <div class="m"><b>${money(o.value)}</b>${o.stage!=='order'?` · ${o.prob}%`:''}${isLead()?' · '+esc(tName(o.repId)):''}</div>
@@ -10058,7 +10058,16 @@ document.addEventListener('drop',async e=>{const col=e.target.closest&&e.target.
   const s=OPP_STAGES.find(x=>x[0]===st);const patch={stage:st,prob:s?s[3]:c.prob};
   if(st==='lost'){const r=prompt(L('سبب خسارة الفرصة؟','Why was the deal lost?'),c.rec?.lostReason||'');if(r===null)return;patch.lostReason=r.trim()}
   try{await obMaterialize(c,patch);toast(L('انتقلت إلى ','Moved to ')+stageName(st))}catch(x){}});
+const obDocBtn=(src,id,no)=>`<button type="button" class="btn s" data-open="${src==='quote'?'quote':'order'}" data-id="${esc(id)}">${src==='quote'?L('فتح عرض السعر ','Open quotation '):L('فتح أمر البيع ','Open sales order ')}${esc(no||'')}</button>`;
+// a SAP card has no record yet: open the opportunity form filled from the document; saving creates the linked record
+function obEdit(k){const c=obFind(k);if(!c)return;if(!c.virt)return OPEN.opp(c.id);
+  if(!obCan(c)){OPEN[c.src==='quote'?'quote':'order'](c.srcId);return}
+  editOpp(null,{title:c.title,clientId:c.cid||'',repId:c.repId||'',value:Math.round(c.value*100)/100,stage:c.stage,prob:c.prob,src:c.src,srcId:c.srcId,srcNo:c.srcNo,source:'sap-board'});
+  const mt=document.getElementById('mtitle');if(mt)mt.textContent=L('فرصة: ','Deal: ')+(c.cname||c.title);
+  const mb=document.getElementById('mbody');if(mb)mb.insertAdjacentHTML('afterbegin',`<div class="toolbar"><span class="small muted">${L('الفرصة مربوطة بهذا المستند من ساب، وتنشال من اللوحة لما يتقفل في ساب.','Linked to this SAP document; leaves the board when SAP closes it.')}</span><span class="grow"></span>${obDocBtn(c.src,c.srcId,c.srcNo)}</div>`)}
+{const _o=OPEN.opp;OPEN.opp=(id,refresh)=>{_o(id,refresh);const o=byId('opps',id);if(!o||!o.src||!o.srcId)return;const mb=document.getElementById('mbody');if(mb&&!mb.querySelector('.ob-src'))mb.insertAdjacentHTML('afterbegin',`<div class="toolbar ob-src">${obDocBtn(o.src,o.srcId,o.srcNo)}</div>`)}}
 Object.assign(ACT,{
+  obEdit:d=>obEdit(d.k),
   obX:async d=>{const c=obFind(d.k);if(!c||!obCan(c))return;if(!confirm(L(`تشيل «${c.cname||c.title}» من اللوحة؟`,`Remove «${c.cname||c.title}» from the board?`)))return;
     try{await obMaterialize(c,{dismissed:true,dismissedAt:new Date().toISOString(),dismissedBy:me().id});toast(L('انشالت من اللوحة','Removed from the board'))}catch(x){}},
   obPer:async d=>{const c=obFind(d.k);if(!c||!obCan(c))return;const cm=TODAY().slice(0,7);
