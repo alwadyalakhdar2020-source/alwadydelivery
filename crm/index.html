@@ -9714,4 +9714,9 @@ const o=sdCredit;sdCredit=function(){const r=o.apply(this,arguments);try{if(!SDE
   if(document.querySelector('.sw')&&typeof swMsg==='function')swMsg(t,'warn');
   else{const f=document.querySelector('#sd_cust .flag');if(f){f.className='banner info';f.textContent=L('المستند يتجاوز الحد الائتماني للعميل، وبينرسل لساب كطلب اعتماد عند المعتمدين المحددين في ساب.','Exceeds the credit limit; it will be sent to SAP approval.')}}}catch(e){}return r}})();
 </script>
+<script>/* 28/11: quotations need no approval and no extra step: saving the quotation marks it «sent to client» */
+{const _eq=editQuote;editQuote=function(id,preset){const r=_eq.apply(this,arguments);try{if(!FORM||typeof FORM.onSave!=='function')return r;const q=id?byId('quotes',id):null;
+  if(q&&!['draft','pending','approved'].includes(q.status))return r;
+  const os=FORM.onSave;FORM.onSave=v=>{v.status='sent';v.sentAt=(q&&q.sentAt)||new Date().toISOString();return os(v)}}catch(e){}return r}}
+</script>
 <script src="wady-back.js"></script></body></html>
