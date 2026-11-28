@@ -262,6 +262,7 @@ const daysBetween=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:
 const monthStart=()=>TODAY().slice(0,8)+'01';
 const loc=()=>lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en-GB';
 const num=n=>Math.round(n||0).toLocaleString('en-US');
+const amt2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});const money2=n=>amt2(n)+' '+L('ر.س','SAR');const qty2=n=>(Number(n)||0).toLocaleString('en-US',{maximumFractionDigits:2}); // documents: amounts with halalas
 const price2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); // unit prices keep their halalas (1.35, not 1)
 const money=n=>num(n)+' '+L('ر.س','SAR');
 const smoney=n=>{n=n||0;const a=Math.abs(n);if(a>=1e6)return (n/1e6).toFixed(2)+' '+L('مليون','M');if(a>=1e3)return Math.round(n/1e3)+' '+L('ألف','K');return num(n)};
@@ -2375,8 +2376,8 @@ OPEN.quote=(id,refresh)=>{
   if(q.status==='accepted')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="ordered">${L('تحويل إلى طلب بيع','Convert to sales order')}</button>`;
   const h=`<div class="toolbar">${pillOf(QUOTE_ST,q.status)}<span class="grow"></span>${acts}</div>
   <dl class="kv card"><dt>${L('العميل','Client')}</dt><dd><a href="#" data-open="client" data-id="${q.clientId}">${esc(cName(q.clientId))}</a></dd><dt>${L('الفرصة','Deal')}</dt><dd>${q.oppId?esc(byId('opps',q.oppId)?.title||'—'):'—'}</dd><dt>${L('أعدّه','Prepared by')}</dt><dd>${esc(tName(q.createdBy))}</dd><dt>${L('اعتمده','Approved by')}</dt><dd>${esc(tName(q.approvedBy))}</dd><dt>${L('صالح حتى','Valid until')}</dt><dd>${fdate(q.validUntil)}</dd>${q.sapRef?`<dt>${L('مرجع SAP','SAP ref')}</dt><dd>${esc(q.sapRef)}</dd>`:''}<dt>${L('الشروط','Terms')}</dt><dd>${esc(q.terms||'—')}</dd></dl>
-  ${table([{l:L('الصنف','Item'),f:l=>esc(prodName(l.product))+(l.size||l.color?`<div class="small muted">${esc([l.size,l.color].filter(Boolean).join(' · '))}</div>`:'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(l.qty)+' '+esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>price2(l.price)},{l:L('الإجمالي','Total'),c:'n',f:l=>num(l.qty*l.price)}],(q.lines||[]).map(l=>({...l,id:null})))}
-  <dl class="kv card"><dt>${L('الخصم','Discount')}</dt><dd>${q.discount||0}%</dd><dt>${L('الإجمالي بعد الخصم','Net total')}</dt><dd><b>${money(qTotal(q))}</b> <span class="small muted">${L('غير شامل الضريبة','excl. VAT')}</span></dd></dl>
+  ${table([{l:L('الصنف','Item'),f:l=>esc(prodName(l.product))+(l.size||l.color?`<div class="small muted">${esc([l.size,l.color].filter(Boolean).join(' · '))}</div>`:'')},{l:L('الكمية','Qty'),c:'n',f:l=>qty2(l.qty)+' '+esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>price2(l.price)},{l:L('الإجمالي','Total'),c:'n',f:l=>amt2(l.qty*l.price)}],(q.lines||[]).map(l=>({...l,id:null})))}
+  <dl class="kv card"><dt>${L('الخصم','Discount')}</dt><dd>${q.discount||0}%</dd><dt>${L('الإجمالي بعد الخصم','Net total')}</dt><dd><b>${money2(qTotal(q))}</b> <span class="small muted">${L('غير شامل الضريبة','excl. VAT')}</span></dd></dl>
   ${isLead()?sec(L('سجل التعديلات','Change history'),'',auditTable(S.audit.filter(a=>a.docId===id).sort((a,b)=>b.at.localeCompare(a.at)))):''}`;
   setDrawer('quote',id,q.no,h,refresh);
 };
@@ -2840,8 +2841,8 @@ OPEN.order=(id,refresh)=>{const o=byId('orders',id);if(!o)return;
   setDrawer('order',id,L('أمر البيع ','Sales order ')+o.no,`<dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · ${esc(o.clientCode||'')}</dd>
    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('المنطقة','Region')}</dt><dd>${esc(regName(o.region))}</dd><dt>${L('الحالة','Status')}</dt><dd>${pillOf(ORDER_ST,o.status)}</dd>
    <dt>${L('تاريخ التسليم','Delivery')}</dt><dd>${o.delivery?fdate(o.delivery):'—'}</dd><dt>${L('عرض السعر','Quotation')}</dt><dd>${esc(o.quoteNo||'—')}</dd><dt>${L('المشروع','Project')}</dt><dd>${esc(o.project||'—')}</dd></dl>
-   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?num(l.qty):'—'},...((o.lines||[]).some(l=>l.open!=null&&l.open!=='')?[{l:L('المسلَّم','Delivered'),c:'n',f:l=>l.open!=null&&l.open!==''?num(Math.max(0,(+l.qty||0)-(+l.open||0))):'—'},{l:L('المتبقي','Open'),c:'n',f:l=>l.open!=null&&l.open!==''?num(l.open):'—'}]:[]),{l:L('سعر الوحدة','Unit price'),c:'n',f:l=>l.price!==''&&l.price!=null?price2(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>num(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
-   <div class="small muted">${L('الإجمالي','Total')}: <b>${money(o.value)}</b></div></div>`,refresh)};
+   <div class="card"><h2>${L('الأصناف','Lines')}</h2>${table([{l:L('الكود','Code'),f:l=>esc(l.item||'—')},{l:L('الصنف','Item'),f:l=>esc(l.name||itemByCode(l.item)?.name||'—')},{l:L('الكمية','Qty'),c:'n',f:l=>l.qty!==''&&l.qty!=null?qty2(l.qty):'—'},...((o.lines||[]).some(l=>l.open!=null&&l.open!=='')?[{l:L('المسلَّم','Delivered'),c:'n',f:l=>l.open!=null&&l.open!==''?qty2(Math.max(0,(+l.qty||0)-(+l.open||0))):'—'},{l:L('المتبقي','Open'),c:'n',f:l=>l.open!=null&&l.open!==''?qty2(l.open):'—'}]:[]),{l:L('سعر الوحدة','Unit price'),c:'n',f:l=>l.price!==''&&l.price!=null?price2(l.price):'—'},{l:L('القيمة','Value'),c:'n',f:l=>amt2(l.value)}],(o.lines||[]).map(l=>({...l,id:null})),'',{foot:1})}
+   <div class="small muted">${L('الإجمالي','Total')}: <b>${money2(o.value)}</b></div></div>`,refresh)};
 
 /* ---- pipeline: fill the rep's sheet from his customers, open quotations and open orders ---- */
 function plSources(rep,month){
@@ -8269,12 +8270,12 @@ V.sinv=sinvView('invoice');V.scn=sinvView('credit');
 OPEN.sinv=(id,refresh)=>{const o=byId('sinv',id);if(!o)return;
   setDrawer('sinv',id,sKind(o)+' '+o.no,`<div class="toolbar"><button class="btn p" data-act="siPrint" data-id="${id}">🖨 ${L('طباعة / PDF','Print / PDF')}</button></div>
    <dl class="kv card"><dt>${L('التاريخ','Date')}</dt><dd>${fdate(o.date)}</dd><dt>${L('العميل','Customer')}</dt><dd>${o.clientId?`<a href="#" data-open="client" data-id="${o.clientId}">${esc(o.cname||cName(o.clientId))}</a>`:esc(o.cname||'—')} · <bdi>${esc(o.clientCode||'')}</bdi></dd>
-   <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('القيمة بدون ضريبة','Value ex-VAT')}</dt><dd>${money(o.value)}</dd><dt>${L('الضريبة','VAT')}</dt><dd>${money(o.vat)}</dd>
-   <dt>${L('الإجمالي','Total')}</dt><dd><b>${money(o.total)}</b></dd>${o.kind!=='credit'?`<dt>${L('المتبقي عليها','Still due')}</dt><dd>${money(invDue(o))} <span class="small muted">${L('بعد خصم السداد من الأقدم','payments applied oldest first')}</span></dd>`:''}<dt>${L('الحالة','Status')}</dt><dd>${o.kind==='credit'?pillOf(SINV_ST,o.status):pillOf(PAY_ST,payState(o))}</dd>
+   <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('القيمة بدون ضريبة','Value ex-VAT')}</dt><dd>${money2(o.value)}</dd><dt>${L('الضريبة','VAT')}</dt><dd>${money2(o.vat)}</dd>
+   <dt>${L('الإجمالي','Total')}</dt><dd><b>${money2(o.total)}</b></dd>${o.kind!=='credit'?`<dt>${L('المتبقي عليها','Still due')}</dt><dd>${money2(invDue(o))} <span class="small muted">${L('بعد خصم السداد من الأقدم','payments applied oldest first')}</span></dd>`:''}<dt>${L('الحالة','Status')}</dt><dd>${o.kind==='credit'?pillOf(SINV_ST,o.status):pillOf(PAY_ST,payState(o))}</dd>
    ${o.ref?`<dt>${L('مرجع العميل','Customer ref.')}</dt><dd>${esc(o.ref)}</dd>`:''}<dt>${L('الفاتورة الإلكترونية','E-invoice')}</dt><dd>${pill(L('صدر الباركود','QR issued'),'ok')} ${o.einv?`<span class="small muted">${esc(o.einv)}</span>`:''}</dd></dl>
    <div class="card" id="si_lines"><h2>${L('الأصناف','Lines')}</h2><div class="muted small">${L('جاري التحميل من ساب…','Loading from SAP…')}</div></div>`,refresh);
   siDoc(o).then(d=>{const b=document.getElementById('si_lines');if(!b)return;
-    b.innerHTML=`<h2>${L('الأصناف','Lines')}</h2>`+table([{l:L('الكود','Code'),f:l=>`<bdi>${esc(l.code||'')}</bdi>`},{l:L('الصنف','Item'),f:l=>esc(l.name||'')},{l:L('الكمية','Qty'),c:'n',f:l=>num(l.qty)},{l:L('الوحدة','Unit'),f:l=>esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>price2(l.net)},{l:L('الإجمالي','Total'),c:'n',f:l=>num(l.total)}],d.lines||[],null,{all:1})})
+    b.innerHTML=`<h2>${L('الأصناف','Lines')}</h2>`+table([{l:L('الكود','Code'),f:l=>`<bdi>${esc(l.code||'')}</bdi>`},{l:L('الصنف','Item'),f:l=>esc(l.name||'')},{l:L('الكمية','Qty'),c:'n',f:l=>qty2(l.qty)},{l:L('الوحدة','Unit'),f:l=>esc(l.unit||'')},{l:L('السعر','Price'),c:'n',f:l=>price2(l.net)},{l:L('الإجمالي','Total'),c:'n',f:l=>amt2(l.total)}],d.lines||[],null,{all:1})})
    .catch(e=>{const b=document.getElementById('si_lines');if(b)b.innerHTML=`<h2>${L('الأصناف','Lines')}</h2><div class="flag">${esc(e.message||String(e))}</div>`})};
 const SIDOC=new Map();
 async function siDoc(o){const k=o.id;if(SIDOC.has(k))return SIDOC.get(k);
@@ -8537,7 +8538,7 @@ ACT.soNew=()=>{const q=vis(S.quotes).filter(x=>x.source==='sap'?x.sapStatus==='o
   const i=document.getElementById('soq');i&&i.addEventListener('input',()=>{const t=normTxt(i.value);document.querySelectorAll('#soql [data-act="soFromQ"]').forEach(b=>b.style.display=!t||b.dataset.s.includes(t)?'flex':'none')})};
 ACT.soBlank=()=>{closeModal();setTimeout(()=>sdForm('order'),60)};
 ACT.soFromQ=d=>{const q=byId('quotes',d.id);if(!q)return;const card=q.clientCode||byId('clients',q.clientId)?.code;if(!card)return toast(L('العميل ما له كود ساب','Customer has no SAP code'));closeModal();
-  if(q.source==='sap'&&q.sapEntry)return setTimeout(()=>sdForm('order',{card,doc:{type:'quotation',entry:+q.sapEntry}}),60);
+  if(q.sapEntry)return setTimeout(()=>sdForm('order',{card,doc:{type:'quotation',entry:+q.sapEntry}}),60);
   // an in-app quotation: its approved lines and prices fill the order
   setTimeout(()=>{sdForm('order',{card});const fill=()=>{if(typeof SDE==='undefined'||!SDE)return;SDE.lines=(q.lines||[]).filter(l=>l.product).map(l=>{const it=(S.items||[]).find(z=>z.code===l.product)||{};return {item_code:l.product,name:l.name||it.name||l.product,unit:l.unit||it.unit,qty:+l.qty||1,price:+l.price||0,disc:0,vat_group:'',wh:it.wh}});SDE.qref=q.no;if(typeof sdPaint==='function')sdPaint()};setTimeout(fill,700)},60)};
 // price and discount follow SAP for whoever does not hold the SAP screens
@@ -9717,6 +9718,22 @@ const o=sdCredit;sdCredit=function(){const r=o.apply(this,arguments);try{if(!SDE
 <script>/* 28/11: quotations need no approval and no extra step: saving the quotation marks it «sent to client» */
 {const _eq=editQuote;editQuote=function(id,preset){const r=_eq.apply(this,arguments);try{if(!FORM||typeof FORM.onSave!=='function')return r;const q=id?byId('quotes',id):null;
   if(q&&!['draft','pending','approved'].includes(q.status))return r;
-  const os=FORM.onSave;FORM.onSave=v=>{v.status='sent';v.sentAt=(q&&q.sentAt)||new Date().toISOString();return os(v)}}catch(e){}return r}}
+  const os=FORM.onSave;FORM.onSave=async v=>{v.status='sent';v.sentAt=(q&&q.sentAt)||new Date().toISOString();const res=await os(v);if(res&&res.id)qToSap(res.id);return res}}catch(e){}return r}}
+</script>
+<script>/* 28/11: a saved quotation is created in SAP (same number, same prices); its SAP state shows on the quotation */
+async function qToSap(id){try{const {data,error}=await window.__sb.rpc('crm_quote_to_sap',{p_id:id});if(error)throw error;
+  if(data&&data.ok){if(!data.already)toast(L('انرسل العرض لساب، رقم ساب يطلع خلال ثواني','Quotation sent to SAP; the SAP number appears shortly'))}
+  else toast(L('ما انرسل لساب: ','Not sent to SAP: ')+((data&&data.errors)||[]).join('، '))}catch(e){console.warn('qToSap',e);toast(L('تعذّر إرسال العرض لساب — جرّب «إرسال لساب» من العرض','Could not send to SAP — use «Send to SAP» on the quotation'))}}
+ACT.qToSap=d=>{qToSap(d.id);closeModal()};
+{const _oq=OPEN.quote;OPEN.quote=function(id,refresh){const r=_oq.apply(this,arguments);try{const q=byId('quotes',id);const mb=document.getElementById('mbody');if(!q||!mb||q.source==='sap'||mb.querySelector('.qsap'))return r;
+  const st=q.sapEntry?'posted':q.sapState||'';const tb=mb.querySelector('.toolbar');
+  let h='';
+  if(st==='posted')h=`<div class="banner info qsap"><span class="sp">✓ ${L('موجود في ساب برقم','In SAP as')} <b><bdi>${esc(String(q.sapNo||q.no||''))}</bdi></b>${q.crmNo?` · ${L('رقم المنصة','Platform no.')} <bdi>${esc(q.crmNo)}</bdi>`:''}</span></div>`;
+  else if(st==='pending')h=`<div class="banner warn qsap"><span class="sp">⏳ ${L('جاري إنشاء العرض في ساب…','Being created in SAP…')}</span></div>`;
+  else if(st==='awaiting_approval')h=`<div class="banner warn qsap"><span class="sp">⏳ ${L('العرض بانتظار اعتماد في ساب','Awaiting approval in SAP')}</span></div>`;
+  else if(!['rejected','ordered'].includes(q.status))h=`<div class="banner ${st==='failed'?'bad':'warn'} qsap"><span class="sp">${st==='failed'?'✕ '+L('ما انرسل لساب: ','Not created in SAP: ')+esc(q.sapErr||''):L('العرض لسا ما انرسل لساب.','Not in SAP yet.')}</span> <button class="btn p" data-act="qToSap" data-id="${esc(id)}">${L('إرسال لساب','Send to SAP')}</button></div>`;
+  if(h)mb.insertAdjacentHTML('afterbegin',h);
+  if(['posted','pending','awaiting_approval'].includes(st)&&tb)tb.querySelectorAll('[data-act="editQuote"]').forEach(b=>b.remove());   // what is in SAP is changed in SAP
+ }catch(e){}return r}}
 </script>
 <script src="wady-back.js"></script></body></html>
