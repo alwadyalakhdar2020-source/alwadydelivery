@@ -9704,4 +9704,13 @@ V.sapappr=()=>{if(typeof window.__sb==='undefined')return `<div class="card empt
     :`<div class="card empty">${L('ما فيه مستندات تنتظر اعتماد في ساب ضمن صلاحيتك','Nothing waiting for approval')}</div>`}`};
 Object.assign(ACT,{sapaAll:(d,b)=>{SAPA.all=!!(b&&b.checked);SAPA.rows=null;render()},sapaReload:()=>{SAPA.at=0;sapaLoad()}});
 </script>
+<script>/* credit like SAP: when the user's over-limit deliveries/invoices go to SAP approval (credit-deviation procedure), warn instead of block */
+var SD_CAPPR=new Set();
+(function(){const load=()=>{try{const sb=window.__sb;if(!sb||!window.__wadySession)return setTimeout(load,1500);sb.rpc('sap_credit_appr_kinds').then(({data})=>{SD_CAPPR=new Set(Array.isArray(data)?data:[]);try{if(typeof SDE!=='undefined'&&SDE&&SDE.cust)sdCredit()}catch(e){}})}catch(e){}};load();
+const o=sdCredit;sdCredit=function(){const r=o.apply(this,arguments);try{if(!SDE)return r;SDE.toAppr=false;const c=SDE.cust;if(!c||!SDE.over||!SD_CAPPR.has(SDE.kind))return r;
+  if(c.Frozen==='tYES'||c.Valid==='tNO')return r;SDE.over=false;SDE.toAppr=true;
+  const t='Credit limit exceeded — the document will go to SAP approval. يتجاوز الحد الائتماني، وبينرسل للاعتماد في ساب حسب إجراء الاعتماد';
+  if(document.querySelector('.sw')&&typeof swMsg==='function')swMsg(t,'warn');
+  else{const f=document.querySelector('#sd_cust .flag');if(f){f.className='banner info';f.textContent=L('المستند يتجاوز الحد الائتماني للعميل، وبينرسل لساب كطلب اعتماد عند المعتمدين المحددين في ساب.','Exceeds the credit limit; it will be sent to SAP approval.')}}}catch(e){}return r}})();
+</script>
 <script src="wady-back.js"></script></body></html>
