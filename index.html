@@ -1105,7 +1105,8 @@ async function userForm(p){
    <h3 class="fsec">${icon('shield')} صلاحيات الصفحات</h3>
    ${p.role==='admin'?'<div class="banner info"><span class="sp">مدير النظام له صلاحية Editor على كل الصفحات تلقائياً.</span></div>':''}
    <p class="small muted">«يدخل التطبيق» يحدد التطبيقات اللي تظهر له بنفس اسم المستخدم. «مدير التطبيق» يعطيه كل الصلاحيات داخل هذا التطبيق بس — إدارة المستخدمين والصلاحيات تبقى لمدير النظام.</p>
-   <div id="uf_pm">${permMatrix(cur,(S.allAppAdmins||{})[p.id]||[])}</div>
+   <div class="pm-copy" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px"><label for="uf_copy" class="small"><b>نسخ الصلاحيات من مستخدم:</b></label><select id="uf_copy" style="min-width:220px"><option value="">— اختر المستخدم —</option>${(S.profiles||[]).filter(x=>x.id!==p.id&&x.active!==false&&(S.allPages||{})[x.id]).sort((x,y)=>String(x.full_name||x.username).localeCompare(String(y.full_name||y.username),'ar')).map(x=>`<option value="${x.id}">${esc(x.full_name||x.username)}${x.username?' — '+esc(x.username):''}</option>`).join('')}</select><span class="small muted">تتعبّى كل الصلاحيات من المستخدم المختار، وتقدر تعدّل عليها قبل الحفظ.</span></div>
+    <div id="uf_pm">${permMatrix(cur,(S.allAppAdmins||{})[p.id]||[])}</div>
    <div id="uf_err" class="flag"></div>
    <div class="formbar">${!isNew&&p.id!==S.me.id?`<button type="button" class="btn ${p.active?'d':''}" data-act="userActive" data-id="${p.id}" data-v="${p.active?0:1}">${p.active?'إيقاف الحساب':'تفعيل الحساب'}</button><button type="button" class="btn" data-act="userPass" data-id="${p.id}">تغيير كلمة المرور</button><button type="button" class="btn d" data-act="userDel" data-id="${p.id}" data-u="${String(p.username||'').toLowerCase()}">حذف المستخدم</button>`:''}<span style="flex:1"></span><button type="button" class="btn" data-act="closeModal">إلغاء</button><button type="submit" class="btn p">حفظ</button></div></form>`,b=>{
     const form=b.querySelector('#userForm');
@@ -1120,6 +1121,9 @@ async function userForm(p){
       if(t.dataset.pmon!=null){const app=t.dataset.pmon;if(!t.checked){b.querySelector(`[data-pmadm="${app}"]`).checked=false;setApp(app,{})}
         else if(![...b.querySelectorAll(`[data-pm^="${app}|"]`)].some(s=>s.value)){setApp(app,PAGE_TEMPLATES[app]?.viewer?templatePages(app,'viewer'):allLv(app,'view'));const d=b.querySelector(`[data-pmapp="${app}"]`);if(d)d.open=true}}
       if(t.dataset.pmadm!=null){const app=t.dataset.pmadm;if(t.checked){setApp(app,allLv(app,'edit'));if(app==='fleet'){const fr=b.querySelector('#uf_frole');if(fr&&!['sysadmin','ops_mgr'].includes(fr.value))fr.value='sysadmin'}}}
+      if(t.id==='uf_copy'&&t.value){const src=(S.allPages||{})[t.value]||{};const adm=(S.allAppAdmins||{})[t.value]||[];
+        APPS_ORDER.forEach(app=>{const ad=b.querySelector(`[data-pmadm="${app}"]`);if(ad)ad.checked=adm.includes(app);setApp(app,adm.includes(app)?allLv(app,'edit'):(src[app]||{}));const d=b.querySelector(`[data-pmapp="${app}"]`);if(d)d.open=!adm.includes(app)&&Object.keys(src[app]||{}).length>0});
+        const nm=t.options[t.selectedIndex].text;t.value='';toast('تم نسخ صلاحيات '+nm+' — راجعها واضغط حفظ')}
       if(t.dataset.pmtpl!=null&&t.value){const app=t.dataset.pmtpl;const m=t.value==='__none'?{}:templatePages(app,t.value);
       b.querySelectorAll(`[data-pm^="${app}|"]`).forEach(s=>{s.value=m[s.dataset.pm.split('|')[1]]||''});t.value=''}sync()});sync();
     form.addEventListener('submit',async e=>{e.preventDefault();const g=id=>b.querySelector('#'+id)?.value.trim();const err=m=>b.querySelector('#uf_err').textContent=m;
