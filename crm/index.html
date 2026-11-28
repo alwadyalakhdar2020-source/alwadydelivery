@@ -1396,6 +1396,7 @@ function mountCharts(){
       if(x.type)base.type=x.type;return base});
     const horiz=!!s.horizontal;const valAxis=horiz?'x':'y',catAxis=horiz?'y':'x';
     const scales=s.type==='doughnut'?{}:{[valAxis]:{beginAtZero:true,grid:{color:grid},ticks:{callback:fmt,maxTicksLimit:6},reverse:horiz&&rtl},[catAxis]:{grid:{display:false},ticks:{autoSkip:true,maxRotation:0,callback:function(v){const l=this.getLabelForValue(v);return String(l).length>22?String(l).slice(0,21)+'…':l}},position:horiz&&rtl?'right':undefined,reverse:!horiz&&rtl}};
+    if(s.stacked&&scales[valAxis]){scales[valAxis].stacked=true;scales[catAxis].stacked=true}
     const cfgc={type:s.type,data:{labels:s.labels,datasets:ds},options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:horiz?'y':'x',locale:'en-US',
       plugins:{legend:{display:s.series.length>1||s.type==='doughnut',position:'bottom',rtl,labels:{boxWidth:12,usePointStyle:true}},tooltip:{rtl,callbacks:{label:c=>`${c.dataset.label?c.dataset.label+': ':''}${s.type==='doughnut'?num(c.parsed):fmt(horiz?c.parsed.x:c.parsed.y)}`}}},
       scales,onClick:s.onClick?(e,els)=>{if(els[0])s.onClick(els[0].index)}:undefined}};
@@ -9972,5 +9973,97 @@ Object.assign(ACT,{plmAdd:d=>plmAdd([d.k]),plmAddAll:()=>plmAdd(null),
 // after adding from the picker or the one-step wizard, say how many expected customers are still missing
 {const tell=()=>{try{const {rep,month,doc}=plCurrent();const n=plMissing(rep,month,doc).length;if(n)setTimeout(()=>toast(L(`تنبيه: ${n} عميل متوقع لسا ما انضاف — شوف القائمة فوق جدول Opportunity`,`Note: ${n} expected customers still missing — see the list above the Opportunity table`)),1800)}catch(e){}};
  const _a=plpAdd;plpAdd=function(){const r=_a.apply(this,arguments);if(!PLP)tell();return r};const _b=plpBulk;plpBulk=function(){const r=_b.apply(this,arguments);tell();return r}}
+</script>
+<script>
+/* ===== 28/11: deals board fed by SAP — every open quotation lands in «عرض سعر» and every open sales order in «طلب بيع» on its own,
+   and leaves the board once SAP closes it (quotation ordered/rejected, order delivered/closed/cancelled). A card that came from SAP is
+   only kept as an opportunity record once someone touches it (drags it, removes it, or sets its period): the record carries src/srcId so
+   the same document never shows twice. Period: the card's expected collection date (else expected close; none = current month)
+   — this month or earlier = current month, later = backlog. Values are before VAT. ===== */
+const OB_LIM=60;
+const obOrdOpen=o=>{const ls=o.lines||[];const has=ls.some(l=>l&&typeof l==='object'&&!Array.isArray(l)&&l.open!=null);return has?ls.reduce((s,l)=>s+(+l.open||0)*(+l.price||0),0):(+o.value||0)};
+function obCards(){const t=TODAY(),cm=t.slice(0,7);const ix=I();
+  const qOpen=new Map(ix.quotes.filter(q=>q.st==='open'||q.st==='pending').map(q=>[q.id,q]));
+  const oOpen=new Map((S.orders||[]).filter(o=>o.status==='open'||o.status==='partial').map(o=>[o.id,o]));
+  const linkedQ=new Set(),linkedO=new Set();const cards=[];
+  const per=(c,fb)=>{const d=c.expectedPay||c.expectedClose||fb||'';const m=d?d.slice(0,7):cm;return m>cm?'bl':'cur'};
+  vis(S.opps).forEach(o=>{if(o.src==='quote')linkedQ.add(o.srcId);if(o.src==='order')linkedO.add(o.srcId);});
+  (S.quotes||[]).forEach(q=>{if(q.oppId&&byId('opps',q.oppId))linkedQ.add(q.id)});(S.orders||[]).forEach(x=>{if(x.oppId&&byId('opps',x.oppId))linkedO.add(x.id)});
+  // opportunity records (manual, or SAP cards someone already touched)
+  vis(S.opps).forEach(o=>{if(o.dismissed)return;let value=+o.value||0,doc=null,fb='';
+    if(o.src==='quote'){const q=qOpen.get(o.srcId);if(!q)return;doc=q;value=q.value}
+    else if(o.src==='order'){const x=oOpen.get(o.srcId);if(!x)return;doc=x;value=obOrdOpen(x)}
+    cards.push({id:o.id,rec:o,src:o.src||'',srcNo:o.srcNo||doc?.no||'',title:o.title||'—',cid:o.clientId,cname:cName(o.clientId)||doc?.cname||'',repId:o.repId,stage:o.stage||'inquiry',value,prob:+o.prob||0,
+      expectedPay:o.expectedPay||'',expectedClose:o.expectedClose||'',nextStep:o.nextStep,nextDate:o.nextDate,per:per(o,fb)})});
+  // SAP documents nobody has touched yet
+  const vq=vis(ix.quotes.map(q=>({...q,repId:q.rep,clientId:q.cid})));
+  vq.forEach(q=>{if(!qOpen.has(q.id)||linkedQ.has(q.id))return;cards.push({id:'vq:'+q.id,virt:'quote',srcId:q.id,src:'quote',srcNo:q.no,title:L('عرض سعر ','Quotation ')+q.no,cid:q.cid,cname:q.cname,repId:q.rep,stage:'offer',value:+q.value||0,prob:OPP_STAGES[1][3],
+    expectedPay:'',expectedClose:'',date:q.date,per:'cur'})});
+  vis([...oOpen.values()]).forEach(x=>{if(linkedO.has(x.id))return;const c=x.clientId?byId('clients',x.clientId):null;cards.push({id:'vo:'+x.id,virt:'order',srcId:x.id,src:'order',srcNo:x.no,title:L('أمر بيع ','Sales order ')+x.no,cid:c?.id||x.clientId,cname:c?.name||x.cname||'',repId:x.repId||c?.repId,stage:'order',
+    value:obOrdOpen(x),prob:100,partial:x.status==='partial',expectedPay:'',expectedClose:'',date:x.date,per:'cur'})});
+  return cards}
+// make a SAP card a real opportunity record (first time someone acts on it)
+async function obMaterialize(c,patch){if(!c.virt){const o=byId('opps',c.id);return save('opps',{...o,...patch})}
+  const st=OPP_STAGES.find(s=>s[0]===(patch.stage||c.stage));
+  return save('opps',{title:c.title,clientId:c.cid||'',repId:c.repId||'',value:Math.round(c.value*100)/100,stage:c.stage,prob:st?st[3]:c.prob,src:c.src,srcId:c.srcId,srcNo:c.srcNo,products:[],competitors:[],source:'sap-board',...patch})}
+const obCan=c=>isLead()||c.repId===me().id;
+let OB_CARDS=null;const obFind=id=>(OB_CARDS||obCards()).find(c=>c.id===id);
+V.oppboard=()=>{
+  const rp=fv('obRep',''),q=normTxt(fv('obQ','')),pf=fv('obPer','');const all=obCards();OB_CARDS=all;
+  const rows=all.filter(o=>(!rp||o.repId===rp)&&(!q||normTxt(o.title+' '+o.cname+' '+(o.srcNo||'')).includes(q)));
+  const shown=rows.filter(o=>!pf||o.per===pf);const live=rows.filter(o=>o.stage!=='lost');
+  const sum=(a,p)=>a.filter(o=>!p||o.per===p).reduce((s,o)=>s+o.value,0);const t=TODAY();
+  const css=`<style>.obk{display:grid;grid-template-columns:repeat(${OPP_STAGES.length},minmax(220px,1fr));gap:8px;overflow-x:auto;padding-bottom:6px;align-items:start}
+   .ob-col{background:var(--sunk,rgba(127,140,160,.08));border:1px solid var(--line);border-radius:10px;padding:6px;min-height:260px;display:flex;flex-direction:column}.ob-col.over{outline:2px dashed #34BEF0}
+   .ob-h{font-weight:700;font-size:13px;display:flex;justify-content:space-between;gap:6px;margin-bottom:6px;align-items:baseline}.ob-h small{font-weight:400;opacity:.75}
+   .ob-c{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 8px 7px 26px;margin-bottom:6px;cursor:grab;font-size:12.5px;line-height:1.4}
+   .ob-c.bl{border-inline-start:3px solid #8FC153}.ob-c.cur{border-inline-start:3px solid #34BEF0}.ob-c.late{box-shadow:inset 0 0 0 1px #B42318}
+   .ob-c b{font-size:13px}.ob-c .m{font-size:11.5px;opacity:.8;margin-top:2px}.ob-x{position:absolute;inset-inline-end:4px;top:4px;width:22px;height:22px;min-height:0;padding:0;border-radius:6px;border:1px solid var(--line);background:transparent;color:inherit;cursor:pointer;font-size:12px;line-height:1}
+   .ob-x:hover{background:#B42318;color:#fff;border-color:#B42318}.ob-tag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;margin-inline-end:4px;cursor:pointer;border:0}
+   .ob-tag.cur{background:rgba(52,190,240,.18);color:#34BEF0}.ob-tag.bl{background:rgba(143,193,83,.2);color:#8FC153}.ob-tag.sap{background:rgba(243,146,53,.18);color:#F39235;cursor:default}
+   .ob-f{margin-top:auto;border-top:1px solid var(--line);padding-top:6px;font-size:12px;display:grid;grid-template-columns:1fr auto;gap:2px 8px}.ob-f b{font-variant-numeric:tabular-nums}
+   .ob-more{font-size:12px;width:100%;margin-bottom:6px}</style>`;
+  const col=st=>{const A=shown.filter(o=>o.stage===st[0]).sort((a,b)=>b.value-a.value);const lim=+fv('obLim_'+st[0],OB_LIM);
+    return `<div class="ob-col" data-stage="${st[0]}"><div class="ob-h"><span>${L(st[1],st[2])} (${num(A.length)})</span><small>${smoney(sum(A))}</small></div>
+     ${A.slice(0,lim).map(o=>{const late=o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage);const d=o.expectedPay||o.expectedClose;
+       return `<div class="ob-c ${o.per} ${late?'late':''}" draggable="${obCan(o)}" data-obid="${esc(o.id)}" ${o.virt?(o.virt==='quote'?`data-open="quote" data-id="${esc(o.srcId)}"`:`data-open="order" data-id="${esc(o.srcId)}"`):`data-open="opp" data-id="${esc(o.id)}"`}>
+        ${obCan(o)?`<button type="button" class="ob-x" data-act="obX" data-k="${esc(o.id)}" title="${L('شيلها من اللوحة','Remove from board')}" aria-label="${L('إزالة','Remove')}">✕</button>`:''}
+        <b>${esc(o.cname||o.title)}</b><div class="m">${esc(o.src?o.title:o.title)}${o.partial?' · '+L('تسليم جزئي — المتبقي','partly delivered — remaining'):''}</div>
+        <div class="m"><b>${money(o.value)}</b>${o.stage!=='order'?` · ${o.prob}%`:''}${isLead()?' · '+esc(tName(o.repId)):''}</div>
+        <div class="m"><button type="button" class="ob-tag ${o.per}" ${obCan(o)&&o.stage!=='lost'?`data-act="obPer" data-k="${esc(o.id)}"`:'disabled'} title="${L('اضغط للتبديل بين الشهر الحالي والـ Backlog','Click to switch current month / backlog')}">${o.per==='cur'?L('الشهر الحالي','This month'):'Backlog'}</button>${o.src?`<span class="ob-tag sap">SAP</span>`:''}${d?`${L('تحصيل','coll.')} ${fdate(d)}`:''}</div>
+        ${o.nextStep?`<div class="m">↪ ${esc(o.nextStep)}${o.nextDate?' ('+fdate(o.nextDate)+')':''}</div>`:''}</div>`}).join('')}
+     ${A.length>lim?`<button class="btn s ob-more" data-act="filt" data-k="obLim_${st[0]}" data-v="${lim+200}">${L('عرض المزيد','Show more')} (${num(A.length-lim)})</button>`:''}
+     <div class="ob-f"><span>${L('الإجمالي','Total')}</span><b>${num(Math.round(sum(A)))}</b>${st[0]!=='lost'?`<span>${L('الشهر الحالي','This month')}</span><b>${num(Math.round(sum(A,'cur')))}</b><span>Backlog</span><b>${num(Math.round(sum(A,'bl')))}</b>`:''}</div></div>`};
+  const stg=OPP_STAGES.filter(s=>s[0]!=='lost');const bySt=p=>stg.map(s=>Math.round(rows.filter(o=>o.stage===s[0]&&o.per===p).reduce((a,o)=>a+o.value,0)));
+  const tabs=[['',L('الكل','All')],['cur',L('الشهر الحالي','This month')],['bl',L('Backlog — الفترة القادمة','Backlog — next period')]];
+  return css+`<div class="toolbar">${oppxBtns()}<button class="btn p" data-act="newOpp">+ ${L('فرصة','Deal')}</button><input type="search" placeholder="${L('بحث بالعميل أو الفرصة أو رقم المستند','Search customer, deal or doc no.')}" value="${esc(fv('obQ',''))}" data-act="filtIn" data-k="obQ">
+    ${isLead()?`<select data-act="filtSel" data-k="obRep">${opt(visibleReps().map(r=>[r.id,r.name]),rp,L('كل المندوبين','All reps'))}</select>`:''}<span class="grow"></span>
+    <div class="tabs">${tabs.map(([v,l])=>`<button class="tab ${pf===v?'on':''}" data-act="filt" data-k="obPer" data-v="${v}">${l}</button>`).join('')}</div></div>
+   <div class="kpis k4">${kpiTile(L('إجمالي اللوحة (بدون الخسارة)','Board total (excl. lost)'),smoneyK(sum(live)),`${num(live.length)} ${L('بطاقة','cards')} · ${L('قبل الضريبة','before VAT')}`)}
+    ${kpiTile(L('الشهر الحالي','This month'),smoneyK(sum(live,'cur')),`${num(live.filter(o=>o.per==='cur').length)} ${L('بطاقة','cards')}`)}${kpiTile(L('Backlog — الفترة القادمة','Backlog — next period'),smoneyK(sum(live,'bl')),`${num(live.filter(o=>o.per==='bl').length)} ${L('بطاقة','cards')}`)}
+    ${kpiTile(L('المرجّح بالاحتمال','Weighted'),smoneyK(live.reduce((s,o)=>s+o.value*o.prob/100,0)),'')}</div>
+   <div class="card"><h2>${L('الإجماليات حسب المرحلة','Totals by stage')}<span class="sub">${L('الشهر الحالي مقابل الـ Backlog — قبل الضريبة','This month vs backlog — before VAT')}</span></h2>
+    ${chart({type:'bar',stacked:1,money:1,labels:stg.map(s=>L(s[1],s[2])),series:[{label:L('الشهر الحالي','This month'),data:bySt('cur'),color:'--c1'},{label:'Backlog',data:bySt('bl'),color:'--c2'}]},230)}</div>
+   <div class="small muted" style="margin:4px 0 8px">${L('عروض الأسعار وأوامر البيع المفتوحة في ساب تنزل هنا لحالها وتنشال أول ما تتقفل أو تتسلم. اسحب البطاقة لعمود ثاني، و✕ يشيلها من اللوحة، واضغط على «الشهر الحالي / Backlog» للتبديل. الفترة حسب تاريخ التحصيل المتوقع.','Open SAP quotations and sales orders appear here automatically and leave once closed or delivered. Drag to move, ✕ removes, click the period tag to switch. Period follows the expected collection date.')}</div>
+   <div class="obk">${OPP_STAGES.map(col).join('')}</div>`};
+V.opps=V.oppboard;
+{const i=NAV.findIndex(n=>n[0]==='oppboard');if(i>=0)NAV.splice(i,1)}
+// drag & drop (own classes, so the older board's listeners stay out of it)
+let OB_DRAG=null;
+document.addEventListener('dragstart',e=>{const c=e.target.closest&&e.target.closest('.ob-c');if(!c)return;OB_DRAG=c.dataset.obid;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',OB_DRAG)}catch(x){}});
+document.addEventListener('dragover',e=>{const c=e.target.closest&&e.target.closest('.ob-col');if(!c||!OB_DRAG)return;e.preventDefault();document.querySelectorAll('.ob-col.over').forEach(x=>x!==c&&x.classList.remove('over'));c.classList.add('over')});
+document.addEventListener('dragend',()=>{OB_DRAG=null;document.querySelectorAll('.ob-col.over').forEach(x=>x.classList.remove('over'))});
+document.addEventListener('drop',async e=>{const col=e.target.closest&&e.target.closest('.ob-col');document.querySelectorAll('.ob-col.over').forEach(x=>x.classList.remove('over'));if(!col||!OB_DRAG)return;e.preventDefault();
+  const c=obFind(OB_DRAG);OB_DRAG=null;const st=col.dataset.stage;if(!c||c.stage===st)return;if(!obCan(c)){toast(L('ما تقدر تعدّل فرصة مندوب ثاني','You can only move your own deals'));return}
+  const s=OPP_STAGES.find(x=>x[0]===st);const patch={stage:st,prob:s?s[3]:c.prob};
+  if(st==='lost'){const r=prompt(L('سبب خسارة الفرصة؟','Why was the deal lost?'),c.rec?.lostReason||'');if(r===null)return;patch.lostReason=r.trim()}
+  try{await obMaterialize(c,patch);toast(L('انتقلت إلى ','Moved to ')+stageName(st))}catch(x){}});
+Object.assign(ACT,{
+  obX:async d=>{const c=obFind(d.k);if(!c||!obCan(c))return;if(!confirm(L(`تشيل «${c.cname||c.title}» من اللوحة؟`,`Remove «${c.cname||c.title}» from the board?`)))return;
+    try{await obMaterialize(c,{dismissed:true,dismissedAt:new Date().toISOString(),dismissedBy:me().id});toast(L('انشالت من اللوحة','Removed from the board'))}catch(x){}},
+  obPer:async d=>{const c=obFind(d.k);if(!c||!obCan(c))return;const cm=TODAY().slice(0,7);
+    const ep=c.per==='cur'?addMonths(cm+'-01',1):TODAY();try{await obMaterialize(c,{expectedPay:ep});toast(c.per==='cur'?L('انتقلت للـ Backlog (تحصيل متوقع ','Moved to backlog (expected ')+fdate(ep)+')':L('انتقلت للشهر الحالي','Moved to this month'))}catch(x){}}});
+// the ✕ and period buttons sit inside a card that opens on click: keep the click on the button
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('.ob-x,.ob-tag[data-act]');if(!b)return;e.stopPropagation();e.preventDefault();const f=ACT[b.dataset.act];if(f)f({...b.dataset},b)},true);
 </script>
 <script src="wady-back.js"></script></body></html>
