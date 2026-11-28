@@ -111,7 +111,19 @@
     if (count != null && count !== Object.keys(local.rows).length) changed += await fullStamps(col, local);
     local.last = maxU(local) || local.last; return { changed };
   }
+  // big collections loaded in two steps on a device's first load (recent first), and a small note while the older rows arrive
+  const STAGED = new Set(['sinv', 'orders', 'quotes'].filter(c => (CFG.cacheCols || []).includes(c)));
+  const busy = new Set();
+  function stageBusy(col, on) { on ? busy.add(col) : busy.delete(col); window.__wadyPartial = [...busy];
+    const show = () => { let el = document.getElementById('wady-stage');
+      if (!busy.size) { if (el) el.remove(); return; }
+      if (!el) { el = document.createElement('div'); el.id = 'wady-stage'; el.setAttribute('role', 'status');
+        el.style.cssText = 'position:fixed;inset-inline-start:12px;bottom:calc(86px + env(safe-area-inset-bottom,0px));z-index:35;background:#051D48;color:#fff;border:1px solid #34BEF0;border-radius:20px;padding:6px 12px;font:600 12px Tajawal,system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25)';
+        document.body.appendChild(el); }
+      el.textContent = 'جارٍ تحميل البيانات الأقدم من 6 شهور في الخلفية… الأرقام القديمة تكتمل بعد شوي'; };
+    if (document.body) show(); else document.addEventListener('DOMContentLoaded', show); }
   async function fetchCol(col) {
+    if (busy.has(col) && cache[col]) return cache[col];   // the older rows are still loading: do not start over
     if (CACHE_COLS.has(col) && window.indexedDB) {
       const key = idbKey(col); const local = await idbGet(key);
       const toMap = L => { const m = new Map(); Object.entries(L.rows).forEach(([id, r]) => m.set(id, r.d)); return m; };
@@ -119,6 +131,26 @@
         cache[col] = toMap(local);
         syncCached(col, local).then(r => { if (r.changed) { cache[col] = toMap(local); emit(col); } idbPut(key, local); }).catch(e => console.warn('sync', col, e));
         return cache[col];
+      }
+      // 28/11: first load on this device — the last 6 months of the big document collections come first so the app opens quickly;
+      // the older rows follow in the background and the screens refresh when they arrive. Nothing is kept on the device until all of it is in.
+      if (STAGED.has(col)) {
+        const d = new Date(); d.setMonth(d.getMonth() - 6); const since = d.toISOString().slice(0, 10);
+        let recent = null;
+        try { recent = await pages('id,data,updated_at', col, b => b.gte('data->>date', since)); } catch (e) { console.warn('staged', col, e); }
+        if (recent) {
+          const L = { rows: {} }; recent.forEach(r => { L.rows[r.id] = { d: r.data, u: r.updated_at }; });
+          cache[col] = toMap(L); stageBusy(col, true);
+          (async () => {
+            let rest; try { rest = await pages('id,data,updated_at', col, b => b.or(`data->>date.lt.${since},data->>date.is.null`)); }
+            catch (e) { console.warn('staged rest', col, e); try { rest = await pages('id,data,updated_at', col); } catch (e2) { stageBusy(col, false); return; } }
+            rest.forEach(r => { L.rows[r.id] = { d: r.data, u: r.updated_at }; });
+            L.last = maxU(L); L.fullAt = Date.now(); idbPut(key, L);
+            // rows that changed live while the older ones were loading are newer than the first download: keep them
+            const full = toMap(L); (cache[col] || new Map()).forEach((v, id) => full.set(id, v)); cache[col] = full; stageBusy(col, false); emit(col);
+          })();
+          return cache[col];
+        }
       }
       const rows = await pages('id,data,updated_at', col); const L = { rows: {} };
       rows.forEach(r => { L.rows[r.id] = { d: r.data, u: r.updated_at }; });

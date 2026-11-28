@@ -233,6 +233,10 @@ td.nw{white-space:nowrap}
 @media (max-width:600px){.tl-i{grid-template-columns:80px 20px 1fr}.tl-v{grid-column:3}}
 .ag-bar{display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--line,#E3E8EF);margin:4px 0 10px}.ag-bar i{display:block;height:100%}.ag-leg{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px}.ag-leg span{display:inline-flex;align-items:center;gap:6px}.ag-leg i{width:12px;height:12px;border-radius:3px;display:inline-block}
 .ag-cur{background:#38AC57}.ag-b30{background:#F2C14E}.ag-b60{background:#F08A3C}.ag-b90{background:#E0533D}.ag-b90p{background:#8E1B1B}
+.skel{display:flex;flex-direction:column;gap:14px}.sk-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.sk-kpis i,.sk-bar,.sk-row{display:block;border-radius:8px;background:linear-gradient(90deg,var(--sunk) 25%,var(--line) 37%,var(--sunk) 63%);background-size:400% 100%;animation:skw 1.3s ease infinite}
+.sk-kpis i{height:84px;border-radius:var(--r)}.sk-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:10px}.sk-bar{height:14px;width:50%}.sk-row{height:30px}
+.sk-w25{width:25%}.sk-w30{width:30%}.sk-w40{width:40%;height:38px}.sk-w70{width:70%}.sk-w80{width:80%}.sk-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@keyframes skw{0%{background-position:100% 0}100%{background-position:0 0}}@media (max-width:860px){.sk-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (prefers-reduced-motion:reduce){.sk-kpis i,.sk-bar,.sk-row{animation:none}}
 .kpi .v .vfull{display:block;font-size:12px;font-weight:500;opacity:.72;margin-top:2px;letter-spacing:0;font-variant-numeric:tabular-nums}
 </style>
 
@@ -240,7 +244,7 @@ td.nw{white-space:nowrap}
   <aside id="side"></aside>
   <main>
     <header id="top"></header>
-    <div id="view"><div class="card empty">جارٍ التحميل…</div></div>
+    <div id="view"><div class="skel" aria-busy="true" aria-label="جارٍ التحميل"><div class="sk-bar sk-w40"></div><div class="sk-kpis"><i></i><i></i><i></i><i></i></div><div class="sk-card"><div class="sk-bar sk-w30"></div><div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div><div class="sk-row sk-w70"></div></div><div class="sk-card"><div class="sk-bar sk-w25"></div><div class="sk-row"></div><div class="sk-row sk-w80"></div></div><span class="sk-sr">جارٍ التحميل…</span></div></div>
   </main>
   <nav id="tabbar"></nav>
 </div>
@@ -256,6 +260,7 @@ const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function isoDate(d){const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10)}
 const TODAY=()=>isoDate(new Date());
+const skel=(t)=>`<div class="sk-card" aria-busy="true"><div class="sk-bar sk-w30"></div><div class="sk-row"></div><div class="sk-row"></div><div class="sk-row sk-w70"></div><span class="sk-sr">${t||L('جاري التحميل…','Loading…')}</span></div>`;
 function addDays(s,n){const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return isoDate(d)}
 function addMonths(s,n){const y=+s.slice(0,4),m=+s.slice(5,7)-1+n;return new Date(Date.UTC(y,m,1)).toISOString().slice(0,10)}
 const monthEnd=s=>addDays(addMonths(s,1),-1);
@@ -2363,7 +2368,7 @@ OPEN.visit=(id,refresh)=>{
   <dt>${L('بداية الزيارة','Check-in')}</dt><dd>${v.checkIn?`${fdt(v.checkIn.t)}<div class="small muted">${v.checkIn.lat}, ${v.checkIn.lng}${dk!=null?` · ${L('يبعد','distance')} ${(dk*1000).toFixed(0)} ${L('م عن موقع العميل','m from client')}`:''}</div>`:'—'}</dd>
   <dt>${L('نهاية الزيارة','Check-out')}</dt><dd>${v.checkOut?`${fdt(v.checkOut.t)}<div class="small muted">${L('المدة','Duration')} ${Math.round((new Date(v.checkOut.t)-new Date(v.checkIn.t))/6e4)} ${L('دقيقة','min')}</div>`:'—'}</dd>
   <dt>${L('النتيجة','Result')}</dt><dd>${v.result?lab(VISIT_RESULTS,v.result):'—'} ${v.effective?pill(L('زيارة فعّالة','Effective'),'ok'):''}</dd><dt>${L('ملاحظات','Notes')}</dt><dd>${esc(v.notes||'—')}</dd><dt>${L('الخطوة القادمة','Next step')}</dt><dd>${esc(v.nextStep||'—')} ${v.nextDate?'· '+fdate(v.nextDate):''}</dd></dl>
-  ${sec(L('صور الموقع','Site photos'),'',(v.photos||[]).length?`<div class="photos">${v.photos.map(p=>`<img src="${esc(p)}" alt="${L('صورة الزيارة','Visit photo')}">`).join('')}</div>`:`<div class="muted small">${L('لا توجد صور','No photos')}</div>`)}
+  ${sec(L('صور الموقع','Site photos'),'',(v.photos||[]).length?`<div class="photos">${v.photos.map(p=>`<img src="${esc(p)}" loading="lazy" decoding="async" alt="${L('صورة الزيارة','Visit photo')}">`).join('')}</div>`:`<div class="muted small">${L('لا توجد صور','No photos')}</div>`)}
   ${sec(L('سجل التدقيق لهذه الزيارة','Audit trail for this visit'),'',auditTable(S.audit.filter(a=>a.docId===id).sort((a,b)=>b.at.localeCompare(a.at))))}`;
   setDrawer('visit',id,L('زيارة','Visit')+' — '+(c?.name||''),h,refresh);
 };
@@ -2577,7 +2582,7 @@ function checkoutForm(v){
   <div class="fld full"><label for="co_notes">${L('الملاحظات','Notes')}</label><textarea id="co_notes"></textarea></div>
   <div class="fld"><label for="co_next">${L('الخطوة القادمة','Next step')}</label><input id="co_next"></div><div class="fld"><label for="co_nd">${L('موعدها','When')}</label><input id="co_nd" type="date"></div></div>
   <div id="co_err" class="flag"></div><div class="formbar"><button type="button" class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button type="submit" class="btn p">${L('إنهاء وحفظ','Finish & save')}</button></div></form>`,{mount:b=>{
-    b.querySelector('#co_ph').addEventListener('change',async e=>{const files=[...e.target.files].slice(0,3);photos=[];for(const f of files){try{photos.push(await stampPhoto(f,`${new Date().toLocaleString('en-GB')} · ${c?.name||''}`.slice(0,70)))}catch(err){}}b.querySelector('#co_prev').innerHTML=photos.map(p=>`<img src="${p}" alt="">`).join('')});
+    b.querySelector('#co_ph').addEventListener('change',async e=>{const files=[...e.target.files].slice(0,3);photos=[];for(const f of files){try{photos.push(await stampPhoto(f,`${new Date().toLocaleString('en-GB')} · ${c?.name||''}`.slice(0,70)))}catch(err){}}b.querySelector('#co_prev').innerHTML=photos.map(p=>`<img src="${p}" loading="lazy" decoding="async" alt="">`).join('')});
     b.querySelector('#coform').addEventListener('submit',async e=>{e.preventDefault();const res=b.querySelector('#co_res').value;if(!photos.length){b.querySelector('#co_err').textContent=L('أرفق صورة واحدة على الأقل من الموقع','Attach at least one site photo');return}if(!res){b.querySelector('#co_err').textContent=L('اختر نتيجة الزيارة','Choose a result');return}
       const g=simCoords(c);try{await save('visits',{...v,photos,result:res,effective:b.querySelector('#co_eff').checked,notes:b.querySelector('#co_notes').value.trim(),nextStep:b.querySelector('#co_next').value.trim(),nextDate:b.querySelector('#co_nd').value,checkOut:{t:new Date().toISOString(),lat:v.checkIn?.lat??g.lat,lng:v.checkIn?.lng??g.lng},status:'done'},{action:'checkout'});closeModal();toast(L('تم تسجيل الزيارة','Visit saved'))}catch(e){}})}});
 }
@@ -4349,7 +4354,7 @@ async function ceLoad(force){if(CEX.busy||(!force&&CEX.rows&&Date.now()-CEX.at<3
   catch(e){CEX.err=e.message||String(e);CEX.rows=CEX.rows||[]}CEX.busy=false;render()}
 const ceMine=r=>{const u=me().id;return (r.status==='pending_sup'&&r.sup_id===u)||(r.status==='pending_sm'&&CEX.me.sm&&r.created_by!==u&&r.rep_id!==u)||(r.status==='pending_gm'&&CEX.me.gm&&r.created_by!==u&&r.rep_id!==u)||(r.status==='returned'&&r.created_by===u)||(r.status==='draft'&&r.created_by===u)};
 V.credex=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
-  if(!CEX.rows){ceLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!CEX.rows){ceLoad();return skel()}
   const tab=fv('ceTab','queue');const lead=CEX.me.sm||CEX.me.gm||isMgr();const unread=CEX.notes.filter(n=>!n.read).length;
   const tabs=[['queue',L('بانتظار إجراء مني','My queue')+` (${CEX.rows.filter(ceMine).length})`],['list',L('كل الطلبات','All requests')],['hist',L('سجل العملاء','Customer history')],...(lead?[['dash',L('لوحة المتابعة','Dashboard')]]:[]),['notes',L('الإشعارات','Notifications')+(unread?` (${unread})`:'')],...(isAdmin()||WADY_PERM?.admin?[['cfg',L('الإعدادات','Settings')]]:[]),['help',L('دليل الوحدة','Guide')]];
   let h=`<div class="toolbar"><button class="btn p" data-act="ceNew">+ ${L('طلب استثناء توريد','New exception request')}</button><button class="btn s" data-act="ceRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
@@ -4571,7 +4576,7 @@ const cmUser=id=>{const u=(CM.d?.users||[]).find(x=>x.id===id);return u?u.name:'
 
 V.commset=()=>{
   if(!isAdmin())return `<div class="card empty">${L('هذه الصفحة لمسؤول النظام','System admin only')}</div>`;
-  if(!CM.d){if(!CM.err)cmLoad();return `<div class="card empty">${CM.err?esc(CM.err):L('جاري التحميل…','Loading…')}</div>`}
+  if(!CM.d){if(!CM.err)cmLoad();return (CM.err?`<div class="card empty">${esc(CM.err)}</div>`:skel())}
   const d=CM.d,ib=d.inbox||{};const live=d.providers.filter(p=>p.active&&!p.is_test);
   return `<div class="banner info"><span class="sp">${L('مركز التواصل — المرحلة الثانية: البنية جاهزة (الجداول، استقبال الأحداث، منع التكرار، الصلاحيات، تنظيف أرقام العملاء). ربط مزوّد فعلي للمكالمات وWhatsApp وSMS يتم في المراحل 3 و4 بعد اختيار المزوّد وإدخال مفتاحه هنا.','Communication Center — phase 2: the foundation is ready. A real voice/WhatsApp/SMS provider is connected in phases 3–4 once chosen and its key is entered here.')}</span></div>
   <div class="kpis">
@@ -4618,7 +4623,7 @@ V.commset=()=>{
 
 V.commphones=()=>{
   if(!(isAdmin()||role()==='mgr'))return `<div class="card empty">${L('هذه الصفحة لمسؤول النظام ومدير المبيعات','Admin / sales manager only')}</div>`;
-  if(!CM.ph){cmPhLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!CM.ph){cmPhLoad();return skel()}
   const P=CM.ph;const tab=(k,l)=>`<button class="tab ${CM.phs===k?'on':''}" data-act="cmPhTab" data-k="${k}">${l}</button>`;
   return `<div class="banner info"><span class="sp">${L('هذه أرقام جوال مسجّلة على أكثر من عميل. المكالمة أو الرسالة من رقم مشترك لا تُنسب تلقائياً لأي عميل حتى تحدد هنا العميل الأساسي للرقم، أو تعتمده كرقم مشترك فيختار الموظف العميل وقت المكالمة. لا يتم تعديل بيانات العملاء نفسها.','Numbers registered on several clients. Calls from them are not auto-matched until you pick the main client or mark the number as shared. Client records are not changed.')}</span></div>
   ${CM.pherr?`<div class="banner bad"><span class="sp">${esc(CM.pherr)}</span></div>`:''}
@@ -4713,7 +4718,7 @@ V.commdash=()=>{const f=cdF(),k=JSON.stringify(f);if(CD.key!==k&&!CD.busy)cdLoad
   const bar=`<div class="toolbar" style="flex-wrap:wrap;gap:6px"><label class="small">${L('من','From')} <input type="date" id="cd_from" data-act="filtSel" data-k="cd_from" value="${f.from}"></label><label class="small">${L('إلى','To')} <input type="date" id="cd_to" data-act="filtSel" data-k="cd_to" value="${f.to}"></label>
     ${team.length>1?sel('cd_user',team.map(t=>[t.id,t.username||t.name]),f.user,L('كل الموظفين','All employees')):''}${isMgr()||isAdmin()?sel('cd_sup',sups.map(t=>[t.id,t.username||t.name]),f.sup,L('كل المشرفين','All supervisors')):''}
     ${sel('cd_reg',REGIONS.map(r=>[r.id,L(r.ar,r.en)]),f.region,L('كل المناطق','All regions'))}${sel('cd_ch',[['call',L('مكالمات','Calls')],['whatsapp','WhatsApp'],['sms','SMS']],f.ch,L('كل القنوات','All channels'))}</div>`;
-  const d=CD.d;if(!d)return bar+`<div class="card empty">${CD.err?esc(CD.err):L('جاري التحميل…','Loading…')}</div>`;
+  const d=CD.d;if(!d)return bar+(CD.err?`<div class="card empty">${esc(CD.err)}</div>`:skel());
   const T=d.totals||{};const k2=(l,v,cls)=>`<div class="kpi"><div class="l">${l}</div><div class="v ${cls||''}">${v}</div></div>`;
   const cost=(+T.cost_calls||0)+(+T.cost_msgs||0);
   return bar+(!d.live?`<div class="banner info"><span class="sp">${L('لا يوجد مزوّد اتصالات فعلي مفعّل بعد، فاللوحة فاضية. تعرض بيانات حقيقية فقط وتبدأ تمتلئ تلقائياً بعد ربط المزوّد (المرحلتان 3 و4).','No live provider yet — the dashboard shows real data only and fills once a provider is connected.')}</span></div>`:'')
@@ -4750,7 +4755,7 @@ V.radar=()=>{if(!rdCan())return `<div class="card empty">${L('غير مصرح','
     <input type="search" id="rd_q" placeholder="${L('بحث في العناوين','Search titles')}" value="${esc(f.q)}"><button class="btn s" data-act="rdFind">${L('بحث','Search')}</button>
     ${isAdmin()||['mgr','sup'].includes(role())?`<button class="btn s" data-act="rdRun">${L('تحديث الآن','Refresh now')}</button>`:''}${isAdmin()||role()==='mgr'?`<button class="btn s" data-act="rdQs">${L('عبارات البحث','Search phrases')}</button>`:''}</div>
    ${d&&d.last_run?`<div class="small muted" style="margin:4px 0">${L('آخر تحديث','Last run')}: ${fdt(d.last_run.at)} — ${esc(d.last_run.msg||'')}</div>`:''}`;
-  if(!d)return head+`<div class="card empty">${RD.err?esc(RD.err):L('جاري التحميل…','Loading…')}</div>`;
+  if(!d)return head+(RD.err?`<div class="card empty">${esc(RD.err)}</div>`:skel());
   return head+`<div class="list">${(d.rows||[]).map(r=>{const sg=RD_STAGE[r.stage];return `<div class="card" style="padding:12px">
     <div style="display:flex;gap:8px;align-items:flex-start"><div style="min-width:44px;text-align:center"><div style="font-size:20px;font-weight:800;color:${r.score>=60?'var(--ok,#1e8e3e)':r.score>=35?'var(--warn,#b26a00)':'var(--muted,#888)'}">${r.score}</div><div class="small muted">${L('أولوية','score')}</div></div>
      <div style="flex:1"><a href="${esc(r.link)}" target="_blank" rel="noopener" style="font-weight:700">${esc(r.title)}</a>
@@ -4830,7 +4835,7 @@ const lcBody=d=>(d.body||'').split('(يُحدد عند الحفظ)').join(lcRef(
 const lcStepsTxt=k=>(LCX.flows[k]||[]).map(s=>esc(s.name)).join(' ← ');
 
 function lcView(kind){if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
-  if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!LCX.rows){lcLoad();return skel()}
   const rows=LCX.rows.filter(d=>d.kind===kind);const tk='lcTab_'+kind,tab=fv(tk,'queue');const q=rows.filter(lcMine);const nl=LC_KIND[kind].newL;
   let h=`<div class="toolbar">${nl&&lcCanNew(kind)?`<button class="btn p" data-act="lcNew" data-k="${kind}">${nl()}</button>`:''}<button class="btn s" data-act="lcRe">${L('تحديث','Refresh')}</button><span class="grow"></span>
     <span class="small muted">${kind==='letter'&&!(LCX.flows.letter||[]).length?L('الخطابات تصدر مباشرة بدون اعتماد (تقدر تضيف مراحل من الإعدادات)','Letters are issued directly'):L('دورة الموافقات: ','Approval route: ')+(lcStepsTxt(kind)||`<span class="flag">${L('لسا ما تحددت','not set')}</span>`)}</span></div>
@@ -5032,7 +5037,7 @@ function lcPrint(id){const d=LCX.rows.find(x=>x.id===id);if(!d)return;const k=ty
 let LC_ED=null,LC_FE=null;
 const lcNorm=s=>s.sources?{...s}:{name:s.name,sources:s.type==='sup'?['sup']:s.type==='role'&&s.role?[s.role]:[],users:s.users||[],min_amount:s.min_amount??null};
 V.lcset=()=>{if(!(lcCfg()||isMgr()))return `<div class="card empty">${L('هذي الإعدادات للمدير فقط','Managers only')}</div>`;if(!window.__sb)return `<div class="card empty">${L('هذه الوحدة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
-  if(!LCX.rows){lcLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!LCX.rows){lcLoad();return skel()}
   const can=lcCfg();const tab=fv('lcSetK','credit');
   const tabs=[['credit',L('موافقات التسهيلات','Credit route')],['contract',L('موافقات العقود','Contracts route')],['account',L('موافقات فتح الحساب','Account route')],['letter',L('موافقات الخطابات','Letters route')],['fvisit',L('موافقات زيارات المصنع','Factory visits route')],
     ['form',L('نموذج فتح الحساب','Account form')],['tplc',L('قوالب العقود','Contract templates')],['tpll',L('قوالب الخطابات','Letter templates')]];
@@ -5158,7 +5163,7 @@ const sdClientList=id=>'';const _sdClientListOld=id=>`<datalist id="${id}">${vis
 
 /* ---------- main screen ---------- */
 V.sapdocs=()=>{if(!window.__sb)return `<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`;
-  if(!SDX.rows){sdLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!SDX.rows){sdLoad();return skel()}
   const tab=fv('sdTab','quotation');const can=sdLvl()>=3;
   const head=`<div class="banner warn"><span class="sp">${L('مربوط حالياً بشركة الاختبار في ساب (TEST). المستندات اللي تنرحّل من هنا ما تأثر على ساب الفعلي لين يعتمد مدير النظام التشغيل الفعلي.','Connected to the SAP TEST company for now.')}</span></div>
    ${SDX.err?`<div class="banner bad"><span class="sp">${esc(SDX.err)}</span></div>`:''}
@@ -5496,7 +5501,7 @@ async function mkLoad(force){if(MKX.busy||(MKX.loaded&&!force))return;MKX.busy=t
   catch(e){MKX.err=e.message;MKX.loaded=true}MKX.busy=false;render()}
 const mkUser=id=>esc(MKX.users[id]||(id&&me()&&id===me().id?me().name:'')||'—');
 const mkCamp=id=>MKX.camps.find(c=>c.id===+id);
-const mkHead=()=>!window.__sb?`<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`:!MKX.loaded?(mkLoad(),`<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`):MKX.err?`<div class="banner bad"><span class="sp">${esc(MKX.err)}</span></div>`:'';
+const mkHead=()=>!window.__sb?`<div class="card empty">${L('هذه الشاشة تعمل على قاعدة البيانات فقط','Database mode only')}</div>`:!MKX.loaded?(mkLoad(),skel()):MKX.err?`<div class="banner bad"><span class="sp">${esc(MKX.err)}</span></div>`:'';
 const mkCanPost=()=>(MKX.me.posts||0)>=3;
 
 /* ---------- content calendar ---------- */
@@ -5822,7 +5827,7 @@ function mkRoiList(id){const r=(MK2.roi||[]).find(x=>x.id===+id);if(!r)return;
 
 /* ---------- satisfaction surveys ---------- */
 V.mksurvey=()=>{if(!window.__sb)return mkHead();const can=mkLvl2('mksurvey')>=3;const dd=+fv('svDays',14);if(MK2.dueDays!==dd){MK2.dueDays=dd;MK2.due=null}
-  if(MK2.due==null){mk2Get('due','mk_survey_due',{p_days:MK2.dueDays});mk2Sv();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(MK2.due==null){mk2Get('due','mk_survey_due',{p_days:MK2.dueDays});mk2Sv();return skel()}
   if(MK2.due.err)return mk2Err(MK2.due);const S9=Array.isArray(MK2.sv)?MK2.sv:[];
   const avg=k=>{const a=S9.filter(x=>x[k]!=null);return a.length?(a.reduce((s,x)=>s+(+x[k]),0)/a.length):null};const pctT=k=>{const a=S9.filter(x=>x[k]!=null);return a.length?Math.round(a.filter(x=>x[k]).length/a.length*100):null};
   const q=(fv('svq','')||'').trim();const D=MK2.due.filter(x=>!q||(x.name||'').includes(q)||(x.code||'').includes(q.toUpperCase())||(x.order_no||'').includes(q));
@@ -5853,7 +5858,7 @@ function mkSv(no){const x=(MK2.due||[]).find(y=>y.order_no===no);if(!x)return;co
 /* ---------- content library ---------- */
 const LIB_K={image:['صور منتجات','Product photos'],project:['مشاريع منفذة','Completed projects'],catalog:['كتالوجات وبروشورات','Catalogs'],video:['فيديو','Video'],cert:['شهادات واعتمادات','Certificates'],other:['أخرى','Other']};
 V.mklib=()=>{if(!window.__sb)return mkHead();const can=mkLvl2('mklib')>=3;
-  if(MK2.lib==null){MK2.lib=[];(async()=>{const {data,error}=await window.__sb.from('mk_library').select('*').eq('active',true).order('id',{ascending:false});MK2.lib=error?{err:error.message}:(data||[]);render()})();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(MK2.lib==null){MK2.lib=[];(async()=>{const {data,error}=await window.__sb.from('mk_library').select('*').eq('active',true).order('id',{ascending:false});MK2.lib=error?{err:error.message}:(data||[]);render()})();return skel()}
   if(MK2.lib.err)return mk2Err(MK2.lib);const k=fv('lbk',''),fam=fv('lbf',''),q=(fv('lbq','')||'').trim();
   const F=MK2.lib.filter(x=>(!k||x.kind===k)&&(!fam||x.family===fam)&&(!q||(x.title+' '+(x.tags||'')).includes(q)));
   const isImg=u=>/\.(png|jpe?g|webp|gif)(\?|$)/i.test(u);
@@ -5862,7 +5867,7 @@ V.mklib=()=>{if(!window.__sb)return mkHead();const can=mkLvl2('mklib')>=3;
     <label class="fl">${L('المنتج','Product')}<select data-act="filtSel" data-k="lbf">${opt(Object.entries(typeof FAMILIES!=='undefined'?FAMILIES:{}).map(([a,b])=>[a,L(b[0],b[1])]),fam,L('الكل','All'))}</select></label>
     <span class="grow"></span>${can?`<button class="btn p" data-act="mkLib">+ ${L('ملف','File')}</button>`:''}</div>
    <p class="small muted" style="margin:0 0 8px">${L('صور المنتجات والمشاريع المنفذة والكتالوجات اللي يرسلها المندوب للعميل. اضغط «نسخ الرابط» وأرسله بالواتساب.','Photos, projects and catalogs reps share with customers.')}</p>
-   ${F.length?`<div class="mk-lib">${F.map(x=>`<div class="card mk-li">${isImg(x.url)?`<img src="${esc(x.url)}" alt="${esc(x.title)}" loading="lazy">`:`<div class="mk-li-ic">${x.kind==='video'?'▶':x.kind==='catalog'?'📘':'📄'}</div>`}
+   ${F.length?`<div class="mk-lib">${F.map(x=>`<div class="card mk-li">${isImg(x.url)?`<img src="${esc(x.url)}" alt="${esc(x.title)}" loading="lazy" decoding="async">`:`<div class="mk-li-ic">${x.kind==='video'?'▶':x.kind==='catalog'?'📘':'📄'}</div>`}
      <b>${esc(x.title)}</b><div class="small muted">${L(LIB_K[x.kind]?.[0]||x.kind,LIB_K[x.kind]?.[1]||x.kind)}${x.family&&typeof FAMILIES!=='undefined'&&FAMILIES[x.family]?' · '+L(FAMILIES[x.family][0],FAMILIES[x.family][1]):''}</div>${x.tags?`<div class="small muted">${esc(x.tags)}</div>`:''}
      <div class="formbar" style="margin-top:6px"><a class="btn s" href="${esc(x.url)}" target="_blank" rel="noopener">${L('فتح','Open')}</a><button class="btn s" data-act="mkLibCopy" data-u="${esc(x.url)}">${L('نسخ الرابط','Copy link')}</button>${can?`<button class="btn s" data-act="mkLib" data-id="${x.id}">${L('تعديل','Edit')}</button>`:''}</div></div>`).join('')}</div>`:`<div class="card empty">${L('المكتبة فاضية','Library is empty')}</div>`}`};
 function mkLib(id){const x=id?(MK2.lib||[]).find(y=>y.id===+id):{kind:'image'};if(!x)return;
@@ -9680,7 +9685,7 @@ const paPill=a=>{const s=PA_ST[a.status];return s?pill(s[0](),s[1]):esc(a.status
 const paAct=a=>`${a.can_sup||a.can_mgr?`<button class="btn s" data-act="paDecide" data-id="${a.id}" data-ok="1">✓ ${a.can_mgr||(!a.rep_sup&&a.can_sup)?L('اعتماد نهائي','Approve'):L('موافقة المشرف','Approve')}</button> <button class="btn s d" data-act="paDecide" data-id="${a.id}" data-ok="0">✕ ${L('رفض','Reject')}</button>`:''}${a.can_disable?`<button class="btn s d" data-act="paDecide" data-id="${a.id}" data-ok="0" data-dis="1">${L('إيقاف الحساب','Disable')}</button>`:''}`;
 const paSteps=a=>`<div class="small muted">${L('طلبه','Requested by')} ${esc(a.req_name||'—')} · ${fdate(a.requested_at)}${a.sup_by?` — ${L('المشرف','Supervisor')}: ${esc(a.sup_name||'')} ${fdate(a.sup_at)}`:''}${a.mgr_by?` — ${L('المدير','Manager')}: ${esc(a.mgr_name||'')} ${fdate(a.mgr_at)}`:''}${a.decided_note?` — ${esc(a.decided_note)}`:''}${a.last_login?` — ${L('آخر دخول','Last sign-in')} ${fdate(a.last_login)}`:''}</div>`;
 V.portalacc=()=>{if(typeof window.__sb==='undefined')return `<div class="card empty">${L('هذي الصفحة تشتغل على المنصة فقط','Available on the platform only')}</div>`;
-  if(!PA.list){paLoad();return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!PA.list){paLoad();return skel()}
   const f=fv('paF','mine');const L0=PA.list;const mine=L0.filter(a=>a.can_sup||a.can_mgr);const rows=f==='mine'?mine:f==='live'?L0.filter(a=>a.status==='approved'):L0;
   const url=location.origin+'/client/';
   return `<div class="banner info"><span class="sp">${L('رابط بوابة العملاء','Customer portal link')}: <bdi dir="ltr">${esc(url)}</bdi> — ${L('العميل يدخل بالإيميل المعتمد ويوصله رابط دخول. الطلب يبدأ من بطاقة العميل: المندوب ← المشرف ← المدير.','Customers sign in with the approved email. Requests start on the customer card: rep → supervisor → manager.')}</span><button class="btn s" data-act="paCopy" data-u="${esc(url)}">${L('نسخ الرابط','Copy link')}</button></div>
@@ -9731,7 +9736,7 @@ const SAPA={rows:null,busy:false,all:false,at:0};
 async function sapaLoad(){if(SAPA.busy||typeof window.__sb==='undefined')return;SAPA.busy=true;try{const {data,error}=await window.__sb.rpc('sap_approvals_list',{p_all:SAPA.all});if(error)throw error;SAPA.rows=data||[];SAPA.err=''}catch(e){SAPA.rows=SAPA.rows||[];SAPA.err=L('تعذّر التحميل','Could not load')}SAPA.busy=false;SAPA.at=Date.now();if(route==='sapappr')render()}
 const SAPA_ST={pending:['بانتظار الاعتماد','warn'],approved:['معتمد','ok'],rejected:['مرفوض','bad'],done:['تم','ok'],closed:['انتهى','ok'],cancelled:['ملغى','']};
 V.sapappr=()=>{if(typeof window.__sb==='undefined')return `<div class="card empty">${L('هذي الصفحة تشتغل على المنصة فقط','Available on the platform only')}</div>`;
-  if(!SAPA.rows||Date.now()-SAPA.at>60000){sapaLoad();if(!SAPA.rows)return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  if(!SAPA.rows||Date.now()-SAPA.at>60000){sapaLoad();if(!SAPA.rows)return skel()}
   const R=SAPA.rows;const mine=R.filter(r=>r.mine&&r.status==='pending');const age=t=>{if(!t)return '—';const h=Math.round((Date.now()-new Date(t))/36e5);return h<24?L(`${h} ساعة`,`${h} h`):L(`${Math.round(h/24)} يوم`,`${Math.round(h/24)} d`)};
   return `<div class="banner info"><span class="sp">${L('المستندات اللي تنتظر اعتماد في ساب، ومتوقفة عند مين. الاعتماد نفسه يتم في ساب من المعتمدين المحددين هناك، والقائمة تتحدث كل 5 دقايق.','Documents waiting for approval in SAP and who they wait for. Approve in SAP; refreshed every 5 minutes.')}</span></div>
    <div class="kpis k3">${kpiTile(L('بانتظار الاعتماد','Pending'),num(R.filter(r=>r.status==='pending').length),'')}${kpiTile(L('ينتظر اعتمادك أنت','Waiting for you'),num(mine.length),'')}${kpiTile(L('أقدم طلب','Oldest'),R.filter(r=>r.status==='pending').length?age(R.filter(r=>r.status==='pending').map(r=>r.requested_at).filter(Boolean).sort()[0]):'—','')}</div>
