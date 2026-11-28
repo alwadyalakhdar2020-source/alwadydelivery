@@ -2368,9 +2368,9 @@ OPEN.quote=(id,refresh)=>{
     return setDrawer('quote',id,q.no,h,refresh);
   }
   const m=me();const own=q.createdBy===m.id;let acts='';
-  if(['draft','rejected'].includes(q.status))acts+=`<button class="btn" data-act="editQuote" data-id="${id}">${L('تعديل','Edit')}</button><button class="btn p" data-act="qStatus" data-id="${id}" data-s="pending">${L('إرسال للاعتماد','Submit for approval')}</button>`;
-  if(q.status==='pending'){if(isLead()&&!own&&!isAdmin())acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="approved">${L('اعتماد','Approve')}</button><button class="btn d" data-act="qStatus" data-id="${id}" data-s="draft">${L('إعادة للتعديل','Return for changes')}</button>`;else acts+=`<span class="small muted">${isLead()?L('لا يمكنك اعتماد عرض أعددته بنفسك.','You can’t approve your own quote.'):L('بانتظار اعتماد المشرف.','Waiting for supervisor approval.')}</span>`}
-  if(q.status==='approved')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="sent">${L('تم الإرسال للعميل','Mark sent to client')}</button>`;
+  if(['draft','rejected'].includes(q.status))acts+=`<button class="btn" data-act="editQuote" data-id="${id}">${L('تعديل','Edit')}</button><button class="btn p" data-act="qStatus" data-id="${id}" data-s="sent">${L('تم الإرسال للعميل','Mark sent to client')}</button>`;
+  // 28/11: quotations need no approval (SAP has none active for them): a draft goes straight to «sent to client»
+  if(q.status==='pending'||q.status==='approved')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="sent">${L('تم الإرسال للعميل','Mark sent to client')}</button>`;
   if(q.status==='sent')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="accepted">${L('وافق العميل','Client accepted')}</button><button class="btn d" data-act="qStatus" data-id="${id}" data-s="rejected">${L('رفض العميل','Client rejected')}</button>`;
   if(q.status==='accepted')acts+=`<button class="btn p" data-act="qStatus" data-id="${id}" data-s="ordered">${L('تحويل إلى طلب بيع','Convert to sales order')}</button>`;
   const h=`<div class="toolbar">${pillOf(QUOTE_ST,q.status)}<span class="grow"></span>${acts}</div>
@@ -5139,7 +5139,7 @@ async function sdLoad(force){if(SDX.busy||(!force&&SDX.rows&&Date.now()-SDX.at<2
   try{const [a,b]=await Promise.all([window.__sb.rpc('sap_docs_list',{p_type:null}),window.__sb.rpc('sap_settings')]);if(a.error)throw a.error;SDX.rows=a.data||[];SDX.set=b.data||null;SDX.err=null;SDX.at=Date.now()}
   catch(e){SDX.err=e.message;SDX.rows=SDX.rows||[]}SDX.busy=false;render();if(SDX.rows.some(r=>r.status==='pending'))sdPoll()}
 function sdPoll(){clearTimeout(SDX.poll);SDX.poll=setTimeout(()=>{if(typeof route!=='undefined'&&route==='sapdocs')sdLoad(true)},4000)}
-const sdSt=r=>pill(SD_ST[r.status]?.[0]||r.status,SD_ST[r.status]?.[1]||'');
+const sdSt=r=>pill(SD_ST[r.status]?.[0]||r.status,SD_ST[r.status]?.[1]||'')+(r.appr&&typeof apprWho==='function'?apprWho(r.appr):'');
 const sdD=s=>s?fdate(String(s).slice(0,10)):'—';
 const sdSapSt=d=>d.cancelled?pill(L('ملغى','Cancelled'),'bad'):d.status==='bost_Open'?pill(L('مفتوح','Open'),'info'):d.status==='bost_Close'?pill(L('مقفل','Closed'),''):'';
 const sdNum=v=>{const n=+v;return isFinite(n)?n:0};
@@ -9675,5 +9675,33 @@ Object.assign(ACT,{
   ['crNo','vatNo','creditLimit','paymentTerms'].forEach(k=>{const v=d[k];if(sap.has(k)&&v!==undefined&&v!==null&&String(v)!=='')tag('f_'+k,L('يتحدث يومياً من بطاقة العميل في ساب — عدّله في ساب','Updated daily from SAP — change it in SAP'))});
   ['histValue','histVolume','lastTxDate'].forEach(k=>{if(d[k]!==undefined&&d[k]!==null&&d[k]!=='')tag('f_'+k,L('محسوب من مستندات ساب من 1/11/2025: صافي الفواتير، وعدد الفواتير، وآخر فاتورة أو سداد','Computed from SAP documents since 1 Nov 2025'))});
  }catch(e){}return r}}
+</script>
+<script>
+/* ============ Approvals waiting in SAP (28/11) ============
+   Every document waiting for approval in SAP — entered in SAP or sent from the platform — with the stage and the people it is waiting for,
+   read from SAP's own approval requests every 5 minutes. Approval itself is done in SAP by the approvers SAP names. */
+IC.sapappr='<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>';
+function apprWho(a){if(!a)return '';const ps=(a.approvers||[]);const wait=ps.filter(x=>x.status==='pending');const nm=x=>esc(x.name_app||x.name||'');
+  return `<div class="small" style="margin-top:4px;line-height:1.5">⏳ ${L('متوقف عند','Waiting for')}: <b>${wait.length?wait.map(nm).join(` ${L('أو','or')} `):'—'}</b>${a.stage?` <span class="muted">(${L('مرحلة','stage')} ${esc(a.stage)})</span>`:''}${ps.filter(x=>x.status==='approved').length?` · ✓ ${ps.filter(x=>x.status==='approved').map(nm).join('، ')}`:''}${a.since?` · <span class="muted">${L('من','since')} ${fdt(a.since)}</span>`:''}</div>`}
+{const i=NAV.findIndex(n=>n[0]==='sapdocs'||n[0]==='orders');NAV.splice(i<0?NAV.length:i+1,0,['sapappr','sapappr',()=>L('الاعتمادات المعلقة في ساب','Pending SAP approvals'),()=>true]);
+ if((location.hash||'').slice(1)==='sapappr'){route='sapappr';setTimeout(render,0)}}
+const SAPA={rows:null,busy:false,all:false,at:0};
+async function sapaLoad(){if(SAPA.busy||typeof window.__sb==='undefined')return;SAPA.busy=true;try{const {data,error}=await window.__sb.rpc('sap_approvals_list',{p_all:SAPA.all});if(error)throw error;SAPA.rows=data||[];SAPA.err=''}catch(e){SAPA.rows=SAPA.rows||[];SAPA.err=L('تعذّر التحميل','Could not load')}SAPA.busy=false;SAPA.at=Date.now();if(route==='sapappr')render()}
+const SAPA_ST={pending:['بانتظار الاعتماد','warn'],approved:['معتمد','ok'],rejected:['مرفوض','bad'],done:['تم','ok'],closed:['انتهى','ok'],cancelled:['ملغى','']};
+V.sapappr=()=>{if(typeof window.__sb==='undefined')return `<div class="card empty">${L('هذي الصفحة تشتغل على المنصة فقط','Available on the platform only')}</div>`;
+  if(!SAPA.rows||Date.now()-SAPA.at>60000){sapaLoad();if(!SAPA.rows)return `<div class="card empty">${L('جاري التحميل…','Loading…')}</div>`}
+  const R=SAPA.rows;const mine=R.filter(r=>r.mine&&r.status==='pending');const age=t=>{if(!t)return '—';const h=Math.round((Date.now()-new Date(t))/36e5);return h<24?L(`${h} ساعة`,`${h} h`):L(`${Math.round(h/24)} يوم`,`${Math.round(h/24)} d`)};
+  return `<div class="banner info"><span class="sp">${L('المستندات اللي تنتظر اعتماد في ساب، ومتوقفة عند مين. الاعتماد نفسه يتم في ساب من المعتمدين المحددين هناك، والقائمة تتحدث كل 5 دقايق.','Documents waiting for approval in SAP and who they wait for. Approve in SAP; refreshed every 5 minutes.')}</span></div>
+   <div class="kpis k3">${kpiTile(L('بانتظار الاعتماد','Pending'),num(R.filter(r=>r.status==='pending').length),'')}${kpiTile(L('ينتظر اعتمادك أنت','Waiting for you'),num(mine.length),'')}${kpiTile(L('أقدم طلب','Oldest'),R.filter(r=>r.status==='pending').length?age(R.filter(r=>r.status==='pending').map(r=>r.requested_at).filter(Boolean).sort()[0]):'—','')}</div>
+   <div class="toolbar"><label class="chk"><input type="checkbox" data-act="sapaAll" ${SAPA.all?'checked':''}> ${L('أظهر المنتهية آخر 30 يوم','Show finished (30 days)')}</label><button class="btn s" data-act="sapaReload">↻ ${L('تحديث','Refresh')}</button></div>
+   ${SAPA.err?`<div class="banner bad"><span class="sp">${esc(SAPA.err)}</span></div>`:''}
+   ${R.length?`<div class="tw"><table class="tbl"><thead><tr><th>${L('المستند','Document')}</th><th>${L('العميل','Customer')}</th><th class="n">${L('القيمة','Total')}</th><th>${L('أنشأه','By')}</th><th>${L('منذ','Waiting')}</th><th>${L('متوقف عند','Waiting for')}</th><th>${L('الحالة','Status')}</th></tr></thead><tbody>
+    ${R.map(r=>`<tr ${r.mine&&r.status==='pending'?'style="background:rgba(243,146,53,.10)"':''}><td><b>${esc(r.doc_kind||'')}</b> <bdi>${esc(r.draft_num||'')}</bdi><div class="small muted">${L('مسودة','Draft')} <bdi>${esc(r.draft_entry||'')}</bdi>${r.crm_doc_id?` · ${L('من المنصة','from platform')}`:''}</div></td>
+      <td>${esc(r.card_name||'')}<div class="small muted"><bdi>${esc(r.card_code||'')}</bdi></div></td><td class="n">${r.total!=null?money(r.total):'—'}</td>
+      <td>${esc(r.orig_app||r.originator_name||'')}</td><td>${age(r.requested_at)}</td>
+      <td>${apprWho({stage:r.stage_name,approvers:r.approvers})}${r.mine&&r.status==='pending'?`<div class="small" style="color:#9A4A00;font-weight:700">${L('ينتظر اعتمادك — اعتمده من ساب','Waiting for you — approve in SAP')}</div>`:''}</td>
+      <td>${pill(L((SAPA_ST[r.status]||[r.status])[0],r.status),(SAPA_ST[r.status]||[])[1]||'')}</td></tr>`).join('')}</tbody></table></div>`
+    :`<div class="card empty">${L('ما فيه مستندات تنتظر اعتماد في ساب ضمن صلاحيتك','Nothing waiting for approval')}</div>`}`};
+Object.assign(ACT,{sapaAll:(d,b)=>{SAPA.all=!!(b&&b.checked);SAPA.rows=null;render()},sapaReload:()=>{SAPA.at=0;sapaLoad()}});
 </script>
 <script src="wady-back.js"></script></body></html>
