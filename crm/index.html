@@ -280,6 +280,11 @@ function haversine(a,b){if(!a||!b||a.lat==null||b.lat==null||a.lat===''||b.lat==
 const AR_DIG=s=>String(s).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
 function normTxt(s){return AR_DIG(String(s??'')).trim().toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/[\s_\-\.\/\\()#:,'"’]+/g,'')}
 const normCode=s=>AR_DIG(String(s??'')).trim().toUpperCase().replace(/\s+/g,'');
+/* 28/11: item lookup by SAP code. The exact code wins; the space-free code is only a fallback, and among items that share it the one
+   with a price wins. SAP has "VOL- 01" (volcanic block, priced) and "VOL-01" (volcanic concrete, no price): keyed by the space-free code
+   alone, the block lost its base price and its sales dropped out of the discount figures. */
+const itemLookup=()=>{const ex=new Map(),nm=new Map();(S.items||[]).forEach(x=>{const c=String(x.code??'').trim();if(c&&!ex.has(c))ex.set(c,x);const n=normCode(c);const o=nm.get(n);const has=y=>y&&y.price!=null&&y.price!=='';if(!o||(!has(o)&&has(x)))nm.set(n,x)});
+  return {get:code=>{const c=String(code??'').trim();return ex.get(c)||nm.get(normCode(c))},has(code){return !!this.get(code)}}};
 const safeId=s=>normCode(s).replace(/[^A-Za-z0-9_\-.~:@+]/g,c=>'_'+c.charCodeAt(0).toString(16)).slice(0,180)||'x';
 function parseNum(v){if(v==null||v==='')return null;if(typeof v==='number')return isFinite(v)?v:null;let s=AR_DIG(v).replace(/[٬,\s]/g,'').replace('٫','.').replace(/(ر\.?س|sar|ريال)/gi,'');if(/^\(.*\)$/.test(s))s='-'+s.slice(1,-1);const n=Number(s);return s!==''&&isFinite(n)?n:NaN}
 function parseDate(v){
@@ -3525,13 +3530,13 @@ const nT=s=>normTxt(String(s??'')).replace(/\*/g,'');
 async function sxFile(f){if(typeof XLSX==='undefined')return toast(L('مكتبة Excel غير محملة','Excel library not loaded'));const wb=XLSX.read(await f.arrayBuffer(),{cellDates:true});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true});
   if(!rows.length)return toast(L('الملف فاضي','Empty file'));const hs=Object.keys(rows[0]);const map={};SX_F.forEach(([k,,,al])=>{const h=hs.find(h=>al.some(a=>nT(a)===nT(h)));if(h)map[k]=h});
   SXI={...SXI,file:f.name,rows,hs,map};sxPreview()}
-function sxBuild(){const {rows,map}=SXI;const items=new Map(S.items.map(x=>[normCode(x.code),x]));const team=S.team.filter(t=>t.role==='rep'||t.role==='sup');
+function sxBuild(){const {rows,map}=SXI;const items=itemLookup();const team=S.team.filter(t=>t.role==='rep'||t.role==='sup');
   const repBy=v=>{const n=nT(v);return team.find(t=>nT(t.name)===n||nT(t.code||t.sapName||'')===n)||team.find(t=>n&&nT(t.name).includes(n))};
   const out=[],bad=[],unRep=new Set();let noPrice=0;
   rows.forEach((r,i)=>{const g=k=>map[k]?r[map[k]]:'';const miss=SX_F.filter(f=>f[2]&&String(g(f[0])).trim()==='').map(f=>f[1]);if(miss.length){bad.push(`${L('سطر','Row')} ${i+2}: ${miss.join('، ')}`);return}
     const rv=String(g('rep')).trim();const rep=(SXI.rmap||{})[rv]||repBy(rv)?.id||'';if(!rep)unRep.add(rv);
     const q=parseNum(g('q')),a=parseNum(g('a'));if(!Number.isFinite(q)||!Number.isFinite(a)){bad.push(`${L('سطر','Row')} ${i+2}: ${L('كمية أو مبلغ غير رقمي','non-numeric qty or amount')}`);return}
-    const it=items.get(normCode(g('ic')));const price=it&&it.price!=null&&it.price!==''?+it.price:null;if(price==null)noPrice++;
+    const it=items.get(g('ic'));const price=it&&it.price!=null&&it.price!==''?+it.price:null;if(price==null)noPrice++;
     out.push({rep,rn:rv,ic:String(g('ic')).trim(),in:String(g('in')||it?.name||'').trim(),q,a,lv:price!=null?Math.round(price*q*100)/100:'',cc:String(g('cc')).trim(),cn:String(g('cn')).trim()})});
   return {out,bad,unRep:[...unRep],noPrice}}
 function sxPreview(){const B=document.getElementById('sx_body');if(!B||!SXI.rows)return;const X=sxBuild();const reps=S.team.filter(t=>t.role==='rep'||t.role==='sup');
@@ -9000,10 +9005,10 @@ function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'0
   // 27/11: delivered but not yet invoiced (open delivery-note lines from SAP) count as sales, so prices and liquidity are not understated
   const dnD=(((S.dnopen||[]).find(x=>x.id==='all')||{}).rows||[]).filter(o=>o.d>=f&&o.d<=to&&inR(o.repId)).map(o=>({kind:'invoice',dn:true,no:o.no,date:o.d,clientCode:o.cc,cname:o.cn,repId:o.repId,value:+o.value||0,total:+o.total||0,lines:o.lines||[]}));
   const inv=docs.filter(o=>o.kind!=='credit').concat(dnD);const dnV=dnD.reduce((s,o)=>s+o.total,0);
-  const items=new Map((S.items||[]).map(x=>[normCode(x.code),x]));const sp=spSet();
+  const items=itemLookup();const sp=spSet();
   // 1) prices
   let lv=0,bv=0,lvAll=0,noB=0,noLines=0,nPal=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
-  inv.forEach(o=>{if(!(o.lines||[]).length){noLines++;return}o.lines.forEach(([code,q,v])=>{q=+q||0;v=+v||0;lvAll+=v;const it=items.get(normCode(code));
+  inv.forEach(o=>{if(!(o.lines||[]).length){noLines++;return}o.lines.forEach(([code,q,v])=>{q=+q||0;v=+v||0;lvAll+=v;const it=items.get(code);
     if(sp.has(code)){spV+=v;spQ+=q;const s=spBy.get(code)||{code,name:it?.name||code,q:0,v:0};s.q+=q;s.v+=v;spBy.set(code,s)}
     if(isPallet(code,it?.name)){nPal++;return}if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
   // 2) liquidity (both including VAT)
