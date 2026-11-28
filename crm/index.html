@@ -9721,6 +9721,8 @@ const o=sdCredit;sdCredit=function(){const r=o.apply(this,arguments);try{if(!SDE
   const os=FORM.onSave;FORM.onSave=async v=>{v.status='sent';v.sentAt=(q&&q.sentAt)||new Date().toISOString();const res=await os(v);if(res&&res.id)qToSap(res.id);return res}}catch(e){}return r}}
 </script>
 <script>/* 28/11: a saved quotation is created in SAP (same number, same prices); its SAP state shows on the quotation */
+/* one numbering with SAP: a new quotation has no number of its own; SAP's number is written on it once created there */
+nextQuoteNo=()=>L('بانتظار رقم ساب','Awaiting SAP no.');
 async function qToSap(id){try{const {data,error}=await window.__sb.rpc('crm_quote_to_sap',{p_id:id});if(error)throw error;
   if(data&&data.ok){if(!data.already)toast(L('انرسل العرض لساب، رقم ساب يطلع خلال ثواني','Quotation sent to SAP; the SAP number appears shortly'))}
   else toast(L('ما انرسل لساب: ','Not sent to SAP: ')+((data&&data.errors)||[]).join('، '))}catch(e){console.warn('qToSap',e);toast(L('تعذّر إرسال العرض لساب — جرّب «إرسال لساب» من العرض','Could not send to SAP — use «Send to SAP» on the quotation'))}}
@@ -9728,7 +9730,7 @@ ACT.qToSap=d=>{qToSap(d.id);closeModal()};
 {const _oq=OPEN.quote;OPEN.quote=function(id,refresh){const r=_oq.apply(this,arguments);try{const q=byId('quotes',id);const mb=document.getElementById('mbody');if(!q||!mb||q.source==='sap'||mb.querySelector('.qsap'))return r;
   const st=q.sapEntry?'posted':q.sapState||'';const tb=mb.querySelector('.toolbar');
   let h='';
-  if(st==='posted')h=`<div class="banner info qsap"><span class="sp">✓ ${L('موجود في ساب برقم','In SAP as')} <b><bdi>${esc(String(q.sapNo||q.no||''))}</bdi></b>${q.crmNo?` · ${L('رقم المنصة','Platform no.')} <bdi>${esc(q.crmNo)}</bdi>`:''}</span></div>`;
+  if(st==='posted')h=`<div class="banner info qsap"><span class="sp">✓ ${L('موجود في ساب برقم','In SAP as')} <b><bdi>${esc(String(q.sapNo||q.no||''))}</bdi></b>${/^QT-/.test(q.crmNo||'')?` · ${L('رقم المنصة السابق','Former platform no.')} <bdi>${esc(q.crmNo)}</bdi>`:''}</span></div>`;
   else if(st==='pending')h=`<div class="banner warn qsap"><span class="sp">⏳ ${L('جاري إنشاء العرض في ساب…','Being created in SAP…')}</span></div>`;
   else if(st==='awaiting_approval')h=`<div class="banner warn qsap"><span class="sp">⏳ ${L('العرض بانتظار اعتماد في ساب','Awaiting approval in SAP')}</span></div>`;
   else if(!['rejected','ordered'].includes(q.status))h=`<div class="banner ${st==='failed'?'bad':'warn'} qsap"><span class="sp">${st==='failed'?'✕ '+L('ما انرسل لساب: ','Not created in SAP: ')+esc(q.sapErr||''):L('العرض لسا ما انرسل لساب.','Not in SAP yet.')}</span> <button class="btn p" data-act="qToSap" data-id="${esc(id)}">${L('إرسال لساب','Send to SAP')}</button></div>`;
