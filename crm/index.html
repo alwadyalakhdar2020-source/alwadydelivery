@@ -233,6 +233,7 @@ td.nw{white-space:nowrap}
 @media (max-width:600px){.tl-i{grid-template-columns:80px 20px 1fr}.tl-v{grid-column:3}}
 .ag-bar{display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--line,#E3E8EF);margin:4px 0 10px}.ag-bar i{display:block;height:100%}.ag-leg{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px}.ag-leg span{display:inline-flex;align-items:center;gap:6px}.ag-leg i{width:12px;height:12px;border-radius:3px;display:inline-block}
 .ag-cur{background:#38AC57}.ag-b30{background:#F2C14E}.ag-b60{background:#F08A3C}.ag-b90{background:#E0533D}.ag-b90p{background:#8E1B1B}
+.kpi .v .vfull{display:block;font-size:12px;font-weight:500;opacity:.72;margin-top:2px;letter-spacing:0;font-variant-numeric:tabular-nums}
 </style>
 
 </head><body><div id="app">
@@ -266,6 +267,8 @@ const amt2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,max
 const price2=n=>(Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); // unit prices keep their halalas (1.35, not 1)
 const money=n=>num(n)+' '+L('ر.س','SAR');
 const smoney=n=>{n=n||0;const a=Math.abs(n);if(a>=1e6)return (n/1e6).toFixed(2)+' '+L('مليون','M');if(a>=1e3)return Math.round(n/1e3)+' '+L('ألف','K');return num(n)};
+const apRepReg=id=>{const t=id&&byId('team',id);return t&&t.region||''}; // region charts follow the rep's region
+const smoneyK=n=>{const v=+n||0;return smoney(v)+(Math.abs(v)>=1000?`<small class="vfull">${Math.round(v).toLocaleString('en-US')} ${L('ر.س','SAR')}</small>`:'')}; // KPI tiles: the full amount in small type under the short one
 const fdate=s=>{if(!s)return '—';s=String(s);const d=new Date(s.length<=10?s+'T12:00:00':s);if(isNaN(d))return s;const p=n=>String(n).padStart(2,'0');return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`};
 const fdt=s=>s?new Date(s).toLocaleString(loc(),{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
 const pct=(a,b)=>b?Math.round(a/b*100):0;
@@ -790,17 +793,17 @@ function metrics(f,P){
   const custs=S.clients.filter(c=>rowOK(f,c.repId,c.region));
   const seg={strategic:0,active:0,new:0,potential:0,dormant:0,lost:0};const custByReg={};const asPrev=addDays(from,-1);
   let newN=0,retBase=0,retKept=0;
-  for(const c of custs){const s=segmentOf(c.id,to);seg[s]++;custByReg[c.region]=(custByReg[c.region]||0)+1;
+  for(const c of custs){const s=segmentOf(c.id,to);seg[s]++;{const rg=apRepReg(c.repId)||c.region;custByReg[rg]=(custByReg[rg]||0)+1};
     const ft=ix.first.get(c.id);if(ft&&ft>=from&&ft<=to)newN++;
     if(isActiveSeg(segmentOf(c.id,asPrev))){retBase++;if(hasTx(c.id,from,to))retKept++}}
   const activeN=seg.strategic+seg.active+seg.new;
   let coll=0,prev=0,n=0;const byRep={},byReg={},byCust={};
   for(const r of ix.coll){const inC=r.d>=from&&r.d<=to,inP=r.d>=pf&&r.d<=pt;if(!inC&&!inP)continue;if(!rowOK(f,r.rep,r.reg))continue;
-    if(inC){coll+=r.amt;n++;byRep[r.rep||'']=(byRep[r.rep||'']||0)+r.amt;byReg[r.reg||'']=(byReg[r.reg||'']||0)+r.amt;const k=r.cid||('?'+r.code);byCust[k]=(byCust[k]||0)+r.amt}
+    if(inC){coll+=r.amt;n++;byRep[r.rep||'']=(byRep[r.rep||'']||0)+r.amt;{const rg=apRepReg(r.rep)||r.reg||'';byReg[rg]=(byReg[rg]||0)+r.amt};const k=r.cid||('?'+r.code);byCust[k]=(byCust[k]||0)+r.amt}
     if(inP)prev+=r.amt}
   let openVal=0,openN=0,accVal=0,accN=0,rejVal=0,rejN=0,expN=0,quoteVal=0,quoteN=0;const openByReg={};
   for(const q of ix.quotes){if(!rowOK(f,q.rep,q.reg))continue;
-    if((q.st==='open'||q.st==='pending')&&q.date<=to){openVal+=q.value;openN++;openByReg[q.reg]=(openByReg[q.reg]||0)+q.value}
+    if((q.st==='open'||q.st==='pending')&&q.date<=to){openVal+=q.value;openN++;const rg=apRepReg(q.rep)||q.reg;openByReg[rg]=(openByReg[rg]||0)+q.value}
     if(q.date>=from&&q.date<=to){quoteVal+=q.value;quoteN++}
     const bd=C.convBasis==='close'?q.close:q.date;
     if(bd&&bd>=from&&bd<=to){if(q.st==='accepted'){accVal+=q.value;accN++}else if(q.st==='rejected'){rejVal+=q.value;rejN++}else if(q.st==='expired')expN++}}
@@ -1464,10 +1467,10 @@ V.dash=()=>{
    ${kpiTile(L('العملاء النشطون','Active customers'),num(m.activeN),`${fpct(m.activation)} ${L('من العملاء','of customers')}`)}
    ${kpiTile(L('عملاء جدد','New customers'),num(m.newN),L('أول تعامل خلال الفترة','First transaction in period'))}
    ${kpiTile(L('العملاء الخاملون','Dormant customers'),num(m.dormantN),`${L('مفقود','Lost')} ${m.lostN}`)}
-   ${kpiTile(L('قيمة العروض المفتوحة','Open quotations'),smoney(m.openVal),`${m.openN} ${L('عرض حتى نهاية الفترة','open at period end')}`)}
-   ${kpiTile(L('العروض المقبولة','Accepted quotations'),smoney(m.accVal),`${m.accN} ${L('عرض','quotes')}`)}
-   ${kpiTile(L('العروض المرفوضة','Rejected quotations'),smoney(m.rejVal),`${m.rejN} ${L('عرض','quotes')} · ${L('منتهي','expired')} ${m.expN}`)}
-   ${kpiTile(L('إجمالي التحصيل','Total collections'),smoney(m.coll),k.collT?`${fpct(ca)} ${L('من المستهدف','of target')} ${smoney(k.collT)}`:L('لا يوجد مستهدف','No target'),k.collT?meter(ca*100,achCls(ca)):'')}
+   ${kpiTile(L('قيمة العروض المفتوحة','Open quotations'),smoneyK(m.openVal),`${m.openN} ${L('عرض حتى نهاية الفترة','open at period end')}`)}
+   ${kpiTile(L('العروض المقبولة','Accepted quotations'),smoneyK(m.accVal),`${m.accN} ${L('عرض','quotes')}`)}
+   ${kpiTile(L('العروض المرفوضة','Rejected quotations'),smoneyK(m.rejVal),`${m.rejN} ${L('عرض','quotes')} · ${L('منتهي','expired')} ${m.expN}`)}
+   ${kpiTile(L('إجمالي التحصيل','Total collections'),smoneyK(m.coll),k.collT?`${fpct(ca)} ${L('من المستهدف','of target')} ${smoney(k.collT)}`:L('لا يوجد مستهدف','No target'),k.collT?meter(ca*100,achCls(ca)):'')}
    ${kpiTile(L('نمو التحصيل','Collection growth'),fgrowth(m.growth),`${L('الفترة السابقة','Previous')} ${smoney(m.prev)}`)}
    ${kpiTile(L('معدل تحويل العروض','Quotation conversion'),fpct(m.conv),`${m.accN} ${L('مقبول من','won of')} ${m.accN+m.rejN+m.expN} ${L('محسوم','decided')}`)}
   </div>`;
@@ -1518,8 +1521,8 @@ V.regions=()=>{
   const g=REGIONS.find(r=>r.id===tab)||REGIONS[0];const f={region:g.id};const k=kpiFor(f,P);const m=k.m;const ca=k.items[0].ach;
   h+=`<div class="card"><h2>${L(g.ar,g.en)}<span class="sub">${L('المشرف','Supervisor')}: ${esc(tName(supOf({region:g.id})))}</span><span class="end">${L('درجة المنطقة','Region score')} ${scorePill(k.score)}</span></h2>
    <div class="kpis">${kpiTile(L('العملاء المسندون','Assigned'),num(m.assigned),`${L('نشط','Active')} ${m.activeN} · ${L('غير نشط','Inactive')} ${m.inactiveN}`)}${kpiTile(L('عملاء جدد','New'),num(m.newN))}
-   ${kpiTile(L('العروض المفتوحة','Open quotes'),smoney(m.openVal),`${m.openN} ${L('عرض','quotes')}`)}${kpiTile(L('العروض المقبولة','Accepted'),smoney(m.accVal),`${m.accN} ${L('عرض','quotes')}`)}
-   ${kpiTile(L('التحصيل','Collections'),smoney(m.coll),k.collT?`${fpct(ca)} ${L('من','of')} ${smoney(k.collT)}`:'',k.collT?meter(ca*100,achCls(ca)):'')}${kpiTile(L('نمو التحصيل','Growth'),fgrowth(m.growth),`${L('السابقة','prev')} ${smoney(m.prev)}`)}
+   ${kpiTile(L('العروض المفتوحة','Open quotes'),smoneyK(m.openVal),`${m.openN} ${L('عرض','quotes')}`)}${kpiTile(L('العروض المقبولة','Accepted'),smoneyK(m.accVal),`${m.accN} ${L('عرض','quotes')}`)}
+   ${kpiTile(L('التحصيل','Collections'),smoneyK(m.coll),k.collT?`${fpct(ca)} ${L('من','of')} ${smoney(k.collT)}`:'',k.collT?meter(ca*100,achCls(ca)):'')}${kpiTile(L('نمو التحصيل','Growth'),fgrowth(m.growth),`${L('السابقة','prev')} ${smoney(m.prev)}`)}
    ${kpiTile(L('معدل التحويل','Conversion'),fpct(m.conv))}${kpiTile(L('الاحتفاظ بالعملاء','Retention'),fpct(m.retention))}</div></div>`;
   const mo=monthly(f,P.to.slice(0,7),12);
   h+=`<div class="card"><h2>${L('اتجاه الأداء الشهري','Monthly trend')}</h2>${chart({type:'line',labels:mo.keys.map(monthLabel),series:[{label:L('التحصيل','Collections'),data:mo.coll,color:'--c2'},{label:L('المستهدف','Target'),data:mo.target,color:'--c3',dashed:1}],money:1})}</div>`;
@@ -1540,11 +1543,11 @@ function repDetail(rid,P){
    <div class="grid g2"><div class="score"><b>${k.score==null?'—':Math.round(k.score)}</b><span class="muted">/ 100 ${L('درجة الأداء الموزونة','weighted score')}</span></div>
    <div class="small muted">${L('الترتيب في المنطقة','Rank in region')}: <b>${rr} / ${inReg.length}</b> · ${L('الترتيب العام','Overall')}: <b>${me_?.rank||'—'} / ${all.length}</b></div></div></div>
    <div class="kpis">${kpiTile(L('العملاء المسندون','Assigned customers'),num(m.assigned),`${L('نشط','Active')} ${m.activeN} · ${L('جدد','New')} ${m.newN} · ${L('خامل','Dormant')} ${m.dormantN}`)}
-   ${kpiTile(L('المبيعات التاريخية للعملاء','Historical customer sales'),smoney(m.hist),L('من البيانات الأساسية، لا تُحسب ضمن الفترة','From master data, not period sales'))}
-   ${kpiTile(L('قيمة العروض في الفترة','Quotations value'),smoney(m.quoteVal),`${m.quoteN} ${L('عرض','quotes')} · ${L('مفتوح','open')} ${m.openN}`)}
+   ${kpiTile(L('المبيعات التاريخية للعملاء','Historical customer sales'),smoneyK(m.hist),L('من البيانات الأساسية، لا تُحسب ضمن الفترة','From master data, not period sales'))}
+   ${kpiTile(L('قيمة العروض في الفترة','Quotations value'),smoneyK(m.quoteVal),`${m.quoteN} ${L('عرض','quotes')} · ${L('مفتوح','open')} ${m.openN}`)}
    ${kpiTile(L('مقبولة / مرفوضة','Won / lost'),`${m.accN} / ${m.rejN}`,`${L('التحويل','Conversion')} ${fpct(m.conv)}`)}
-   ${kpiTile(L('التحصيل في الفترة','Collections'),smoney(m.coll),`${fpct(k.items[0].ach)} ${L('من المستهدف','of target')}`,k.collT?meter(k.items[0].ach*100,achCls(k.items[0].ach)):'')}
-   ${kpiTile(L('متوسط التحصيل لكل عميل نشط','Avg per active customer'),smoney(m.avgPerActive))}
+   ${kpiTile(L('التحصيل في الفترة','Collections'),smoneyK(m.coll),`${fpct(k.items[0].ach)} ${L('من المستهدف','of target')}`,k.collT?meter(k.items[0].ach*100,achCls(k.items[0].ach)):'')}
+   ${kpiTile(L('متوسط التحصيل لكل عميل نشط','Avg per active customer'),smoneyK(m.avgPerActive))}
    ${kpiTile(L('نمو التحصيل','Collection growth'),fgrowth(m.growth),`${L('السابقة','prev')} ${smoney(m.prev)}`)}
    ${kpiTile(L('معدل تنشيط العملاء','Activation rate'),fpct(m.activation))}</div>
    <div class="card"><h2>${L('بطاقة المؤشرات الموزونة','Weighted KPI scorecard')}</h2>${kpiTable(k)}</div>
@@ -1590,8 +1593,8 @@ V.collections=()=>{
   const unm=rows.filter(r=>!r.cid);const mo=monthly(f,P.to.slice(0,7),12);
   const byRep=Object.entries(m.byRep).map(([id,v])=>({id,v})).sort((a,b)=>b.v-a.v);
   const lim=fv('colLim',200);
-  return fbar()+`<div class="kpis">${kpiTile(L('التحصيل في الفترة','Collected in period'),smoney(m.coll),`${m.n} ${L('سند','vouchers')}`)}${kpiTile(L('الفترة السابقة','Previous period'),smoney(m.prev),fgrowth(m.growth))}
-   ${kpiTile(L('عملاء سددوا لأول مرة','First-time payers'),num(firstPayRows(f,P).length),L('خلال الفترة','in period'))}${kpiTile(L('غير مطابق لعميل','Unmatched'),smoney(unm.reduce((s,r)=>s+r.amt,0)),`${unm.length} ${L('سند — راجع «سلامة البيانات»','vouchers — see Data integrity')}`)}</div>
+  return fbar()+`<div class="kpis">${kpiTile(L('التحصيل في الفترة','Collected in period'),smoneyK(m.coll),`${m.n} ${L('سند','vouchers')}`)}${kpiTile(L('الفترة السابقة','Previous period'),smoneyK(m.prev),fgrowth(m.growth))}
+   ${kpiTile(L('عملاء سددوا لأول مرة','First-time payers'),num(firstPayRows(f,P).length),L('خلال الفترة','in period'))}${kpiTile(L('غير مطابق لعميل','Unmatched'),smoneyK(unm.reduce((s,r)=>s+r.amt,0)),`${unm.length} ${L('سند — راجع «سلامة البيانات»','vouchers — see Data integrity')}`)}</div>
    ${canImport()?`<div class="toolbar"><span class="grow small muted">${L('سجلات التحصيل تأتي من ملفات Excel. الاستيراد الجديد يُضاف ولا يستبدل الفترات السابقة.','Collections come from Excel files. New imports append; earlier periods are never overwritten.')}</span><button class="btn p" data-act="goImport" data-t="collections">${L('استيراد ملف تحصيل','Import collections file')}</button></div>`:''}
    <div class="grid g2"><div class="card"><h2>${L('التحصيل الشهري','Monthly collections')}</h2>${chart({type:'bar',labels:mo.keys.map(monthLabel),series:[{label:L('التحصيل','Collections'),data:mo.coll,color:'--c2'},{label:L('المستهدف','Target'),data:mo.target,color:'--c3',type:'line',dashed:1}],money:1})}</div>
    <div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:x=>x.id?esc(tName(x.id)):`<span class="muted">${L('بدون مندوب','No rep')}</span>`},{l:L('التحصيل','Collected'),c:'n',f:x=>money(x.v),t:r=>money(r.reduce((s,x)=>s+x.v,0))},{l:L('الحصة','Share'),c:'n',f:x=>fpct(m.coll?x.v/m.coll:null)}],byRep.map(x=>({...x,id:x.id||null})),'rep',{foot:1})}</div></div>
@@ -1851,10 +1854,10 @@ function plSummaryView(){
   const tot=k=>has.reduce((s,x)=>s+(x.c[k]||0),0);const T=tot('target'),N=tot('net'),A=tot('actEx'),B=tot('b3');
   return `<div class="fbar">${plMonthPicker()}<span class="per">${L('مستهدف التغطية','Coverage rule')}: ${L('الصافي المتوقع','net expected')} ≥ ${L('المستهدف','target')} × ${C.pipeCover??1.5} · Back log ≥ ${L('المستهدف','target')} × ${C.backCover??3}</span>
    ${canImport()||isLead()?`<label class="btn" for="plFile">${L('استيراد ملف البايب لاين','Import pipeline file')}</label><input id="plFile" type="file" accept=".xlsx,.xls" hidden data-act="plFile">`:''}<button class="btn" data-act="plXlsx" data-scope="all">${L('تصدير Excel','Export Excel')}</button></div>
-   <div class="kpis k5">${kpiTile(L('المستهدف الشهري','Monthly target'),smoney(T),`${has.length} / ${rows.length} ${L('مندوب عندهم بايب لاين','reps with a sheet')}`)}
-   ${kpiTile(L('الصافي المتوقع','Net expected'),smoney(N),`<span class="${pctCls(T?N/T:null,C.pipeCover??1.5)}">${fpct(T?N/T:null)}</span> ${L('تغطية','coverage')}`)}
-   ${kpiTile(L('الفعلي بدون ضريبة','Actual ex-VAT'),smoney(A),`${fpct(T?A/T:null)} ${L('من المستهدف','of target')}`,meter(T?A/T*100:0,achCls(T?A/T:null)))}
-   ${kpiTile(L('الفرق عن المستهدف','Gap to target'),smoney(A-T),'')}${kpiTile(L('Back log خلال 3 أشهر','Backlog (3 months)'),smoney(B),`${fpct(T?B/(T*(C.backCover??3)):null)} ${L('من المطلوب','of required')}`)}</div>
+   <div class="kpis k5">${kpiTile(L('المستهدف الشهري','Monthly target'),smoneyK(T),`${has.length} / ${rows.length} ${L('مندوب عندهم بايب لاين','reps with a sheet')}`)}
+   ${kpiTile(L('الصافي المتوقع','Net expected'),smoneyK(N),`<span class="${pctCls(T?N/T:null,C.pipeCover??1.5)}">${fpct(T?N/T:null)}</span> ${L('تغطية','coverage')}`)}
+   ${kpiTile(L('الفعلي بدون ضريبة','Actual ex-VAT'),smoneyK(A),`${fpct(T?A/T:null)} ${L('من المستهدف','of target')}`,meter(T?A/T*100:0,achCls(T?A/T:null)))}
+   ${kpiTile(L('الفرق عن المستهدف','Gap to target'),smoneyK(A-T),'')}${kpiTile(L('Back log خلال 3 أشهر','Backlog (3 months)'),smoneyK(B),`${fpct(T?B/(T*(C.backCover??3)):null)} ${L('من المطلوب','of required')}`)}</div>
    <div class="card"><h2>${L('المستهدف والفعلي حسب المندوب','Target vs actual by rep')}<span class="sub">${monthLabel(month)}</span></h2>
    ${table([{l:L('المندوب','Rep'),f:x=>`<b>${esc(x.r.name)}</b><div class="small muted">${regName(x.r.region)}</div>`},{l:L('الاعتماد','Approval'),f:x=>x.none?'—':(typeof plStPill==='function'?plStPill(x.d):'')},
      {l:L('المستهدف','Target'),c:'n',f:x=>x.none?'—':plNum(x.c.target),t:()=>plNum(T)},{l:L('المتوقع بالضريبة','Expected incl. VAT'),c:'n',f:x=>x.none?'—':plNum(x.c.amt),t:()=>plNum(tot('amt'))},
@@ -2159,8 +2162,8 @@ V.field=()=>{
   const sales=sum('sales'),coll=sum('coll'),target=sum('target'),planned=sum('planned'),done=sum('done'),eff=sum('eff'),open=sum('open'),openVal=sum('openVal');
   const op=vis(S.opps);const won=op.filter(o=>o.stage==='order').length,lost=op.filter(o=>o.stage==='lost').length;const tp=pct(sales,target);
   let h=`<div class="kpis">
-   ${kpiTile(L('طلبات البيع هذا الشهر','Sales orders this month'),smoney(sales),target?`${tp}% ${L('من مستهدف الطلبات','of order target')} ${smoney(target)}`:L('لا يوجد مستهدف','No target'),meter(tp,tp<50?'w':''))}
-   ${kpiTile(L('التحصيل هذا الشهر','Collected this month'),smoney(coll),L('من سندات القبض المستوردة','From imported vouchers'))}
+   ${kpiTile(L('طلبات البيع هذا الشهر','Sales orders this month'),smoneyK(sales),target?`${tp}% ${L('من مستهدف الطلبات','of order target')} ${smoney(target)}`:L('لا يوجد مستهدف','No target'),meter(tp,tp<50?'w':''))}
+   ${kpiTile(L('التحصيل هذا الشهر','Collected this month'),smoneyK(coll),L('من سندات القبض المستوردة','From imported vouchers'))}
    ${kpiTile(L('الزيارات المنفذة / المخططة','Visits done / planned'),`${done} / ${planned}`,`${L('فعّالة','Effective')}: ${eff} (${pct(eff,done)}%)`,meter(pct(done,planned)))}
    ${kpiTile(L('فرص البيع المفتوحة','Open opportunities'),open,`${smoney(openVal)} · ${L('تحويل','win rate')} ${(won+lost)?pct(won,won+lost)+'%':'—'}`)}</div>`;
   h+=`<div class="card"><h2>${L('أداء المندوبين الميداني','Field performance by rep')}<span class="sub">${L('الشهر الحالي','This month')}</span></h2>`+
@@ -2314,8 +2317,8 @@ OPEN.client=(id,refresh)=>{
   const seg=segmentOf(id,t);const pot=potentialOf(c);const la=lastActivity(id);
   const qc=st=>qs.filter(q=>st.includes(q.st));const open=qc(['open','pending']),acc=qc(['accepted']),rej=qc(['rejected']);const sv=a=>smoney(a.reduce((s,q)=>s+q.value,0));
   const h=`<div class="toolbar"><button class="btn" data-act="editClient" data-id="${id}">${L('تعديل البيانات','Edit')}</button><button class="btn" data-act="quickPlan" data-c="${id}" data-r="${c.repId}">${L('جدولة زيارة','Schedule visit')}</button><button class="btn" data-act="newOpp" data-c="${id}">${L('فرصة جديدة','New deal')}</button><button class="btn" data-act="newComm" data-c="${id}">${L('تسجيل تواصل','Log contact')}</button></div>
-  <div class="kpis">${kpiTile(L('القطاع','Segment'),segPill(seg),`${L('إمكانية التطوير','Potential')}: ${pillOf(POTENTIAL,pot.k)}${pot.auto?` <span class="small">(${L('محسوبة','auto')})</span>`:''}`)}${kpiTile(L('إجمالي التحصيل المسجل','Total collections'),smoney(totColl),`${L('آخر سند','Latest')} ${fdate(rows[0]?.d)}`)}
-   ${kpiTile(L('تحصيل آخر 12 شهراً','Last 12 months'),smoney(ix.v12.get(id)||0))}${kpiTile(L('آخر نشاط مبيعات','Last sales activity'),fdate(la),la?`${daysBetween(la,t)} ${L('يوم','days ago')}`:'')}</div>
+  <div class="kpis">${kpiTile(L('القطاع','Segment'),segPill(seg),`${L('إمكانية التطوير','Potential')}: ${pillOf(POTENTIAL,pot.k)}${pot.auto?` <span class="small">(${L('محسوبة','auto')})</span>`:''}`)}${kpiTile(L('إجمالي التحصيل المسجل','Total collections'),smoneyK(totColl),`${L('آخر سند','Latest')} ${fdate(rows[0]?.d)}`)}
+   ${kpiTile(L('تحصيل آخر 12 شهراً','Last 12 months'),smoneyK(ix.v12.get(id)||0))}${kpiTile(L('آخر نشاط مبيعات','Last sales activity'),fdate(la),la?`${daysBetween(la,t)} ${L('يوم','days ago')}`:'')}</div>
   <dl class="kv card"><dt>${L('كود العميل','Customer code')}</dt><dd><b>${esc(c.code||'—')}</b></dd><dt>${L('التصنيف','Category')}</dt><dd>${esc(c.category||'—')} · ${lab(CLIENT_TYPES,c.type)} ${pillOf(CLIENT_STATUS,c.status)}</dd><dt>${L('المنطقة','Region')}</dt><dd>${regName(c.region)}${c.district?' · '+esc(c.district):''}</dd><dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(c.repId))} · ${L('المشرف','Supervisor')}: ${esc(tName(supOf(byId('team',c.repId)||{region:c.region})))}</dd>
    <dt>${L('المبيعات التاريخية','Historical sales')}</dt><dd>${money(c.histValue)} · ${num(c.histVolume)} ${L('وحدة','units')} <span class="small muted">(${L('من البيانات الأساسية','master data')})</span></dd><dt>${L('آخر عملية في SAP','Last SAP transaction')}</dt><dd>${fdate(c.lastTxDate)}</dd>
    <dt>${L('العروض','Quotations')}</dt><dd>${L('مفتوحة','Open')} ${open.length} (${sv(open)}) · ${L('مقبولة','Accepted')} ${acc.length} (${sv(acc)}) · ${L('مرفوضة','Rejected')} ${rej.length} (${sv(rej)})</dd>
@@ -2828,9 +2831,9 @@ V.orders=()=>{
     const lv=l=>{const q=+l.qty||0,op=l.open!=null&&l.open!==''?Math.min(q,Math.max(0,+l.open)):null,pr=+l.price||(q?(+l.value||0)/q:0);return {dl:l.dq!=null&&l.dq!==''?(+l.dq||0)*pr:op==null?0:(q-op)*pr,op:op==null?0:op*pr}};
     let dl=0,op=0;live.forEach(o=>{if(!(o.lines||[]).length){if(o.status==='delivered')dl+=+o.value||0;else op+=+o.value||0;return}(o.lines||[]).forEach(l=>{const x=lv(l);dl+=x.dl;op+=x.op})});
     const oo=live.filter(o=>o.status==='open'||o.status==='partial');const nc=rows.length-live.length;
-    return `<div class="kpis k4">${kpiTile(L('عدد الأوامر','Orders'),num(live.length),nc?`${num(nc)} ${L('ملغي غير محسوب','cancelled not counted')}`:L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('قيمة الأوامر','Orders value'),smoney(val(live)),L('قبل الضريبة','before VAT'))}
-   ${kpiTile(L('تم تسليمه','Delivered'),smoney(dl),L('الكميات المسلّمة × السعر، يشمل التسليم الجزئي','delivered qty × price, incl. partial'))}
-   ${kpiTile(L('متبقي للتسليم','Still to deliver'),smoney(op),`${num(oo.length)} ${L('أمر مفتوح أو جزئي','open/partial orders')}`)}</div>`})()}
+    return `<div class="kpis k4">${kpiTile(L('عدد الأوامر','Orders'),num(live.length),nc?`${num(nc)} ${L('ملغي غير محسوب','cancelled not counted')}`:L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('قيمة الأوامر','Orders value'),smoneyK(val(live)),L('قبل الضريبة','before VAT'))}
+   ${kpiTile(L('تم تسليمه','Delivered'),smoneyK(dl),L('الكميات المسلّمة × السعر، يشمل التسليم الجزئي','delivered qty × price, incl. partial'))}
+   ${kpiTile(L('متبقي للتسليم','Still to deliver'),smoneyK(op),`${num(oo.length)} ${L('أمر مفتوح أو جزئي','open/partial orders')}`)}</div>`})()}
   <div class="card">${table([{l:L('رقم الأمر','Order no.'),c:'nw',f:o=>`<b>${esc(o.no)}</b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
     {l:L('العميل','Customer'),f:o=>`${esc(o.cname||cName(o.clientId))}<div class="small muted">${esc(o.clientCode||'')}${o.clientId?'':' · '+L('غير مطابق','unmatched')}</div>`},
     {l:L('المندوب','Rep'),f:o=>esc(tName(o.repId))},{l:L('الأصناف','Lines'),c:'n',f:o=>(o.lines||[]).length},{l:L('القيمة','Value'),c:'n',f:o=>num(o.value)},
@@ -3421,7 +3424,7 @@ OPEN.opp=(id,refresh)=>{
   const daysIn=(()=>{const last=(o.stageLog||[]).slice(-1)[0];return last?daysBetween(String(last.at).slice(0,10),TODAY()):null})();
   setDrawer('opp',id,L('فرصة: ','Deal: ')+(o.title||''),`<style>.stpath{display:flex;gap:4px;overflow-x:auto;padding:2px 0 8px}.stp{flex:1;min-width:92px;height:auto!important;min-height:54px;line-height:1.3;justify-content:center;border:1px solid var(--line,#dde3ec);background:var(--sunk,#f3f5f8);border-radius:8px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;font:inherit;cursor:pointer}.stp b{font-size:12.5px}.stp span{font-size:11px;color:var(--muted)}.stp.done{background:#e6f4ea;border-color:#bfe3cb}.stp.cur{background:#051D48;color:#fff;border-color:#051D48}.stp.cur span{color:#cfe0ff}.stp:disabled{cursor:default}</style>
    <div class="stpath" role="group" aria-label="${L('مراحل الفرصة','Stages')}">${path}</div>
-   <div class="kpis k4">${kpiTile(L('القيمة','Value'),smoney(o.value))}${kpiTile(L('احتمال الفوز','Probability'),(o.prob??'—')+'%')}${kpiTile(L('المرجّحة','Weighted'),smoney((+o.value||0)*(+o.prob||0)/100))}${kpiTile(L('في المرحلة منذ','In stage for'),daysIn==null?'—':`${daysIn} ${L('يوم','days')}`)}</div>
+   <div class="kpis k4">${kpiTile(L('القيمة','Value'),smoneyK(o.value))}${kpiTile(L('احتمال الفوز','Probability'),(o.prob??'—')+'%')}${kpiTile(L('المرجّحة','Weighted'),smoneyK((+o.value||0)*(+o.prob||0)/100))}${kpiTile(L('في المرحلة منذ','In stage for'),daysIn==null?'—':`${daysIn} ${L('يوم','days')}`)}</div>
    <dl class="kv card"><dt>${L('العميل','Client')}</dt><dd><a href="#" data-open="client" data-id="${o.clientId}">${esc(cName(o.clientId))}</a></dd><dt>${L('المشروع','Project')}</dt><dd>${o.projectId?esc(pName(o.projectId)):'—'}</dd>
     <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('الإغلاق المتوقع','Expected close')}</dt><dd>${o.expectedClose?fdate(o.expectedClose):'—'}</dd>
     <dt>${L('الخطوة التالية','Next step')}</dt><dd>${esc(o.nextStep||'—')}${o.nextDate?` · ${fdate(o.nextDate)}`:''}${o.nextOwner?` · ${esc(tName(o.nextOwner))}`:''}</dd><dt>${L('العقبات','Obstacles')}</dt><dd>${esc(o.obstacles||'—')}</dd>
@@ -3498,7 +3501,7 @@ V.kpis=()=>{const P=period();const lead=isLead();
   return fbar()+`<div class="kpis k5">${kpiTile(L('المبيعات','Sales'),D.hasSales?smoney(T.sales):'—',D.hasSales?`${L('الفترة السابقة','Previous')} ${smoney(T.prev)}`:L('ما انرفعت مبيعات','No sales uploaded'))}
     ${kpiTile(L('معدل النمو','Growth'),pctS(g),L('مقارنة بنفس طول الفترة السابقة','vs previous equal period'))}${kpiTile(L('نسبة الخصم','Discount'),pctS(d),T.lv?`${L('بسعر القائمة','At list price')} ${smoney(T.lv)}`:L('يحتاج أسعار الأصناف','Needs item prices'))}
     ${kpiTile(L('عملاء جدد مسددين','New paying customers'),num(T.nc)+(T.ncT?` / ${num(T.ncT)}`:''),T.ncT?`${L('تحقيق','Achieved')} ${Math.round(T.nc/T.ncT*100)}%`:L('بدون هدف','No target'))}
-    ${kpiTile(L('التحصيل','Collections'),smoney(T.coll),T.collT?`${L('من هدف','of target')} ${smoney(T.collT)} (${Math.round(T.coll/T.collT*100)}%)`:L('بدون هدف','No target'))}</div>
+    ${kpiTile(L('التحصيل','Collections'),smoneyK(T.coll),T.collT?`${L('من هدف','of target')} ${smoney(T.collT)} (${Math.round(T.coll/T.collT*100)}%)`:L('بدون هدف','No target'))}</div>
    <div class="card"><h2>${L('مؤشرات المندوبين والمجموعات','Reps and groups')}<span class="sub">${esc(filterLabel(P))}</span></h2>
     <div class="toolbar" style="margin-bottom:8px">${lead?`<button class="btn" data-act="kxTargets">${L('أهداف الشهر','Monthly targets')}</button><button class="btn" data-act="kxSales">${L('رفع مبيعات الشهر','Upload monthly sales')}</button>`:''}<button class="btn" data-act="kxXlsx">${L('تصدير Excel','Export Excel')}</button><button class="btn" data-act="repPrintKpi">${L('طباعة A4','Print A4')}</button></div>
     <div class="tw"><table class="kx-t"><thead><tr><th>${L('المندوب / المجموعة','Rep / group')}</th><th class="n">${L('المبيعات','Sales')}</th><th class="n">${L('النمو','Growth')}</th><th class="n">${L('الخصم','Discount')}</th><th class="n">${L('عملاء جدد / الهدف','New / target')}</th><th>${L('التحقيق','Achieved')}</th><th class="n">${L('تحصيلهم','Their amount')}</th><th class="n">${L('التحصيل / الهدف','Collected / target')}</th><th>${L('التحقيق','Achieved')}</th></tr></thead><tbody>
@@ -3561,7 +3564,7 @@ function declineRows(f){const ix=I();const t=TODAY();const out=[];
     out.push({id:c.id,c,last,since,med,recent,base,why,planned,drop:base>0?1-recent/base:0})});
   return out.sort((a,b)=>b.base-a.base)}
 V.decline=()=>{const f=fx();const R=declineRows(f);const todo=R.filter(r=>!r.planned);
-  return fbar()+`<div class="kpis k4">${kpiTile(L('عملاء متراجعون','Declining customers'),num(R.length))}${kpiTile(L('لهم زيارة متابعة مجدولة','Follow-up scheduled'),num(R.length-todo.length))}${kpiTile(L('تحصيلهم المعتاد (90 يوم)','Their usual 90-day collections'),smoney(R.reduce((s,r)=>s+r.base,0)))}${kpiTile(L('تحصيلهم آخر 90 يوم','Last 90 days'),smoney(R.reduce((s,r)=>s+r.recent,0)))}</div>
+  return fbar()+`<div class="kpis k4">${kpiTile(L('عملاء متراجعون','Declining customers'),num(R.length))}${kpiTile(L('لهم زيارة متابعة مجدولة','Follow-up scheduled'),num(R.length-todo.length))}${kpiTile(L('تحصيلهم المعتاد (90 يوم)','Their usual 90-day collections'),smoneyK(R.reduce((s,r)=>s+r.base,0)))}${kpiTile(L('تحصيلهم آخر 90 يوم','Last 90 days'),smoneyK(R.reduce((s,r)=>s+r.recent,0)))}</div>
    <div class="card"><h2>${L('العملاء المتراجعون','Declining customers')}<span class="sub">${L('انقطع عن عادته في السداد أو نزل تحصيله للنص','Broke their payment habit or halved collections')}</span></h2>
    ${todo.length&&canDo('visits')?`<div class="toolbar" style="margin-bottom:8px"><button class="btn p" data-act="dcAll">${L('جدولة زيارة متابعة للكل','Schedule follow-up for all')} (${todo.length})</button><span class="small muted">${L('تنضاف زيارة لكل عميل في خطة مندوبه بكرة.','A visit is added to each rep\'s plan for tomorrow.')}</span></div>`:''}
    ${table([{l:L('العميل','Customer'),f:r=>`<a href="#" data-open="client" data-id="${r.id}">${esc(r.c.name)}</a> <span class="small muted">${esc(r.c.code||'')}</span>`},{l:L('المندوب','Rep'),f:r=>esc(tName(r.c.repId))},{l:L('آخر دفعة','Last payment'),c:'nw',f:r=>`${fdate(r.last)} <span class="small muted">(${r.since} ${L('يوم','d')})</span>`},
@@ -3796,9 +3799,9 @@ V.aging=()=>{
    <input type="search" placeholder="${L('بحث باسم أو كود العميل','Search customer')}" value="${esc(fv('agQ',''))}" data-act="agQ">
    ${[['od',L('المتأخر','Overdue')],['b90p',L('+90 يوم','90+')],['over',L('تجاوز الحد','Over limit')],['all',L('الكل','All')]].map(([k,l])=>`<button class="chip ${fl===k?'on':''}" data-act="filt" data-k="agF" data-v="${k}">${l}</button>`).join('')}
    <span class="grow"></span>${D.last?`<span class="small muted">${D.sap?L('آخر تحديث من ساب','Updated from SAP'):L('آخر رفع','Last import')}: ${fdt(D.last.at)}</span>`:''}<button class="btn s" data-act="arXlsx">Excel</button><button class="btn s" data-act="arPrint">${L('طباعة','Print')}</button>${canImport()&&!D.sap?`<button class="btn s" data-act="arGoImp">${L('رفع ملف جديد','New file')}</button>`:''}</div>
-  <div class="kpis k5">${kpiTile(L('إجمالي المديونية','Total receivable'),smoney(D.tot),`${num(D.rows.length)} ${L('عميل','customers')}`)}${kpiTile(L('المتأخر','Overdue'),smoney(D.od),`${D.tot?Math.round(D.od/D.tot*100):0}% ${L('من الإجمالي','of total')}`)}
-   ${kpiTile(L('أكثر من 90 يوم','90+ days'),smoney(D.b.b90p),`${D.rows.filter(o=>o.b90p>0).length} ${L('عميل','customers')}`)}${kpiTile(L('تجاوزوا حد الائتمان','Over credit limit'),num(D.over),D.rows.some(o=>o.lim>0)?'':L('ما فيه حدود ائتمان مسجلة','No limits on file'))}
-   ${kpiTile(L('غير مستحق بعد','Not yet due'),smoney(D.b.cur))}</div>
+  <div class="kpis k5">${kpiTile(L('إجمالي المديونية','Total receivable'),smoneyK(D.tot),`${num(D.rows.length)} ${L('عميل','customers')}`)}${kpiTile(L('المتأخر','Overdue'),smoneyK(D.od),`${D.tot?Math.round(D.od/D.tot*100):0}% ${L('من الإجمالي','of total')}`)}
+   ${kpiTile(L('أكثر من 90 يوم','90+ days'),smoneyK(D.b.b90p),`${D.rows.filter(o=>o.b90p>0).length} ${L('عميل','customers')}`)}${kpiTile(L('تجاوزوا حد الائتمان','Over credit limit'),num(D.over),D.rows.some(o=>o.lim>0)?'':L('ما فيه حدود ائتمان مسجلة','No limits on file'))}
+   ${kpiTile(L('غير مستحق بعد','Not yet due'),smoneyK(D.b.cur))}</div>
   <div class="card"><h2>${L('توزيع المديونية حسب العمر','Aging distribution')}</h2><div class="ag-bar">${bar}</div><div class="ag-leg">${AG_B.map(([k,l])=>`<span><i class="ag-${k}"></i>${l()} <b>${smoney(D.b[k])}</b></span>`).join('')}</div></div>`;
   if(isLead()&&!rid)h+=`<div class="card"><h2>${L('حسب المندوب','By rep')}</h2>${table([{l:L('المندوب','Rep'),f:r=>r.id?`<a href="#" data-act="filtSel2" data-k="agRep" data-v="${r.id}">${esc(r.name)}</a>`:esc(r.name)},{l:L('العملاء','Customers'),c:'n',f:r=>num(r.n)},{l:L('المديونية','Receivable'),c:'n',f:r=>money(r.tot)},{l:L('المتأخر','Overdue'),c:'n',f:r=>`<b>${money(r.od)}</b>`},{l:L('+90 يوم','90+'),c:'n',f:r=>r.b90p?`<span class="flag">${money(r.b90p)}</span>`:'—'},{l:L('تجاوز الحد','Over limit'),c:'n',f:r=>r.over||'—'}],agFoldReps(D.reps))}</div>`;
   h+=`<div class="card"><h2>${L('العملاء','Customers')}<span class="sub">${num(rows.length)} · ${L('من الأكبر رصيداً للأصغر','largest balance first')}</span></h2>${D.small.n?`<div class="small muted" style="margin:-4px 0 8px">${L(`ما يظهر ${num(D.small.n)} عميل رصيدهم أقل من ${D.min} ريال (إجماليهم ${num(Math.round(D.small.tot))} ريال)، وما هم محسوبين في الأرقام فوق.`,`${num(D.small.n)} customers with balances under ${D.min} SAR (${num(Math.round(D.small.tot))} SAR in all) are left out of this report and its totals.`)}</div>`:''}${agGroupTable(rows)}</div>
@@ -4276,7 +4279,7 @@ V.oppboard=()=>{
   return css+`<div class="toolbar"><button class="btn p" data-act="newOpp">+ ${L('فرصة','Deal')}</button><input type="search" placeholder="${L('بحث بالفرصة أو العميل','Search')}" value="${esc(fv('obQ',''))}" data-act="filtIn" data-k="obQ">
     ${isLead()?`<select data-act="filtSel" data-k="obRep">${opt(visibleReps().map(r=>[r.id,r.name]),rp,L('كل المندوبين','All reps'))}</select>`:''}<span class="grow"></span>
     <span class="small muted">${L('اسحب البطاقة لمرحلة ثانية لتغيير مرحلتها','Drag a card to change its stage')}</span></div>
-   <div class="kpis k3">${kpiTile(L('فرص مفتوحة','Open deals'),num(open.length))}${kpiTile(L('قيمتها','Value'),smoney(open.reduce((s,o)=>s+(+o.value||0),0)))}${kpiTile(L('القيمة المرجّحة بالاحتمال','Weighted value'),smoney(open.reduce((s,o)=>s+(+o.value||0)*(+o.prob||0)/100,0)))}</div>
+   <div class="kpis k3">${kpiTile(L('فرص مفتوحة','Open deals'),num(open.length))}${kpiTile(L('قيمتها','Value'),smoneyK(open.reduce((s,o)=>s+(+o.value||0),0)))}${kpiTile(L('القيمة المرجّحة بالاحتمال','Weighted value'),smoneyK(open.reduce((s,o)=>s+(+o.value||0)*(+o.prob||0)/100,0)))}</div>
    <div class="kb">${OPP_STAGES.map(col).join('')}</div>`};
 let KB_DRAG=null;
 document.addEventListener('dragstart',e=>{const c=e.target.closest&&e.target.closest('.kb-c');if(!c)return;KB_DRAG=c.dataset.oid;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',KB_DRAG)}catch(x){}});
@@ -4438,7 +4441,7 @@ function ceHistory(){const q=normTxt(fv('ceHQ',''));const by=new Map();const mk=
   const months=code=>new Set(CEX.rows.filter(r=>r.client_code===code).map(r=>String(r.created_at).slice(0,7))).size;
   const top=rep.slice().sort((a,b)=>b.n-a.n).slice(0,8);const mx=Math.max(1,...top.map(o=>o.n));
   const kp=`<div class="kpis k4">${kpiTile(L('عملاء تكررت طلباتهم','Repeat customers'),num(rep.length),L('طلبين أو أكثر','2+ requests'))}${kpiTile(L('طلبات العملاء المتكررين','Their requests'),num(rep.reduce((s,o)=>s+o.n,0)),`${L('من أصل','of')} ${num(CEX.rows.length)}`)}
-    ${kpiTile(L('وصلوا الحد الشهري','At monthly max'),num(atMax.length),mmax?`${L('الحد','max')} ${mmax} ${L('بالشهر','/ month')}`:'—')}${kpiTile(L('تجاوزات معتمدة لهم','Approved overs'),smoney(rep.reduce((s,o)=>s+o.over,0)),`${num(rep.reduce((s,o)=>s+o.unsettled,0))} ${L('غير مسوّاة','unsettled')}`)}</div>
+    ${kpiTile(L('وصلوا الحد الشهري','At monthly max'),num(atMax.length),mmax?`${L('الحد','max')} ${mmax} ${L('بالشهر','/ month')}`:'—')}${kpiTile(L('تجاوزات معتمدة لهم','Approved overs'),smoneyK(rep.reduce((s,o)=>s+o.over,0)),`${num(rep.reduce((s,o)=>s+o.unsettled,0))} ${L('غير مسوّاة','unsettled')}`)}</div>
    ${top.length?`<div class="card"><h2>${L('أكثر العملاء تكراراً لطلب الموافقة','Most repeated customers')}<span class="sub">${L('اضغط على العميل لتفاصيل طلباته','Tap a customer for details')}</span></h2>${top.map(o=>`<div style="display:flex;gap:8px;align-items:center;margin:5px 0"><a href="#" data-act="ceHist" data-c="${esc(o.code)}" style="flex:0 0 38%" class="small">${esc(o.name||o.code)}</a>
      <i style="display:block;height:12px;border-radius:5px;background:${o.unsettled?'#F39235':'#38AC57'};width:${o.n/mx*40}%"></i><b class="small">${o.n}</b><span class="small muted">· ${months(o.code)} ${L('شهر','months')} · ${L('معتمد','appr.')} ${o.appr} · ${L('مرفوض','rej.')} ${o.rej}${o.unsettled?` · <b class="flag">${o.unsettled} ${L('غير مسوّى','unsettled')}</b>`:''}</span></div>`).join('')}</div>`:''}`;
   return kp+`<div class="toolbar"><input type="search" placeholder="${L('بحث بالعميل أو الكود أو المندوب','Search')}" value="${esc(fv('ceHQ',''))}" data-act="filtIn" data-k="ceHQ"></div><div class="card">${rows.length?table([{l:L('العميل','Customer'),f:o=>`<a href="#" data-act="ceHist" data-c="${esc(o.code)}">${esc(o.name||'')}</a> <span class="small muted">${esc(o.code)}</span>`},{l:L('المندوب','Rep'),f:o=>esc(ceName(o.rep))},
@@ -4451,7 +4454,7 @@ function ceDash(){const R=ceFiltered();const T=TODAY();const appr=R.filter(r=>r.
   const grp=(k,lab)=>{const m={};R.forEach(r=>{const x=r[k];m[x]=(m[x]||0)+1});return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([x,n])=>[lab(x),n])};
   const bar=(rows)=>{const mx=Math.max(1,...rows.map(r=>r[1]));return rows.map(([l,n])=>`<div style="display:flex;gap:8px;align-items:center;margin:3px 0"><span style="flex:0 0 46%" class="small">${esc(l)}</span><i style="display:block;height:10px;border-radius:4px;background:var(--c1,#1F6FB2);width:${n/mx*50}%"></i><b class="small">${n}</b></div>`).join('')||`<div class="muted small">—</div>`};
   return `<div class="kpis k5">${kpiTile(L('طلبات الفترة','Requests'),num(R.length),L('حسب الفلتر (الافتراضي كل الفترات)','by filter'))}${kpiTile(L('معلقة','Pending'),num(R.filter(r=>r.status.startsWith('pending')).length))}${kpiTile(L('معتمدة','Approved'),num(appr.length))}${kpiTile(L('مرفوضة','Rejected'),num(R.filter(r=>r.status==='rejected').length))}
-   ${kpiTile(L('إجمالي التجاوزات المعتمدة','Approved overs'),smoney(appr.reduce((s,r)=>s+(+r.over_amount||0),0)))}</div>
+   ${kpiTile(L('إجمالي التجاوزات المعتمدة','Approved overs'),smoneyK(appr.reduce((s,r)=>s+(+r.over_amount||0),0)))}</div>
    <div class="kpis k3">${kpiTile(L('متوسط زمن الموافقة','Avg time to decision'),avg==null?'—':(avg<48?Math.round(avg)+' '+L('ساعة','h'):(avg/24).toFixed(1)+' '+L('يوم','d')))}${kpiTile(L('متأخرة عن موعد التسوية','Late settlement'),num(late.length))}${kpiTile(L('غير مسوّاة','Unsettled'),num(R.filter(r=>['approved','executed'].includes(r.status)).length))}</div>
    <div class="grid g2"><div class="card"><h2>${L('أكثر العملاء استخداماً للاستثناءات','Top customers')}</h2>${bar(grp('client_name',x=>x||'—'))}</div><div class="card"><h2>${L('أكثر المندوبين تقديماً للطلبات','Top reps')}</h2>${bar(grp('rep_id',x=>ceName(x)))}</div>
     <div class="card"><h2>${L('توزيع أسباب الطلبات','Reasons')}</h2>${bar(grp('reason',x=>CE_REASONS[x]||'—'))}</div><div class="card"><h2>${L('الاستثناءات المتأخرة عن التسوية','Late settlement')}</h2>${late.length?late.map(r=>`<div class="small"><a href="#" data-act="ceOpen" data-id="${r.id}">EX-${r.no}</a> ${esc(r.client_name||'')} — ${L('موعد السداد','due')} ${fdate(r.expected_payment)}</div>`).join(''):`<div class="muted small">${L('لا يوجد','None')}</div>`}</div></div>`}
@@ -8258,9 +8261,9 @@ const sinvView=kd=>()=>{const P=kd==='credit'?'cn':'si';
    ${isLead()?`<label class="fl" for="${P}Rep">${L('المندوب','Rep')}<select id="${P}Rep" data-act="filtSel" data-k="${P}Rep">${opt(reps.map(r=>[r.id,r.name]),rp,L('— الكل —','— all —'))}</select></label>`:''}
    <label class="fl" for="${P}Q">${L('بحث','Search')}<input id="${P}Q" type="search" data-act="filtIn" data-k="${P}Q" value="${esc(fv(P+'Q',''))}" placeholder="${cnp?L('رقم الإشعار أو العميل','Note no. or customer'):L('رقم الفاتورة أو العميل','Invoice no. or customer')}"></label></div>
   <div class="kpis k4">${cnp?`${kpiTile(L('عدد الإشعارات','Credit notes'),num(live.length),L('بدون الملغاة','excl. cancelled'))}
-   ${kpiTile(L('القيمة بدون ضريبة','Value ex-VAT'),smoney(tot),'')}${kpiTile(L('الضريبة','VAT'),smoney(live.reduce((s,o)=>s+(+o.vat||0),0)),'')}${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}`
-   :`${kpiTile(L('عدد الفواتير','Invoices'),num(live.length),L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('المبيعات بدون ضريبة','Sales ex-VAT'),smoney(tot),'')}
-   ${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoney(st2(live)),'')}${kpiTile(L('غير المسدد','Unpaid'),smoney(unpaid),L('بعد خصم السداد من الأقدم (أعمار الديون)','after payments, oldest first (aging)'))}`}</div>
+   ${kpiTile(L('القيمة بدون ضريبة','Value ex-VAT'),smoneyK(tot),'')}${kpiTile(L('الضريبة','VAT'),smoneyK(live.reduce((s,o)=>s+(+o.vat||0),0)),'')}${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoneyK(st2(live)),'')}`
+   :`${kpiTile(L('عدد الفواتير','Invoices'),num(live.length),L('بدون الملغاة','excl. cancelled'))}${kpiTile(L('المبيعات بدون ضريبة','Sales ex-VAT'),smoneyK(tot),'')}
+   ${kpiTile(L('الإجمالي شامل الضريبة','Total incl. VAT'),smoneyK(st2(live)),'')}${kpiTile(L('غير المسدد','Unpaid'),smoneyK(unpaid),L('بعد خصم السداد من الأقدم (أعمار الديون)','after payments, oldest first (aging)'))}`}</div>
   <div class="card">${table([{l:L('الرقم','No.'),c:'nw',f:o=>`<b><bdi>${esc(o.no)}</bdi></b>`},{l:L('التاريخ','Date'),c:'nw',f:o=>fdate(o.date)},
     {l:L('العميل','Customer'),f:o=>`${esc(o.cname||cName(o.clientId))}<div class="small muted"><bdi>${esc(o.clientCode||'')}</bdi></div>`},
     {l:L('المندوب','Rep'),f:o=>esc(tName(o.repId))},{l:L('القيمة','Value'),c:'n',f:o=>num(o.value)},{l:L('الإجمالي شامل الضريبة','Total incl. VAT'),c:'n',f:o=>num(o.total)},
@@ -8792,7 +8795,7 @@ V.itemrep=()=>{const P=irPeriod();const cur=irLines(P.f,P.to),prev=irLines(P.pf,
   const arrow=x=>x==null?`<span class="muted">${L('جديد','new')}</span>`:`<b style="color:${x>=0?'#1E7B3C':'#B42318'}">${x>=0?'▲':'▼'} ${irP(Math.abs(x))}</b>`;
   const top=g.slice(0,12);
   return `${irFilters()}
-  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),`${arrow(ch(tot,ptot))} ${L('عن الفترة السابقة','vs previous')}`)}${kpiTile(L('عدد الأصناف المباعة','Items sold'),num(g.length),'')}
+  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoneyK(tot),`${arrow(ch(tot,ptot))} ${L('عن الفترة السابقة','vs previous')}`)}${kpiTile(L('عدد الأصناف المباعة','Items sold'),num(g.length),'')}
    ${kpiTile(L('أوامر البيع','Sales orders'),num(nOrd),'')}${kpiTile(L('أعلى صنف','Top item'),g[0]?esc(g[0].name):'—',g[0]?`${smoney(g[0].v)} · ${irP(irPct(g[0].v,tot))}`:'')}</div>
   ${top.length?`<div class="card"><h2>${L('مؤشرات أعلى الأصناف','Top items')}<span class="sub">${fdate(P.f)} — ${fdate(P.to)} · ${L('مقارنة بـ','vs')} ${fdate(P.pf)} — ${fdate(P.pt)}</span></h2>
    <div class="kpis" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">${top.map(x=>{const p=pm_.get(x.k);const sh=irPct(x.v,tot)||0;return `<div class="kpi"><span class="l">${esc(x.name)} <bdi class="muted" dir="ltr">${esc(x.k)}</bdi></span><span class="v">${smoney(x.v)}</span>
@@ -8821,8 +8824,8 @@ V.discrep=()=>{const P=irPeriod();const rows=irLines(P.f,P.to,true);const tot=ro
   const items=irGroup(sel?rows.filter(r=>rptKey(r.o.repId)===sel):rows,r=>r.item).map(x=>({...x,d:x.base-x.vb})).sort((a,b)=>b.d-a.d);
   const dcol=x=>`<b style="color:${x>0?'#B42318':x<0?'#1E7B3C':'inherit'}">${irP(x)}</b>`;
   return `${irFilters()}
-  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoney(tot),L('قبل الضريبة','before VAT'))}${kpiTile(L('قيمتها بالأسعار الأساسية','At base prices'),smoney(B),nob.length?`${num(nob.length)} ${L('سطر بدون سعر أساسي (مستبعد)','lines without base price (excluded)')}`:'')}
-   ${kpiTile(L('إجمالي الفرق (الخصم)','Total discount'),smoney(D),`${irP(irPct(D,B))} ${L('من السعر الأساسي','of base')}`)}${kpiTile(L('الخصم من مبيعات الفترة','Discount vs period sales'),irP(irPct(D,tot)),free.length?`${num(free.length)} ${L('سطر مجاني بسعر صفر محسوب ضمن الخصم','zero-price lines included')}`:'')}</div>
+  <div class="kpis k4">${kpiTile(L('مبيعات الفترة','Period sales'),smoneyK(tot),L('قبل الضريبة','before VAT'))}${kpiTile(L('قيمتها بالأسعار الأساسية','At base prices'),smoneyK(B),nob.length?`${num(nob.length)} ${L('سطر بدون سعر أساسي (مستبعد)','lines without base price (excluded)')}`:'')}
+   ${kpiTile(L('إجمالي الفرق (الخصم)','Total discount'),smoneyK(D),`${irP(irPct(D,B))} ${L('من السعر الأساسي','of base')}`)}${kpiTile(L('الخصم من مبيعات الفترة','Discount vs period sales'),irP(irPct(D,tot)),free.length?`${num(free.length)} ${L('سطر مجاني بسعر صفر محسوب ضمن الخصم','zero-price lines included')}`:'')}</div>
   ${drOdd(free,nob)}
   <div class="card"><h2>${L('حسب المندوب','By rep')}<span class="sub">${L('اضغط على المندوب لتفاصيل أصنافه','Tap a rep for item details')}</span></h2>${table([
     {l:L('المندوب','Rep'),f:x=>`<a href="#" data-act="filt" data-k="drRep" data-v="${esc(x.k)}"><b>${esc(x.k?rptName(x.k):L('غير محدد','Unassigned'))}</b></a>`},
