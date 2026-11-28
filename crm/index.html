@@ -1349,7 +1349,7 @@ const F={};
 const fv=(k,d)=>F[k]??d;
 function opt(list,sel,empty){return (empty!=null?`<option value="">${esc(empty)}</option>`:'')+list.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(sel??'')?'selected':''}>${esc(l)}</option>`).join('')}
 const repOpts=()=>visibleReps().map(r=>[r.id,r.name]);
-const clientOpts=(type)=>vis(S.clients).filter(c=>!type||c.type===type).sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(c=>[c.id,c.name]);
+const clientOpts=(type)=>vis(S.clients).filter(c=>(!type||c.type===type)&&c.status!=='inactive').sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(c=>[c.id,c.name]);
 const allClientOpts=(type)=>S.clients.filter(c=>!type||c.type===type).map(c=>[c.id,c.name]);
 const projOpts=()=>vis(S.projects).map(p=>[p.id,p.name]);
 /* long lists show their first rows and a «show more» button, so a page with thousands of documents opens and refreshes quickly;
@@ -2395,6 +2395,8 @@ function attSection(col,id){const at=S.attachments.filter(a=>a.parentCol===col&&
 let FORM=null;
 function field(f,val){
   if(f.t==='html')return f.html||'';
+  // 28/11: customers frozen in SAP are left out of the lists; a record that already points to one keeps it
+  if(f.t==='sel'&&f.k==='clientId'&&val&&Array.isArray(f.opts)&&!f.opts.some(o=>o[0]===val)){const c=byId('clients',val);if(c)f.opts=[...f.opts,[val,`${c.name} — ${L('موقوف في ساب','frozen in SAP')}`]]}
   const req=f.req?' <span class="req">*</span>':'';const id='f_'+f.k;const ro=f.ro?'disabled':'';let inp='';
   if(f.t==='sel')inp=`<select id="${id}" name="${f.k}" ${ro}>${opt(f.opts,val,f.empty??'—')}</select>`;
   else if(f.t==='area')inp=`<textarea id="${id}" name="${f.k}" ${ro}>${esc(val??'')}</textarea>`;
@@ -5976,7 +5978,7 @@ function wpSweep(){document.querySelectorAll('select:not([multiple]):not([data-n
 
 /* ---------- shared sources ---------- */
 let WP_CL=null,WP_CLN=0;
-function wpClients(){const list=vis(S.clients);if(WP_CL&&WP_CLN===list.length)return WP_CL;WP_CLN=list.length;
+function wpClients(){const list=vis(S.clients).filter(c=>c.status!=='inactive');if(WP_CL&&WP_CLN===list.length)return WP_CL;WP_CLN=list.length;
   WP_CL=list.filter(c=>c.code||c.name).map(c=>({code:c.code||'',label:c.name||'',sub:[c.city||c.region&&(typeof REGIONS!=='undefined'&&REGIONS[c.region]?L(REGIONS[c.region][0],REGIONS[c.region][1]):c.region),c.phone,c.vat].filter(Boolean).join(' · '),keys:[c.phone,c.mobile,c.vat,c.cr,c.nameEn].filter(Boolean).join(' '),id:c.id}));return WP_CL}
 
 (()=>{const st=document.createElement('style');st.textContent=`.wp-hidden{display:none!important}
