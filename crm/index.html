@@ -9000,8 +9000,19 @@ function kxCollRep(){const key=(S.sinv||[]).length+'|'+I().coll.length;if(_kxRM&
   by.forEach(a=>a.sort((x,y)=>x[0]<y[0]?-1:x[0]>y[0]?1:0));
   const f=(code,d,fb)=>{const a=by.get(normCode(code));if(!a||!a.length)return fb||'';let lo=0,hi=a.length-1,at=-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m][0]<=d){at=m;lo=m+1}else hi=m-1}return (at>=0?a[at]:a[0])[1]};
   _kxRM={key,f};return f}
-function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=sc0||kxScope();const inR=r=>sc.all?true:sc.ids.has(r);
-  const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(o.repId));const cn=docs.filter(o=>o.kind==='credit');
+// 28/11: calculation options, so the report can be read like SAP's «Sales Analysis by Sales Employee» or the app's own way
+// kxCN: credit-note lines come off line sales and base · kxPal: free pallets counted as discount at list price · kxSlp: rep = SAP sales employee on the invoice
+const kxOpt=()=>({cn:fv('kxCN','0')==='1',pal:fv('kxPal','0')==='1',slp:fv('kxSlp','0')==='1'});
+const KX_SLP_OFFICE='__slp_office';let _kxSM=null;
+// SAP sales employee → rep: the rep the platform gives most of that employee's invoices; 10 is the shared office employee, -1 none
+function kxSlpRep(){const key=(S.sinv||[]).length;if(_kxSM&&_kxSM.key===key)return _kxSM.m;const c=new Map();
+  (S.sinv||[]).forEach(o=>{const k=String(o.slp??'');if(!k||k==='-1'||k==='10'||!o.repId)return;const m=c.get(k)||c.set(k,new Map()).get(k);m.set(o.repId,(m.get(o.repId)||0)+1)});
+  const m=new Map();c.forEach((x,k)=>m.set(k,[...x.entries()].sort((a,b)=>b[1]-a[1])[0][0]));_kxSM={key,m};return m}
+const kxRepOf=(o,op)=>{if(!op.slp||o.slp==null)return o.repId;const k=String(o.slp);if(k==='-1'||k==='')return o.repId;
+  if(k==='10')return sgIsOffice(o.repId)?o.repId:KX_SLP_OFFICE;return kxSlpRep().get(k)||o.repId};
+function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'01'),to=to0||fv('kxT',t);const sc=sc0||kxScope();const op=kxOpt();
+  const inR=r=>sc.all?true:r===KX_SLP_OFFICE?[...sc.ids].some(sgIsOffice):sc.ids.has(r);
+  const docs=vis(S.sinv).filter(o=>o.status!=='cancelled'&&o.date>=f&&o.date<=to&&inR(kxRepOf(o,op)));const cn=docs.filter(o=>o.kind==='credit');
   // 27/11: delivered but not yet invoiced (open delivery-note lines from SAP) count as sales, so prices and liquidity are not understated
   const dnD=(((S.dnopen||[]).find(x=>x.id==='all')||{}).rows||[]).filter(o=>o.d>=f&&o.d<=to&&inR(o.repId)).map(o=>({kind:'invoice',dn:true,no:o.no,date:o.d,clientCode:o.cc,cname:o.cn,repId:o.repId,value:+o.value||0,total:+o.total||0,lines:o.lines||[]}));
   const inv=docs.filter(o=>o.kind!=='credit').concat(dnD);const dnV=dnD.reduce((s,o)=>s+o.total,0);
@@ -9010,7 +9021,11 @@ function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'0
   let lv=0,bv=0,lvAll=0,noB=0,noLines=0,nPal=0;const byItem=new Map();let spV=0,spQ=0;const spBy=new Map();
   inv.forEach(o=>{if(!(o.lines||[]).length){noLines++;return}o.lines.forEach(([code,q,v])=>{q=+q||0;v=+v||0;lvAll+=v;const it=items.get(code);
     if(sp.has(code)){spV+=v;spQ+=q;const s=spBy.get(code)||{code,name:it?.name||code,q:0,v:0};s.q+=q;s.v+=v;spBy.set(code,s)}
-    if(isPallet(code,it?.name)){nPal++;return}if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
+    if(!op.pal&&isPallet(code,it?.name)){nPal++;return}if(!it||it.price==null||it.price===''||!q){noB++;return}const b=(+it.price)*q;lv+=v;bv+=b;const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q+=q;x.v+=v;x.b+=b;byItem.set(code,x)})});
+  // credit notes netted (option): their lines come off sales and base the same way
+  let cnL=0,cnV=0;if(op.cn)cn.forEach(o=>(o.lines||[]).forEach(([code,q,v])=>{q=+q||0;v=+v||0;const it=items.get(code);
+    if(!op.pal&&isPallet(code,it?.name))return;if(!it||it.price==null||it.price===''||!q)return;const b=(+it.price)*q;lv-=v;bv-=b;cnL++;cnV+=v;
+    const x=byItem.get(code)||{code,name:it.name,unit:it.unit,base:+it.price,q:0,v:0,b:0};x.q-=q;x.v-=v;x.b-=b;byItem.set(code,x)}));
   // 2) liquidity (both including VAT)
   const salesInc=inv.reduce((s,o)=>s+(+o.total||0),0)-cn.reduce((s,o)=>s+(+o.total||0),0);
   const CR=kxCollRep();const repOfColl=r=>r.rs==='sap'?r.rep:CR(r.code,r.d,r.rep);const coll=I().coll.filter(r=>r.d>=f&&r.d<=to&&inR(repOfColl(r)));const collG=coll.reduce((s,r)=>s+(+r.amt||0),0);
@@ -9026,7 +9041,7 @@ function kxData(f0,to0,sc0){const t=TODAY();const f=f0||fv('kxF',t.slice(0,8)+'0
     const mA=d.slice(0,8)+'01',mB=addDays(addMonths(mA,1),-1);const a=mA<f?f:mA,b=mB>to?to:mB;
     return {cc,d,c,rep,first:pays.filter(r=>r.d===d).reduce((s,r)=>s+(+r.amt||0),0),inPer:pays.filter(r=>r.d>=a&&r.d<=b).reduce((s,r)=>s+(+r.amt||0),0)}})
     .filter(x=>sc.all?(!x.c||vis([x.c]).length):sc.ids.has(x.rep)).sort((a,b)=>a.d.localeCompare(b.d));
-  return {f,to,sc,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].sort((a,b)=>b.v-a.v),salesInc,dnV,nDn:dnD.length,dnAt:((S.dnopen||[]).find(x=>x.id==='all')||{}).at,collV,collG,refV,nRef:refs.length,refAt:((S.refunds||[]).find(x=>x.id==='all')||{}).at,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
+  return {f,to,sc,op,cnL,cnV,inv,cn,lv,bv,lvAll,noB,nPal,noLines,byItem:[...byItem.values()].filter(x=>x.q>0&&x.b>0).sort((a,b)=>b.v-a.v),salesInc,dnV,nDn:dnD.length,dnAt:((S.dnopen||[]).find(x=>x.id==='all')||{}).at,collV,collG,refV,nRef:refs.length,refAt:((S.refunds||[]).find(x=>x.id==='all')||{}).at,nColl:coll.length,fresh,fpAt:((S.firstpay||[]).find(x=>x.id==='all')||{}).at,spV,spQ,spBy:[...spBy.values()].sort((a,b)=>b.v-a.v),nSp:sp.size}}
 // who the report covers — printed too (the filter bar is not), 25/11
 function kxWho(D){const v=role()==='rep'?'r:'+me().id:fv('kxS','all');const ids=[...D.sc.ids];
   let k,who,list='';if(v.startsWith('r:')){k=L('المندوب','Rep');who=tName(v.slice(2))}
@@ -9059,11 +9074,21 @@ function kxBreak(D,g){const P=kxPeriods(D.f,D.to,g);if(!P.length)return '';
 const kxAmt=n=>{n=n||0;const sh=smoney(n),full=num(Math.round(n))+' '+L('ر.س','SAR');return Math.abs(n)>=1e3?`${sh}<span class="kxfull" style="display:block;font-size:11.5px;font-weight:600;opacity:.62;margin-top:3px;letter-spacing:.2px"><bdi dir="ltr">${num(Math.round(n))}</bdi> ${L('ر.س','SAR')}</span>`:full};
 const kxP=x=>x==null||!isFinite(x)?'—':(Math.round(x*10)/10).toFixed(1)+'%';
 const kxM=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+function kxOptBar(D){const op=D.op;const sel=(k,v,a,b)=>`<label class="fl">${a}<select data-act="filtSel" data-k="${k}">${b.map(([x,l])=>`<option value="${x}" ${(v?'1':'0')===x?'selected':''}>${l}</option>`).join('')}</select></label>`;
+  const sap=op.cn&&op.pal&&op.slp;
+  return `<div class="card" style="padding:10px 14px"><div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end"><b style="align-self:center">${L('طريقة الحساب','Calculation')}</b>
+   ${sel('kxCN',op.cn,L('الإشعارات الدائنة','Credit notes'),[['0',L('ما تدخل في الخصم','Left out')],['1',L('تنطرح من المبيعات (مثل ساب)','Netted (like SAP)')]])}
+   ${sel('kxPal',op.pal,L('الطبليات المجانية','Free pallets'),[['0',L('مستبعدة','Excluded')],['1',L('تنحسب خصم (مثل ساب)','Counted as discount (like SAP)')]])}
+   ${sel('kxSlp',op.slp,L('نسبة المبيعات','Sales credited to'),[['0',L('مندوب العميل في المنصة','Customer\'s rep in the platform')],['1',L('موظف المبيعات على الفاتورة (مثل ساب)','Sales employee on the invoice (like SAP)')]])}
+   <button class="btn sm ${sap?'':'ghost'}" data-act="kxPreset" data-v="${sap?'0':'1'}">${sap?L('رجوع لطريقة التطبيق','Back to app method'):L('طابق تقرير ساب','Match SAP report')}</button></div>
+   <div class="small muted" style="margin-top:6px">${L('«مثل ساب» يطابق تقرير Sales Analysis by Sales Employee. فواتير موظف المكتب (10) تنحسب للمكتب مو لمندوب العميل. السعر الأساسي في الحالتين من قائمة ساب الحالية.','«Like SAP» matches Sales Analysis by Sales Employee. Office employee (10) invoices go to the office. Base price is the current SAP list either way.')}</div></div>`}
+ACT.kxPreset=d=>{const v=d.v;['kxCN','kxPal','kxSlp'].forEach(k=>F[k]=v);render()};
 V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t=>t.role==='sup'&&reps.some(r=>r.supId===t.id||r.id===t.id));
   const disc=D.bv-D.lv,dp=D.bv?disc/D.bv*100:null,liq=D.salesInc?D.collV/D.salesInc*100:null;
   const sel=role()==='rep'?'':`<label class="fl">${L('النطاق','Scope')}<select data-act="filtSel" data-k="kxS"><option value="all">${isMgr()?L('الكل','All'):L('كل فريقي','My whole team')}</option>${sups.length?`<optgroup label="${L('مجموعة (المشرف وفريقه)','Group (supervisor and team)')}">${sups.map(s=>`<option value="g:${s.id}" ${fv('kxS','')==='g:'+s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</optgroup>`:''}<optgroup label="${L('مندوب','Rep')}">${rptRepOpts(reps).map(([id,n])=>{const v=id===SG_OFFICE?id:'r:'+id;return `<option value="${v}" ${fv('kxS','')===v?'selected':''}>${esc(n)}</option>`}).join('')}</optgroup></select></label>`;
   const box=(t,sub,body,c)=>`<div class="card" style="border-top:4px solid ${c}"><h2>${t}<span class="sub">${sub}</span></h2>${body}</div>`;
   return `<div class="fbar"><label class="fl">${L('من','From')}<input type="date" value="${D.f}" data-act="filtIn" data-k="kxF"></label><label class="fl">${L('إلى','To')}<input type="date" value="${D.to}" data-act="filtIn" data-k="kxT"></label>${sel}<label class="fl">${L('التقسيم','Breakdown')}<select data-act="filtSel" data-k="kxG">${[['',L('إجمالي فقط','Totals only')],['m',L('شهري','Monthly')],['q',L('ربع سنوي','Quarterly')],['y',L('سنوي','Yearly')]].map(([v,l])=>`<option value="${v}" ${fv('kxG','')===v?'selected':''}>${l}</option>`).join('')}</select></label><span class="per">${esc(D.sc.label)}</span></div>
+  ${kxOptBar(D)}
   ${kxWho(D)}
   ${kxBreak(D,fv('kxG',''))}
   ${box(L('1) أسعار البيع','1) Selling prices'),L('متوسط سعر البيع من الفواتير مقابل السعر الأساسي (Base price)','Invoice average price vs base price'),
@@ -9071,7 +9096,7 @@ V.kpix=()=>{const D=kxData();const reps=visibleReps();const sups=S.team.filter(t
     ${kpiTile(L('إجمالي الخصم','Total discount'),kxAmt(disc),'')}${kpiTile(L('متوسط الخصم الإجمالي','Average discount'),kxP(dp),L('من السعر الأساسي','of base price'))}</div>
     ${D.byItem.length?table([{l:L('الصنف','Item'),f:x=>`<b>${esc(x.name)}</b> <bdi class="small muted" dir="ltr">${esc(x.code)}</bdi>`},{l:L('الكمية','Qty'),c:'n',f:x=>num(Math.round(x.q*100)/100)},{l:L('المبيعات','Sales'),c:'n',f:x=>num(Math.round(x.v))},
      {l:L('متوسط سعر البيع','Avg price'),c:'n',f:x=>kxM(x.v/x.q)},{l:L('السعر الأساسي','Base'),c:'n',f:x=>kxM(x.base)},{l:L('الخصم','Discount'),c:'n',f:x=>`<b style="color:${x.b-x.v>0?'#B42318':'#1E7B3C'}">${kxP((x.b-x.v)/x.b*100)}</b>`}],D.byItem.slice(0,15).map(x=>({...x,id:null}))):''}
-    <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.nPal?`${num(D.nPal)} ${L('سطر طبليات خشب — مستبعدة من الخصم. ','wooden pallet lines — left out of the discount. ')}`:''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. الإشعارات الدائنة غير داخلة في هذا المؤشر.','Base price = SAP list today. Credit notes not included here.')}</div>`,'#34BEF0')}
+    <div class="small muted" style="margin-top:6px">${D.noB?`${num(D.noB)} ${L('سطر بدون سعر أساسي أو كمية — مستبعد. ','lines without base price — excluded. ')}`:''}${D.nPal?`${num(D.nPal)} ${L('سطر طبليات خشب — مستبعدة من الخصم. ','wooden pallet lines — left out of the discount. ')}`:''}${D.op.pal?L('الطبليات محسوبة خصم بسعر القائمة. ','Pallets counted as discount at list price. '):''}${D.noLines?`${num(D.noLines)} ${L('فاتورة لسا بدون بنود (تكتمل خلال المزامنة). ','invoices still without lines (sync in progress). ')}`:''}${L('السعر الأساسي حسب قائمة ساب اليوم. ','Base price = SAP list today. ')}${D.op.cn?`${L('الإشعارات الدائنة مطروحة','Credit notes netted')}: ${num(D.cnL)} ${L('سطر','lines')} (${num(Math.round(D.cnV))}).`:L('الإشعارات الدائنة غير داخلة في هذا المؤشر.','Credit notes not included here.')}</div>`,'#34BEF0')}
   ${box(L('2) مؤشر السيولة','2) Liquidity'),L('التحصيل مقابل المبيعات — الاثنين شاملين الضريبة','Collections vs sales — both including VAT'),
    `<div class="kpis k4">${kpiTile(L('صافي المبيعات شامل الضريبة','Net sales incl. VAT'),kxAmt(D.salesInc),`${num(D.inv.length-D.nDn)} ${L('فاتورة','invoices')}${D.nDn?` + ${num(D.nDn)} ${L('توصيل لم يفوتر','delivered, not invoiced')} (${num(Math.round(D.dnV))})`:''} − ${num(D.cn.length)} ${L('إشعار دائن','credit notes')}`)}
     ${kpiTile(L('صافي التحصيل شامل الضريبة','Net collections incl. VAT'),kxAmt(D.collV),`${L('سندات قبض','Receipts')} ${num(Math.round(D.collG))} (${num(D.nColl)}) − ${L('سندات صرف للعملاء','refunds to customers')} ${num(Math.round(D.refV))} (${num(D.nRef)})${D.refAt?'':' · '+L('سندات الصرف ما انسحبت بعد','refunds not loaded yet')}`)}${kpiTile(L('نسبة السيولة','Liquidity ratio'),kxP(liq),L('التحصيل ÷ المبيعات','collections ÷ sales'))}
