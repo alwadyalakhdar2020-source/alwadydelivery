@@ -2236,7 +2236,7 @@ V.opps=()=>{
   return `<div class="toolbar"><span class="muted small">${L('انقل الفرصة بزر المرحلة التالية، أو افتحها لتعديل التفاصيل والمنافسين.','Use the next-stage button, or open a card to edit details and competitors.')}</span><span class="grow"></span><button class="btn p" data-act="newOpp">+ ${L('فرصة','Opportunity')}</button></div>
   <div class="kanban">${OPP_STAGES.map(s=>{const os=rows.filter(o=>o.stage===s[0]);return `<div class="col"><h3><span>${L(s[1],s[2])}</span><span class="muted">${os.length} · ${smoney(os.reduce((a,o)=>a+(+o.value||0),0))}</span></h3>
    ${os.map(o=>{const late=o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage);const idx=OPP_STAGES.findIndex(x=>x[0]===o.stage);return `<div class="kc" data-open="opp" data-id="${o.id}"><span class="t">${esc(o.title)}</span><div class="row"><span>${esc(cName(o.clientId))}</span><b>${smoney(o.value)}</b></div>
-    <div class="row"><span>${esc(tName(o.repId))}</span><span>${o.prob??0}%</span></div>
+    <div class="row"><span>${esc(tName(o.repId))}</span><span>${o.prob??0}%</span></div>${o.expectedPay?`<div class="row"><span>${L('تحصيل متوقع','Exp. collection')}</span><span>${fdate(o.expectedPay)}</span></div>`:''}
     ${o.nextStep?`<div class="row"><span class="${late?'flag':''}">${late?'⚑ ':''}${esc(o.nextStep)}</span><span>${fdate(o.nextDate)}</span></div>`:''}
     ${(o.competitors||[]).length?`<div class="row"><span>${L('منافسون','Competitors')}: ${o.competitors.length}</span></div>`:''}
     ${idx>=0&&OPP_STAGES[idx+1]&&OPP_STAGES[idx+1][0]!=='lost'&&o.stage!=='order'?`<button class="btn s" data-act="nextStage" data-id="${o.id}">${L('نقل إلى','Move to')} ${L(OPP_STAGES[idx+1][1],OPP_STAGES[idx+1][2])}</button>`:''}</div>`}).join('')}</div>`}).join('')}</div>`;
@@ -2482,7 +2482,7 @@ function editOpp(id,preset){
    extra:id?`<div class="toolbar"><button type="button" class="btn s" data-act="newQuote" data-o="${id}">${L('إنشاء عرض سعر لهذه الفرصة','Create quote for this deal')}</button>${S.quotes.filter(q=>q.oppId===id).map(q=>`<button type="button" class="btn s" data-open="quote" data-id="${q.id}">${esc(q.no)}</button>`).join('')}</div>`:'',fields:[
    {k:'title',l:L('عنوان الفرصة','Title'),req:1,full:1},{k:'clientId',l:L('العميل','Client'),t:'sel',req:1,opts:clientOpts()},{k:'projectId',l:L('المشروع','Project'),t:'sel',opts:projOpts()},
    {k:'value',l:L('القيمة التقديرية (ر.س)','Est. value (SAR)'),t:'num',req:1},{k:'repId',l:L('المندوب','Rep'),t:'sel',req:1,opts:repOpts()},
-   {k:'stage',l:L('المرحلة','Stage'),t:'sel',opts:OPP_STAGES.map(s=>[s[0],L(s[1],s[2])])},{k:'prob',l:L('احتمال الفوز %','Win probability %'),t:'num'},{k:'expectedClose',l:L('تاريخ الإغلاق المتوقع','Expected close'),t:'date'},
+   {k:'stage',l:L('المرحلة','Stage'),t:'sel',opts:OPP_STAGES.map(s=>[s[0],L(s[1],s[2])])},{k:'prob',l:L('احتمال الفوز %','Win probability %'),t:'num'},{k:'expectedClose',l:L('تاريخ الإغلاق المتوقع','Expected close'),t:'date'},{k:'expectedPay',l:L('تاريخ التحصيل المتوقع','Expected collection date'),t:'date'},
    {k:'products',l:L('المنتجات','Products'),t:'multi',opts:Object.keys(FAMILIES).map(k=>[k,lab(FAMILIES,k)])},
    {k:'competitors',l:L('المنافسون وأسعارهم','Competitors & prices'),t:'rows',add:L('منافس','Competitor'),sub:[{k:'name',l:L('المنافس','Name')},{k:'product',l:L('المنتج','Product')},{k:'price',l:L('السعر','Price')}]},
    {k:'obstacles',l:L('العقبات','Obstacles'),t:'area'},{k:'nextStep',l:L('الخطوة التالية','Next step'),full:1},{k:'nextOwner',l:L('المسؤول عنها','Owner'),t:'sel',opts:S.team.map(t=>[t.id,t.name])},{k:'nextDate',l:L('موعد التنفيذ','Due date'),t:'date'}],
@@ -3431,7 +3431,7 @@ OPEN.opp=(id,refresh)=>{
    <div class="stpath" role="group" aria-label="${L('مراحل الفرصة','Stages')}">${path}</div>
    <div class="kpis k4">${kpiTile(L('القيمة','Value'),smoneyK(o.value))}${kpiTile(L('احتمال الفوز','Probability'),(o.prob??'—')+'%')}${kpiTile(L('المرجّحة','Weighted'),smoneyK((+o.value||0)*(+o.prob||0)/100))}${kpiTile(L('في المرحلة منذ','In stage for'),daysIn==null?'—':`${daysIn} ${L('يوم','days')}`)}</div>
    <dl class="kv card"><dt>${L('العميل','Client')}</dt><dd><a href="#" data-open="client" data-id="${o.clientId}">${esc(cName(o.clientId))}</a></dd><dt>${L('المشروع','Project')}</dt><dd>${o.projectId?esc(pName(o.projectId)):'—'}</dd>
-    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('الإغلاق المتوقع','Expected close')}</dt><dd>${o.expectedClose?fdate(o.expectedClose):'—'}</dd>
+    <dt>${L('المندوب','Rep')}</dt><dd>${esc(tName(o.repId))}</dd><dt>${L('الإغلاق المتوقع','Expected close')}</dt><dd>${o.expectedClose?fdate(o.expectedClose):'—'}</dd><dt>${L('التحصيل المتوقع','Expected collection')}</dt><dd>${o.expectedPay?fdate(o.expectedPay):'—'}</dd>
     <dt>${L('الخطوة التالية','Next step')}</dt><dd>${esc(o.nextStep||'—')}${o.nextDate?` · ${fdate(o.nextDate)}`:''}${o.nextOwner?` · ${esc(tName(o.nextOwner))}`:''}</dd><dt>${L('العقبات','Obstacles')}</dt><dd>${esc(o.obstacles||'—')}</dd>
     <dt>${L('المنافسون','Competitors')}</dt><dd>${(o.competitors||[]).map(c=>esc([c.name,c.product,c.price].filter(Boolean).join(' · '))).join('<br>')||'—'}</dd></dl>
    <div class="card"><h2>${L('عروض الأسعار','Quotations')}</h2>${qs.length?qs.map(q=>`<div class="li" data-open="quote" data-id="${q.id}"><div class="main"><div class="t">${esc(q.no)} · ${money(qTotal(q))}</div><div class="m">${esc(q.status||'')} · ${fdate(q.date)}</div></div></div>`).join(''):`<div class="muted small">${L('ما فيه عروض','None')}</div>`}
@@ -4278,7 +4278,7 @@ V.oppboard=()=>{
   const t=TODAY();
   const col=st=>{const L0=rows.filter(o=>(o.stage||'inquiry')===st[0]).sort((a,b)=>(+b.value||0)-(+a.value||0));const v=L0.reduce((s,o)=>s+(+o.value||0),0),w=L0.reduce((s,o)=>s+(+o.value||0)*(+o.prob||st[3]||0)/100,0);
     return `<div class="kb-col" data-stage="${st[0]}"><div class="kb-h"><span>${L(st[1],st[2])} (${L0.length})</span><small>${smoney(v)}${st[0]!=='lost'&&st[0]!=='order'?' · '+L('مرجّح ','wtd ')+smoney(w):''}</small></div>
-     ${L0.slice(0,80).map(o=>`<div class="kb-c ${o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage)?'late':''}" draggable="true" data-oid="${o.id}" data-open="opp" data-id="${o.id}"><b>${esc(o.title||'—')}</b><div class="m">${esc(cName(o.clientId))}</div><div class="m">${money(+o.value||0)} · ${+o.prob||0}%${o.expectedClose?' · '+fdate(o.expectedClose):''}${isLead()?' · '+esc(tName(o.repId)):''}</div>${o.nextStep?`<div class="m">↪ ${esc(o.nextStep)}${o.nextDate?' ('+fdate(o.nextDate)+')':''}</div>`:''}</div>`).join('')}
+     ${L0.slice(0,80).map(o=>`<div class="kb-c ${o.nextDate&&o.nextDate<t&&!['order','lost'].includes(o.stage)?'late':''}" draggable="true" data-oid="${o.id}" data-open="opp" data-id="${o.id}"><b>${esc(o.title||'—')}</b><div class="m">${esc(cName(o.clientId))}</div><div class="m">${money(+o.value||0)} · ${+o.prob||0}%${o.expectedClose?' · '+fdate(o.expectedClose):''}${isLead()?' · '+esc(tName(o.repId)):''}</div>${o.expectedPay?`<div class="m">💰 ${L('تحصيل متوقع','Exp. collection')} ${fdate(o.expectedPay)}</div>`:''}${o.nextStep?`<div class="m">↪ ${esc(o.nextStep)}${o.nextDate?' ('+fdate(o.nextDate)+')':''}</div>`:''}</div>`).join('')}
      ${L0.length>80?`<div class="small muted">+${L0.length-80}</div>`:''}</div>`};
   const open=rows.filter(o=>!['order','lost'].includes(o.stage));
   return css+`<div class="toolbar"><button class="btn p" data-act="newOpp">+ ${L('فرصة','Deal')}</button><input type="search" placeholder="${L('بحث بالفرصة أو العميل','Search')}" value="${esc(fv('obQ',''))}" data-act="filtIn" data-k="obQ">
@@ -9860,5 +9860,117 @@ Object.assign(ACT,{
     AP_REG().forEach(r=>{apTeam().filter(m=>m.region===r).forEach(m=>{const a=+D.reps[m.id]||0;rows.push([regName(r),m.name,Math.round(B.rep[m.id]||0),a,...z.map(w=>Math.round(a*w))])});rows.push([regName(r),'الإجمالي',Math.round(B.reg[r]||0),+D.regions[r]||0,...z.map(w=>Math.round((+D.regions[r]||0)*w))])});
     rows.push(['الشركة','الإجمالي',Math.round(B.tot),D.total,...z.map(w=>Math.round(D.total*w))]);
     const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:16},{wch:22},{wch:14},{wch:14},...AP_MN.map(()=>({wch:12}))];const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};XLSX.utils.book_append_sheet(wb,ws,'خطة '+D.year);XLSX.writeFile(wb,`خطة المبيعات ${D.year} (بدون ضريبة).xlsx`)}});
+</script>
+<script>
+/* ===== 28/11: opportunities — Excel import (with a template) ===== */
+const OPPX_COLS=[['title','عنوان الفرصة','Title',['عنوان الفرصة','العنوان','الفرصة','title','deal','opportunity']],['code','كود العميل','Customer code',['كود العميل','رقم العميل','الكود','cardcode','customer code','code']],
+  ['cname','اسم العميل','Customer name',['اسم العميل','العميل','customer','customer name','client']],['value','القيمة التقديرية','Est. value',['القيمة التقديرية','القيمة','المبلغ','value','amount']],
+  ['stage','المرحلة','Stage',['المرحلة','stage']],['prob','احتمال الفوز %','Win probability %',['احتمال الفوز %','احتمال الفوز','الاحتمال','probability','prob']],
+  ['expectedClose','تاريخ الإغلاق المتوقع','Expected close',['تاريخ الإغلاق المتوقع','الإغلاق المتوقع','expected close','close date']],['expectedPay','تاريخ التحصيل المتوقع','Expected collection date',['تاريخ التحصيل المتوقع','التحصيل المتوقع','expected collection','collection date']],
+  ['rep','المندوب','Rep',['المندوب','مندوب المبيعات','rep','sales rep']],['nextStep','الخطوة التالية','Next step',['الخطوة التالية','next step']],['nextDate','موعد الخطوة التالية','Next step date',['موعد الخطوة التالية','موعد التنفيذ','next date']],
+  ['obstacles','العقبات / ملاحظات','Obstacles / notes',['العقبات / ملاحظات','العقبات','ملاحظات','notes','obstacles']]];
+let OPPX=null;
+function oppxStage(v){const n=normTxt(v);if(!n)return 'inquiry';const s=OPP_STAGES.find(x=>normTxt(x[0])===n||normTxt(x[1])===n||normTxt(x[2])===n);return s?s[0]:null}
+function oppxRep(v){const n=normTxt(v);if(!n)return '';const r=S.team.find(t=>normTxt(t.name)===n||normTxt(t.code)===n||normTxt(t.username||'')===n||normTxt(t.email||'')===n);return r?r.id:null}
+async function oppxTpl(){if(!xlsxOk())return;const ex=S.clients.find(c=>c.code)||{};
+  const aoa=[OPPX_COLS.map(c=>L(c[1],c[2])),[L('توريد بلك لمشروع فيلا','Block supply for villa project'),ex.code||'C00001',ex.name||'',150000,L('عرض سعر','Quotation'),30,addDays(TODAY(),30),addDays(TODAY(),60),role()==='rep'?me().name:'',L('زيارة الاستشاري','Visit consultant'),addDays(TODAY(),7),'']];
+  const hint=[[L('ملاحظات','Notes')],[L('الحقول المطلوبة: عنوان الفرصة، العميل (الكود أو الاسم كما في النظام)، القيمة التقديرية.','Required: title, customer (code or name as in the system), estimated value.')],
+    [L('المرحلة: ','Stage: ')+OPP_STAGES.map(s=>L(s[1],s[2])).join(' / ')+L(' — لو تُركت تصير «استفسار».',' — blank = Inquiry.')],[L('الاحتمال لو تُرك فاضي يأخذ نسبة المرحلة.','Blank probability = stage default.')],[L('التواريخ بصيغة يوم/شهر/سنة أو سنة-شهر-يوم.','Dates as dd/mm/yyyy or yyyy-mm-dd.')],[L('المندوب لو تُرك فاضي يصير مندوب العميل.','Blank rep = the customer’s rep.')]];
+  await saveFile(`opportunities-template.xlsx`,await xlsxBlob(aoa,L('الفرص','Opportunities'),[[L('ملاحظات','Notes'),hint]]))}
+async function oppxRead(file){if(!xlsxOk())return;let rows;
+  try{const wb=XLSX.read(await file.arrayBuffer(),{cellDates:true});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true})}catch(e){toast(L('تعذّر قراءة الملف','Could not read the file'));return}
+  if(!rows.length){toast(L('الملف فاضي','The file is empty'));return}
+  const hdr=Object.keys(rows[0]);const nh=hdr.map(h=>[h,normTxt(h)]);const map={};const used=new Set();
+  OPPX_COLS.forEach(([k,,,syn])=>{const ss=syn.map(normTxt);const hit=nh.find(([h,n])=>!used.has(h)&&ss.includes(n));if(hit){map[k]=hit[0];used.add(hit[0])}});
+  const byCode=new Map(S.clients.map(c=>[normCode(c.code),c]));const byName=new Map(S.clients.map(c=>[normTxt(c.name),c]));
+  const have=new Set(vis(S.opps).map(o=>normTxt(o.title)+'|'+o.clientId));const seen=new Set();
+  const out=rows.map((r,i)=>{const g=k=>map[k]?r[map[k]]:'';const errs=[];const title=String(g('title')||'').trim();if(!title)errs.push(L('العنوان','title'));
+    const c=(g('code')!==''&&byCode.get(normCode(g('code'))))||(g('cname')!==''&&byName.get(normTxt(g('cname'))))||null;if(!c)errs.push(L('العميل غير موجود','customer not found'));
+    const v=parseNum(g('value'));if(!(v>0))errs.push(L('القيمة','value'));
+    const st=oppxStage(g('stage'));if(st==null)errs.push(L('المرحلة','stage'));
+    let pr=parseNum(g('prob'));if(pr!=null&&!isNaN(pr)&&pr>0&&pr<=1)pr=Math.round(pr*100);if(pr!=null&&(isNaN(pr)||pr<0||pr>100))errs.push(L('الاحتمال','probability'));
+    const D={};['expectedClose','expectedPay','nextDate'].forEach(k=>{const d=parseDate(g(k));if(d==null)return;if(typeof d!=='string')errs.push(OPPX_COLS.find(x=>x[0]===k)[1]);else D[k]=d});
+    let rep=role()==='rep'?me().id:oppxRep(g('rep'));if(rep===null)errs.push(L('المندوب غير موجود','rep not found'));if(!rep)rep=c?.repId||me().id;
+    if(c&&!vis([c]).length)errs.push(L('العميل ليس ضمن صلاحيتك','customer outside your scope'));
+    const key=normTxt(title)+'|'+(c?.id||'');const dup=c&&(have.has(key)||seen.has(key));if(c)seen.add(key);
+    const o={title,clientId:c?.id||'',value:v>0?v:0,stage:st||'inquiry',prob:pr==null||isNaN(pr)?(OPP_STAGES.find(s=>s[0]===(st||'inquiry'))||[])[3]:pr,repId:rep,...D,
+      nextStep:String(g('nextStep')||'').trim(),obstacles:String(g('obstacles')||'').trim(),products:[],competitors:[],source:'import'};
+    return {i:i+2,o,c,errs,dup}});
+  OPPX={file:file.name,map,rows:out};oppxPaint()}
+function oppxPaint(){const X=OPPX;const ok=X.rows.filter(r=>!r.errs.length&&!r.dup),bad=X.rows.filter(r=>r.errs.length),dup=X.rows.filter(r=>!r.errs.length&&r.dup);
+  const miss=OPPX_COLS.filter(c=>!X.map[c[0]]).map(c=>L(c[1],c[2]));
+  openModal(L('استيراد الفرص من Excel','Import opportunities from Excel'),`<div class="small muted">${esc(X.file)} · ${num(X.rows.length)} ${L('سطر','rows')}</div>
+   <div class="kpis k3">${kpiTile(L('جاهزة للاستيراد','Ready'),num(ok.length))}${kpiTile(L('فيها أخطاء','With errors'),num(bad.length))}${kpiTile(L('موجودة من قبل','Already exist'),num(dup.length))}</div>
+   ${miss.length?`<div class="banner warn"><span class="sp">${L('أعمدة ما لقيتها في الملف','Columns not found in the file')}: ${esc(miss.join('، '))}</span></div>`:''}
+   <div class="tw" style="max-height:48vh;overflow:auto"><table class="oppx"><thead><tr><th class="n">${L('السطر','Row')}</th><th>${L('الفرصة','Deal')}</th><th>${L('العميل','Customer')}</th><th class="n">${L('القيمة','Value')}</th><th>${L('المرحلة','Stage')}</th><th>${L('التحصيل المتوقع','Exp. collection')}</th><th>${L('المندوب','Rep')}</th><th>${L('الحالة','Status')}</th></tr></thead><tbody>
+   ${X.rows.map(r=>`<tr class="${r.errs.length?'sev-bad':''}"><td class="n">${r.i}</td><td>${esc(r.o.title||'—')}</td><td>${esc(r.c?.name||'—')}</td><td class="n">${num(Math.round(r.o.value))}</td><td>${esc(stageName(r.o.stage))}</td><td class="nw">${r.o.expectedPay?fdate(r.o.expectedPay):'—'}</td><td>${esc(tName(r.o.repId))}</td>
+     <td>${r.errs.length?`<span class="flag">✕ ${esc(r.errs.join('، '))}</span>`:r.dup?pill(L('موجودة — تُتجاوز','Exists — skipped'),'warn'):pill(L('جاهزة','Ready'),'ok')}</td></tr>`).join('')}</tbody></table></div>
+   <div class="formbar"><button class="btn" data-act="closeModal">${L('إلغاء','Cancel')}</button><button class="btn p" data-act="oppxGo" ${ok.length?'':'disabled'}>${L('استيراد','Import')} ${num(ok.length)}</button></div>`)}
+async function oppxGo(){const X=OPPX;if(!X)return;const ok=X.rows.filter(r=>!r.errs.length&&!r.dup);let n=0;BUSY=true;
+  try{for(const r of ok){try{await save('opps',r.o,{action:'import'});n++}catch(e){console.warn(e)}}}finally{BUSY=false}
+  OPPX=null;closeModal();render();toast(L(`تم استيراد ${n} فرصة`,`${n} opportunities imported`)+(n<ok.length?L(` — ${ok.length-n} ما انحفظت`,` — ${ok.length-n} failed`):''))}
+const oppxBtns=()=>(()=>{try{return !!(window.WADY_GUARD&&WADY_GUARD('opps'))}catch(e){return false}})()?'':`<button class="btn" data-act="oppxTpl">⤓ ${L('نموذج Excel','Excel template')}</button><label class="btn" for="oppxFile">⇪ ${L('استيراد من Excel','Import from Excel')}</label><input id="oppxFile" type="file" accept=".xlsx,.xls,.csv" hidden data-act="oppxFile">`;
+{const a='<button class="btn p" data-act="newOpp">';['opps','oppboard'].forEach(v=>{const _v=V[v];if(_v)V[v]=function(){const h=_v.apply(this,arguments);return h.replace(a,oppxBtns()+a)}})}
+Object.assign(ACT,{oppxTpl:()=>oppxTpl(),oppxGo:()=>oppxGo()});
+document.addEventListener('change',e=>{const a=e.target;if(!a||a.dataset?.act!=='oppxFile')return;const f=a.files&&a.files[0];if(f)oppxRead(f);setTimeout(()=>{a.value=''},0)});
+
+/* ===== 28/11: pipeline customer picker — compact, tidy table ===== */
+{const st=document.createElement('style');st.textContent=`
+#modal:has(.plpx) .sheet{width:min(1180px,100%)}
+.plpx{font-size:13px}
+.plpx .tabs .tab{font-size:13px;padding:6px 12px}
+.plpx .toolbar{gap:8px;flex-wrap:wrap;margin:6px 0}
+.plpx .toolbar input[type=search]{height:36px;font-size:13px}
+.plpx table{font-size:12.5px;width:100%}
+.plpx thead th{position:sticky;top:0;z-index:1;background:var(--surface);font-size:12px;font-weight:700;padding:7px 8px;border-bottom:2px solid var(--line);white-space:nowrap;line-height:1.3}
+.plpx tbody td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle;line-height:1.35}
+.plpx tbody tr:hover td{background:color-mix(in srgb,var(--line) 35%,transparent)}
+.plpx tbody td:nth-child(2){min-width:230px}
+.plpx td b{font-weight:600;font-size:13px}
+.plpx td .small{font-size:11.5px}
+.plpx td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.plpx input:not([type=checkbox]){height:32px;font-size:12.5px;padding:3px 8px}
+.plpx input[type=checkbox]{width:18px;height:18px}
+.plpx .pill{font-size:11px}`;document.head.appendChild(st)}
+{const _pp=plpPaint;plpPaint=function(){_pp.apply(this,arguments);const b=document.getElementById('mbody');if(b&&!b.querySelector(':scope>.plpx')){const w=document.createElement('div');w.className='plpx';while(b.firstChild)w.appendChild(b.firstChild);b.appendChild(w)}}}
+
+/* ===== 28/11: pipeline — customers expected this month but not on the sheet =====
+   «expected» = an open quotation or open sales order for the rep's customer, or average monthly sales (SAP invoices incl. VAT,
+   less credit notes) over the 3 months before the pipeline month. A customer counts as listed if he is in any section. */
+const PLM_MIN=1000; // average monthly sales below this are not flagged
+function plMissing(rep,month,doc){
+  const inDoc=new Set(),inName=new Set();['opps','risks','backlog3','backlogLater'].forEach(k=>(doc[k]||[]).forEach(x=>{const cid=plCustId(x.name,x.cid);if(cid)inDoc.add(cid);inName.add(normTxt(x.name))}));
+  const ign=new Set(doc.plIgnore||[]);const m=new Map();const cbc=new Map();S.clients.forEach(c=>{if(c.code)cbc.set(normCode(c.code),c)});
+  const get=(cid,code,name)=>{const c=(cid?byId('clients',cid):null)||(code?cbc.get(normCode(code))||I().custByCode.get(normCode(code)):null)||null;const k=c?c.id:'c:'+normCode(code||name);let o=m.get(k);
+    if(!o){o={key:k,cid:c?.id||'',name:c?.name||name||code||'—',code:c?.code||code||'',kind:c?.kind||'customer',q:0,qn:0,o:0,on:0,avg:0};m.set(k,o)}return o};
+  const {st}=plpStats(rep,month);st.forEach(x=>{const o=get(x.cid,x.code,x.name);o.q+=x.q;o.qn+=x.qn;o.o+=x.o;o.on+=x.on});
+  const m0=month+'-01',f3=addMonths(m0,-3);const sums=new Map();
+  (S.sinv||[]).forEach(d=>{if(d.status==='cancelled'||d.repId!==rep||!d.date||d.date<f3||d.date>=m0)return;const o=get(null,d.clientCode,d.cname);sums.set(o.key,(sums.get(o.key)||0)+(d.kind==='credit'?-1:1)*(+d.total||0))});
+  sums.forEach((v,k)=>{const o=m.get(k);if(o)o.avg=v/3});
+  const v=plVat();
+  return [...m.values()].filter(o=>!(o.cid&&inDoc.has(o.cid))&&!inName.has(normTxt(o.name))&&!ign.has(o.key)&&(o.qn||o.on||o.avg>=PLM_MIN))
+    .map(o=>({...o,sug:o.q||o.o?Math.round((o.q+o.o)*v):Math.round(o.avg)})).sort((a,b)=>b.sug-a.sug)}
+function plMissingCard(rep,month,doc,ro){const rows=plMissing(rep,month,doc);if(!rows.length)return '';const lim=fv('plmAll','')?rows.length:12;const tot=rows.reduce((s,o)=>s+o.sug,0);
+  const why=o=>[o.qn?pill(`${L('عرض سعر مفتوح','Open quote')} (${o.qn}) ${num(Math.round(o.q))}`,'info'):'',o.on?pill(`${L('أمر بيع مفتوح','Open order')} (${o.on}) ${num(Math.round(o.o))}`,'warn'):'',o.avg>=PLM_MIN?pill(`${L('متوسط مبيعات شهري','Avg monthly sales')} ${num(Math.round(o.avg))}`,''):''].filter(Boolean).join(' ');
+  return `<div class="card plm" style="border-top:4px solid #F39235"><h2>⚠ ${L('عملاء متوقعين وما انضافوا للبايب لاين','Expected customers missing from the pipeline')}<span class="sub">${num(rows.length)} ${L('عميل','customers')} · ${L('المبلغ المقترح','suggested')} ${num(tot)} ${L('ر.س شامل الضريبة','SAR incl. VAT')}</span></h2>
+   <div class="small muted" style="margin-bottom:6px">${L('عندهم عرض سعر أو أمر بيع مفتوح، أو متوسط مبيعات آخر 3 شهور قبل الشهر','They have an open quotation or sales order, or average sales over the 3 months before the month of at least')} ${L('≥','≥')} ${num(PLM_MIN)} ${L('ر.س، وما هم في أي قسم من البايب لاين.','SAR, and are not in any section of the pipeline.')}</div>
+   <div class="tw plpx"><table><thead><tr><th>${L('العميل','Customer')}</th><th>${L('سبب التوقع','Why expected')}</th><th class="n">${L('المبلغ المقترح','Suggested')}</th>${ro?'':'<th></th>'}</tr></thead><tbody>
+   ${rows.slice(0,lim).map(o=>`<tr><td><b>${esc(o.name)}</b> <bdi class="small muted" dir="ltr">${esc(o.code)}</bdi></td><td>${why(o)}</td><td class="n"><b>${num(o.sug)}</b></td>
+     ${ro?'':`<td class="nw"><button class="btn s p" data-act="plmAdd" data-k="${esc(o.key)}">+ ${L('إضافة','Add')}</button> <button class="btn s ghost" data-act="plmIgn" data-k="${esc(o.key)}" title="${L('ما يتوقع منه تحصيل هالشهر — إخفاء التنبيه','Not expected this month — hide')}">${L('تجاهل','Ignore')}</button></td>`}</tr>`).join('')}</tbody></table></div>
+   <div class="toolbar" style="margin-top:8px">${rows.length>lim?`<button class="btn s" data-act="filt" data-k="plmAll" data-v="1">${L('عرض الكل','Show all')} (${rows.length})</button>`:''}${!ro&&rows.length>1?`<button class="btn s p" data-act="plmAddAll">+ ${L('إضافة الكل','Add all')} (${rows.length})</button>`:''}${(doc.plIgnore||[]).length&&!ro?`<button class="btn s ghost" data-act="plmUnign">${L('إظهار المتجاهلين','Show ignored')} (${doc.plIgnore.length})</button>`:''}</div></div>`}
+function plmLine(o,month){const src=o.q&&o.o?'qo':o.o?'order':o.q?'quote':'avg';return {name:o.name,cid:o.cid||'',status:plStatusOf(o.cid,month,o.kind),size:plSizeOf(o.cid),amount:o.sug,prob:'',actual:'',src,srcAmt:o.sug}}
+function plmAdd(keys){const {rep,month,doc}=plCurrent();const rows=plMissing(rep,month,doc).filter(o=>!keys||keys.includes(o.key));if(!rows.length)return;
+  doc.opps=[...(doc.opps||[]).filter(x=>String(x.name||'').trim()),...rows.map(o=>plmLine(o,month))];PL.dirty=true;render();
+  toast(L(`أُضيف ${rows.length} — عبّ نسبة التحصيل واضغط «حفظ»`,`Added ${rows.length} — fill the probability and press Save`))}
+Object.assign(ACT,{plmAdd:d=>plmAdd([d.k]),plmAddAll:()=>plmAdd(null),
+  plmIgn:d=>{const {doc}=plCurrent();doc.plIgnore=[...new Set([...(doc.plIgnore||[]),d.k])];PL.dirty=true;render()},
+  plmUnign:()=>{const {doc}=plCurrent();doc.plIgnore=[];PL.dirty=true;render()}});
+// shown once the sheet has customers (i.e. after picking), right above the Opportunity table
+{const _v=plSheetView;plSheetView=function(){const h=_v.apply(this,arguments);const {rep,month,doc}=plCurrent();if(!rep||!(doc.opps||[]).some(x=>String(x.name||'').trim()))return h;
+  let card='';try{card=plMissingCard(rep,month,doc,!plCanEdit(rep))}catch(e){console.warn(e)}if(!card)return h;
+  const at=h.indexOf('<div class="card"><h2>Opportunity');return at<0?h+card:h.slice(0,at)+card+h.slice(at)}}
+// after adding from the picker or the one-step wizard, say how many expected customers are still missing
+{const tell=()=>{try{const {rep,month,doc}=plCurrent();const n=plMissing(rep,month,doc).length;if(n)setTimeout(()=>toast(L(`تنبيه: ${n} عميل متوقع لسا ما انضاف — شوف القائمة فوق جدول Opportunity`,`Note: ${n} expected customers still missing — see the list above the Opportunity table`)),1800)}catch(e){}};
+ const _a=plpAdd;plpAdd=function(){const r=_a.apply(this,arguments);if(!PLP)tell();return r};const _b=plpBulk;plpBulk=function(){const r=_b.apply(this,arguments);tell();return r}}
 </script>
 <script src="wady-back.js"></script></body></html>
