@@ -6487,13 +6487,14 @@ document.addEventListener('click',e=>{if(e.target.closest('[data-act="aiToggle"]
 
 /* ============ Sidebar: main sections with sub-items (order set by management) ============ */
 {
+NAV.push(['splan','gauge',()=>L('خطة المبيعات السنوية','Annual sales plan'),()=>isLead()]);
 const NAV_TREE=[
   [null,null,['mydash','dash','alerts','recs']],
   ['users',()=>L('العملاء','Customers'),['clients','leads','custmap']],
   ['pipe',()=>L('البايب لاين','Pipeline'),['pipeline','opps','oppboard','projects','radar']],
   ['pin',()=>L('الزيارات الميدانية','Field visits'),['plan','visits','fvisit','calendar','complaints','comms','field']],
   ['report',()=>L('التقارير','Reports'),['regions','reps','kpis','reports','decline']],
-  ['coin',()=>L('المبيعات','Sales'),['sapdocs','quotes','orders','collections','aging','credex','samples']],
+  ['coin',()=>L('المبيعات','Sales'),['sapdocs','quotes','orders','collections','aging','credex','splan','samples']],
   ['doc',()=>L('العقود القانونية','Legal contracts'),['credit','contracts','acctopen','letters','lcset']],
   ['field',()=>L('التوصيل','Delivery'),['dlvops','dlv','dlvplan','dlvreserve','dlvreports','dlvmaint']],
   ['pin',()=>L('مركز التواصل','Communication center'),['commdash','commset','commphones']],
@@ -9737,5 +9738,89 @@ ACT.qToSap=d=>{qToSap(d.id);closeModal()};
   if(h)mb.insertAdjacentHTML('afterbegin',h);
   if(['posted','pending','awaiting_approval'].includes(st)&&tb)tb.querySelectorAll('[data-act="editQuote"]').forEach(b=>b.remove());   // what is in SAP is changed in SAP
  }catch(e){}return r}}
+</script>
+<script>/* 28/11: annual sales plan (amounts without VAT): company → regions → each rep → 12 months, spread by the seasonality
+   of the last 12 complete months of SAP sales (invoices less credit notes, without VAT). Saved as targets/plan-YYYY; the monthly
+   targets page can be filled from it (its sales target includes VAT). */
+const AP_MN=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+const AP_REG=()=>REGIONS.map(r=>r.id);
+let APD=null;
+const apYear=()=>+fv('plY',String(+TODAY().slice(0,4)+(+TODAY().slice(5,7)>=9?1:0)));
+const apId=y=>'plan-'+y;
+const apCanEdit=()=>isMgr();
+const apTeam=()=>(S.team||[]).filter(t=>(t.role==='rep'||t.role==='sup')&&t.active!==false&&AP_REG().includes(t.region)).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+const apAmt=v=>Math.round(+v||0).toLocaleString('en-US');
+const apNum=v=>{const n=+String(v??'').replace(/[,\s]/g,'');return isFinite(n)?n:0};
+function apBase(){const t=TODAY();const to=addDays(t.slice(0,7)+'-01',-1);const from=addMonths(to.slice(0,7)+'-01',-11);
+  const rep={},mon=Array(12).fill(0);let tot=0;
+  (S.sinv||[]).forEach(x=>{const d=String(x.date||'');if(d<from||d>to)return;const v=(x.kind==='credit'?-1:1)*(+x.value||0);rep[x.repId||'']=(rep[x.repId||'']||0)+v;mon[+d.slice(5,7)-1]+=v;tot+=v});
+  const reg={};apTeam().forEach(m=>{reg[m.region]=(reg[m.region]||0)+(rep[m.id]||0)});
+  return {from,to,rep,mon,tot,reg}}
+function apActual(y){const rep={},mon={};(S.sinv||[]).forEach(x=>{const d=String(x.date||'');if(d.slice(0,4)!==String(y))return;const v=(x.kind==='credit'?-1:1)*(+x.value||0);rep[x.repId||'']=(rep[x.repId||'']||0)+v;const k=(x.repId||'')+'|'+(+d.slice(5,7)-1);mon[k]=(mon[k]||0)+v});return {rep,mon}}
+/* split a total by weights into amounts rounded to 1,000 that add up exactly to the total */
+function apSplit(total,w){const keys=Object.keys(w);const sw=keys.reduce((s,k)=>s+Math.max(0,+w[k]||0),0);const out={};let acc=0;
+  keys.forEach((k,i)=>{if(i===keys.length-1)return;const v=sw?total*Math.max(0,+w[k]||0)/sw:total/keys.length;out[k]=Math.round(v/1000)*1000;acc+=out[k]});
+  if(keys.length)out[keys[keys.length-1]]=Math.round(total-acc);return out}
+function apSuggest(y,total){const B=apBase();const regions=apSplit(total,Object.fromEntries(AP_REG().map(r=>[r,B.reg[r]||0])));
+  const reps={};AP_REG().forEach(r=>{const ms=apTeam().filter(m=>m.region===r);if(ms.length)Object.assign(reps,apSplit(regions[r],Object.fromEntries(ms.map(m=>[m.id,B.rep[m.id]||0]))))});
+  const st=B.mon.reduce((a,b)=>a+b,0);
+  return {id:apId(y),year:y,total,regions,reps,season:B.mon.map(v=>st?Math.round(v/st*10000)/100:Math.round(10000/12)/100),base:{from:B.from,to:B.to}}}
+function apDraft(){const y=apYear();if(!APD||APD.year!==y){const sv=byId('targets',apId(y));APD=sv?JSON.parse(JSON.stringify(sv)):apSuggest(y,y===2027?150000000:0);APD.dirty=!sv}return APD}
+const apSzn=D=>{const s=D.season.reduce((a,b)=>a+(+b||0),0)||1;return D.season.map(v=>(+v||0)/s)};
+function apRepsOf(D,r){return apTeam().filter(m=>m.region===r||(D.reps[m.id]!=null&&m.region===r))}
+function apRecalc(D){AP_REG().forEach(r=>{const ms=apTeam().filter(m=>m.region===r);if(ms.length)D.regions[r]=ms.reduce((s,m)=>s+(+D.reps[m.id]||0),0)});D.total=AP_REG().reduce((s,r)=>s+(+D.regions[r]||0),0)}
+
+V.splan=()=>{const D=apDraft();const B=apBase();const ed=apCanEdit();const y=D.year;const A=apActual(y);const z=apSzn(D);
+  const inp=(attr,v)=>ed?`<input ${attr} inputmode="decimal" style="width:120px;text-align:end;font-variant-numeric:tabular-nums" value="${apAmt(v)}">`:`<b>${apAmt(v)}</b>`;
+  const pct=(a,b)=>b?(a/b*100).toFixed(1)+'%':'—';const gr=(t,b)=>b?`<span class="${t>=b?'':'flag'}">${t>=b?'+':''}${((t/b-1)*100).toFixed(1)}%</span>`:'—';
+  const baseRegs=AP_REG().reduce((s,r)=>s+(B.reg[r]||0),0);const other=B.tot-baseRegs;
+  const sz=D.season.reduce((a,b)=>a+(+b||0),0);
+  const regRows=AP_REG().map(r=>`<tr><td><b>${esc(regName(r))}</b></td><td class="n">${apAmt(B.reg[r])}</td><td class="n">${pct(B.reg[r]||0,baseRegs)}</td><td class="n">${inp(`data-plr="${r}"`,D.regions[r])}</td><td class="n">${pct(+D.regions[r]||0,D.total)}</td><td class="n">${gr(+D.regions[r]||0,B.reg[r]||0)}</td></tr>`).join('');
+  const repRows=AP_REG().map(r=>{const ms=apTeam().filter(m=>m.region===r);if(!ms.length)return '';const rb=B.reg[r]||0;
+    return `<tr class="sub"><td colspan="7"><b>${esc(regName(r))}</b> — ${L('تارجت المنطقة','Region target')} ${apAmt(D.regions[r])}</td></tr>`+ms.map(m=>{const t=+D.reps[m.id]||0,b=B.rep[m.id]||0,a=A.rep[m.id]||0;
+      return `<tr><td>${esc(m.name)}${m.role==='sup'?` <span class="small muted">(${L('مشرف','sup')})</span>`:''}</td><td class="n">${apAmt(b)}</td><td class="n">${pct(b,rb)}</td><td class="n">${inp(`data-plp="${esc(m.id)}"`,t)}</td><td class="n">${gr(t,b)}</td><td class="n">${apAmt(a)}</td><td class="n">${t?pct(a,t):'—'}</td></tr>`}).join('')}).join('');
+  const mHead=AP_MN.map(m=>`<th class="n">${m}</th>`).join('');
+  const mRow=(label,amt,cls,aKey)=>`<tr class="${cls||''}"><td>${label}</td>${z.map((w,i)=>`<td class="n">${apAmt(amt*w)}${aKey&&A.mon[aKey+'|'+i]?`<div class="small muted">${apAmt(A.mon[aKey+'|'+i])}</div>`:''}</td>`).join('')}<td class="n"><b>${apAmt(amt)}</b></td></tr>`;
+  const matrix=AP_REG().map(r=>{const ms=apTeam().filter(m=>m.region===r);if(!ms.length)return '';return ms.map(m=>mRow(esc(m.name),+D.reps[m.id]||0,'',m.id)).join('')+mRow(`<b>${L('إجمالي','Total')} ${esc(regName(r))}</b>`,+D.regions[r]||0,'sub')}).join('')+mRow(`<b>${L('إجمالي الشركة','Company total')}</b>`,D.total,'sub');
+  return `<div class="fbar"><label class="fl">${L('السنة','Year')}<input type="number" min="2026" max="2035" data-act="filtSel" data-k="plY" value="${y}" style="width:90px"></label>
+    <label class="fl">${L('تارجت الشركة (ر.س بدون ضريبة)','Company target (SAR excl. VAT)')}${ed?`<input id="pl_tot" data-pltot="1" inputmode="decimal" style="width:160px;text-align:end" value="${apAmt(D.total)}">`:`<b>${apAmt(D.total)}</b>`}</label>
+    ${ed?`<button class="btn" data-act="apSuggest">${L('اقتراح التوزيع من آخر 12 شهر','Suggest from last 12 months')}</button><button class="btn p" data-act="apSave">${L('حفظ الخطة','Save plan')}</button><button class="btn" data-act="apPush">${L('تنزيل للأهداف الشهرية','Send to monthly targets')}</button>`:''}<button class="btn" data-act="apXlsx">Excel</button></div>
+  ${D.dirty?`<div class="banner warn"><span class="sp">⚠ ${L('الخطة فيها تعديلات ما انحفظت.','Unsaved changes.')}</span></div>`:D.savedAt?`<div class="small muted" style="margin:0 0 8px">${L('آخر حفظ','Last saved')}: ${fdate(D.savedAt)} — ${esc(tName(D.savedBy))}</div>`:''}
+  <div class="kpis k4">${kpiTile(L('تارجت','Target')+' '+y,apAmt(D.total),L('ر.س بدون ضريبة','SAR excl. VAT'))}${kpiTile(L('مبيعات آخر 12 شهر','Last 12 months'),apAmt(B.tot),`${fdate(B.from)} – ${fdate(B.to)}`)}${kpiTile(L('النمو المطلوب','Growth needed'),B.tot?((D.total/B.tot-1)*100).toFixed(1)+'%':'—',L('مقارنة بآخر 12 شهر','vs last 12 months'))}${kpiTile(L('المحقق في','Achieved in')+' '+y,apAmt(Object.values(A.rep).reduce((a,b)=>a+b,0)),D.total?pct(Object.values(A.rep).reduce((a,b)=>a+b,0),D.total):'')}</div>
+  <div class="card"><h2>${L('1) التوزيع على المناطق','1) By region')}<span class="sub">${L('آخر 12 شهر = الفواتير ناقص الإشعارات الدائنة، بدون ضريبة، من ساب','Last 12 months = invoices less credit notes, excl. VAT, from SAP')}</span></h2>
+   <div class="tw"><table class="kx-t"><thead><tr><th>${L('المنطقة','Region')}</th><th class="n">${L('آخر 12 شهر','Last 12 months')}</th><th class="n">${L('النسبة','Share')}</th><th class="n">${L('تارجت','Target')} ${y}</th><th class="n">${L('من الإجمالي','Of total')}</th><th class="n">${L('النمو','Growth')}</th></tr></thead><tbody>${regRows}
+   <tr class="sub"><td><b>${L('الإجمالي','Total')}</b></td><td class="n"><b>${apAmt(baseRegs)}</b></td><td></td><td class="n"><b>${apAmt(D.total)}</b></td><td></td><td class="n">${gr(D.total,baseRegs)}</td></tr></tbody></table></div>
+   ${Math.abs(other)>=1000?`<div class="small muted">${L('مبيعات آخر 12 شهر غير محسوبة على مناديب المناطق الحاليين (مناديب سابقين أو بدون مندوب)','Sales not under the current reps (former reps or none)')}: ${apAmt(other)}</div>`:''}</div>
+  <div class="card"><h2>${L('2) التوزيع على المناديب','2) By rep')}<span class="sub">${L('تعديل مبلغ مندوب يعدّل إجمالي منطقته والشركة؛ تعديل المنطقة يوزّعها على مناديبها بنفس نسبهم','Editing a rep updates the region and company totals; editing a region spreads it over its reps')}</span></h2>
+   <div class="tw"><table class="kx-t"><thead><tr><th>${L('المندوب','Rep')}</th><th class="n">${L('آخر 12 شهر','Last 12 months')}</th><th class="n">${L('من المنطقة','Of region')}</th><th class="n">${L('تارجت','Target')} ${y}</th><th class="n">${L('النمو','Growth')}</th><th class="n">${L('المحقق','Achieved')} ${y}</th><th class="n">%</th></tr></thead><tbody>${repRows}</tbody></table></div></div>
+  <div class="card"><h2>${L('3) الموسمية — نسبة كل شهر من السنة','3) Seasonality — share of each month')}<span class="sub">${L('من مبيعات نفس الشهر في آخر 12 شهر','From the same month in the last 12 months')}</span></h2>
+   <div class="tw"><table class="kx-t"><thead><tr><th></th>${mHead}<th class="n">${L('المجموع','Sum')}</th></tr></thead><tbody>
+   <tr><td>${L('مبيعات الشهر (آخر 12 شهر)','Month sales (last 12 months)')}</td>${B.mon.map(v=>`<td class="n small">${apAmt(v)}</td>`).join('')}<td class="n small">${apAmt(B.mon.reduce((a,b)=>a+b,0))}</td></tr>
+   <tr><td><b>${L('نسبة الشهر %','Month %')}</b></td>${D.season.map((v,i)=>`<td class="n">${ed?`<input data-pls="${i}" inputmode="decimal" style="width:68px;text-align:end" value="${(+v||0).toFixed(2)}">`:(+v||0).toFixed(2)}</td>`).join('')}<td class="n"><b class="${Math.abs(sz-100)>0.05?'flag':''}">${sz.toFixed(2)}</b></td></tr></tbody></table></div>
+   ${Math.abs(sz-100)>0.05?`<div class="small flag">${L('مجموع النسب لازم يكون 100 — التوزيع الشهري تحت محسوب بعد تصحيح النسب تلقائياً.','Shares should sum to 100 — the monthly split below is normalised.')}</div>`:''}
+   <div class="small muted">${L('ملاحظة: رمضان 2027 يبدأ تقريباً قبل رمضان 2026 بعشرة أيام، فلو تبغى تراعيه عدّل نسب فبراير ومارس.','Note: Ramadan 2027 starts about ten days earlier than in 2026; adjust February and March if needed.')}</div></div>
+  <div class="card"><h2>${L('4) التارجت الشهري','4) Monthly targets')} ${y}<span class="sub">${L('ر.س بدون ضريبة — الرقم الصغير تحت = المحقق','SAR excl. VAT — small figure = achieved')}</span></h2>
+   <div class="tw"><table class="kx-t" style="font-size:12px"><thead><tr><th>${L('المندوب','Rep')}</th>${mHead}<th class="n">${L('السنة','Year')}</th></tr></thead><tbody>${matrix}</tbody></table></div></div>`};
+
+document.addEventListener('change',e=>{const t=e.target;if(route!=='splan'||!APD||!apCanEdit()||!t.dataset)return;const D=APD;
+  if(t.dataset.pltot){const nt=apNum(t.value);const regs=apSplit(nt,Object.fromEntries(AP_REG().map(r=>[r,+D.regions[r]||1])));AP_REG().forEach(r=>{D.regions[r]=regs[r];const ms=apTeam().filter(m=>m.region===r);if(ms.length)Object.assign(D.reps,apSplit(regs[r],Object.fromEntries(ms.map(m=>[m.id,+D.reps[m.id]||1]))))});D.total=nt}
+  else if(t.dataset.plr){const r=t.dataset.plr;const v=apNum(t.value);const ms=apTeam().filter(m=>m.region===r);if(ms.length)Object.assign(D.reps,apSplit(v,Object.fromEntries(ms.map(m=>[m.id,+D.reps[m.id]||1]))));else D.regions[r]=v;apRecalc(D)}
+  else if(t.dataset.plp){D.reps[t.dataset.plp]=apNum(t.value);apRecalc(D)}
+  else if(t.dataset.pls!=null){D.season[+t.dataset.pls]=apNum(t.value)}
+  else return;D.dirty=true;render()});
+
+Object.assign(ACT,{
+  apSuggest:()=>{const D=apDraft();if(!confirm(L('يرجّع توزيع المناطق والمناديب والشهور حسب مبيعات آخر 12 شهر (ويلغي تعديلاتك). متأكد؟','Reset the split to the last 12 months?')))return;APD=apSuggest(D.year,D.total);APD.dirty=true;render()},
+  apSave:async()=>{const D=apDraft();const sz=D.season.reduce((a,b)=>a+(+b||0),0);if(Math.abs(sz-100)>0.05&&!confirm(L('مجموع نسب الشهور مو 100 — بينحفظ وتنحسب الشهور بعد التصحيح. تكمل؟','Month shares do not sum to 100. Save anyway?')))return;
+    const {dirty,...rec}=D;try{await save('targets',{...rec,kind:'plan',savedAt:new Date().toISOString(),savedBy:me().id});APD=null;toast(L('تم حفظ خطة','Plan saved')+' '+D.year);render()}catch(e){toast(e.message||String(e))}},
+  apPush:async()=>{const D=apDraft();if(D.dirty){toast(L('احفظ الخطة أول','Save the plan first'));return}
+    if(!confirm(L(`ينزّل تارجت المبيعات لكل مندوب في كل شهر من ${D.year} في صفحة الأهداف الشهرية (هناك المبيعات شامل الضريبة 15%، فينضرب في 1.15). الأهداف الثانية (التحصيل، العملاء الجدد، الزيارات) ما تتغير. تكمل؟`,'Write monthly sales targets (×1.15 VAT)?')))return;
+    const z=apSzn(D);let n=0;try{for(const m of apTeam()){const amt=+D.reps[m.id]||0;if(!amt)continue;for(let i=0;i<12;i++){const mk=`${D.year}-${String(i+1).padStart(2,'0')}`;const cur=tgOf(mk,m.id);const v=Math.round(amt*z[i]*1.15);if(cur.sales===v)continue;await save('targets',{...cur,id:tgId(mk,m.id),month:mk,repId:m.id,sales:v});n++}}
+      toast(L(`تم تنزيل ${n} هدف شهري`,`${n} monthly targets written`))}catch(e){toast(e.message||String(e))}},
+  apXlsx:()=>{const D=apDraft();const B=apBase();const z=apSzn(D);if(typeof XLSX==='undefined'){toast('Excel?');return}
+    const head=['المنطقة','المندوب','آخر 12 شهر',`تارجت ${D.year}`,...AP_MN];const rows=[head];
+    AP_REG().forEach(r=>{apTeam().filter(m=>m.region===r).forEach(m=>{const a=+D.reps[m.id]||0;rows.push([regName(r),m.name,Math.round(B.rep[m.id]||0),a,...z.map(w=>Math.round(a*w))])});rows.push([regName(r),'الإجمالي',Math.round(B.reg[r]||0),+D.regions[r]||0,...z.map(w=>Math.round((+D.regions[r]||0)*w))])});
+    rows.push(['الشركة','الإجمالي',Math.round(B.tot),D.total,...z.map(w=>Math.round(D.total*w))]);
+    const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[{wch:16},{wch:22},{wch:14},{wch:14},...AP_MN.map(()=>({wch:12}))];const wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};XLSX.utils.book_append_sheet(wb,ws,'خطة '+D.year);XLSX.writeFile(wb,`خطة المبيعات ${D.year} (بدون ضريبة).xlsx`)}});
 </script>
 <script src="wady-back.js"></script></body></html>
